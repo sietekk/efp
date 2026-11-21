@@ -217,7 +217,14 @@ def test_export_dry_run_passes_and_reports_counts(
     assert "F1 round trip: PASS" in result.output
     assert "rows verified against rows.row_sha256 : 20" in result.output
     assert "rows in the year window (in_scope)    : 19" in result.output
-    assert "rows with a non-empty Source cell     : 18" in result.output
+    assert (
+        "Source non-empty                      : 18 of all rows, 17 in the window" in result.output
+    )
+    assert (
+        "Source containing an http(s) URL      : 18 of all rows, 17 in the window" in result.output
+    )
+    assert "data validations in the openpyxl copy : 1 standard, 0 extension (x14)" in result.output
+    assert "WARNING" not in result.output
 
 
 def test_export_dry_run_defaults_to_paths_source_workbook(
@@ -283,3 +290,18 @@ def test_selftest_db_fails_when_the_workbook_at_the_configured_path_is_a_differe
         handle.write(b"x")
     result = runner.invoke(app, ["selftest", "--db"])
     assert result.exit_code == 1 and "not the workbook that was ingested" in result.output
+
+
+@pytest.mark.filterwarnings("ignore:Data Validation extension:UserWarning")
+def test_export_dry_run_warns_when_openpyxl_loses_the_dropdown(
+    cfg_env: Path, source_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = source_dir / "x14.xlsx"
+    make_workbook(path, dropdown="x14")
+    write_manifest(path)
+    assert _ingest(path, monkeypatch).exit_code == 0
+    result = runner.invoke(app, ["export", "--dry-run", "--workbook", str(path)])
+    assert result.exit_code == 0, result.output  # F1 holds
+    assert "F1 round trip: PASS" in result.output
+    assert "0 standard, 1 extension (x14)" in result.output
+    assert "WARNING: openpyxl dropped a data validation" in result.output

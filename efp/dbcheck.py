@@ -401,7 +401,7 @@ def run_db_checks(config: Config) -> list[DbCheck]:
             if bad_hash:
                 hash_detail = f"malformed for row_id {bad_hash[:10]}"
             elif has_rows:
-                hash_detail = "format only (recomputation arrives with build 03)"
+                hash_detail = "format only; the next check recomputes them from the workbook"
             else:
                 hash_detail = "no rows yet (nothing to verify)"
             checks.append(DbCheck("rows.row_sha256 well-formed", not bad_hash, hash_detail))

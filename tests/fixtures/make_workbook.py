@@ -305,6 +305,7 @@ def make_workbook(
     extra_header: str | None = None,
     drop_header: str | None = None,
     sheet_name: str = "Cases",
+    dropdown: str = "standard",
 ) -> list[Row]:
     """Write a workbook to ``path`` and return the data rows written (blank rows excluded)."""
     data = rows if rows is not None else (bulk_rows(n_rows, seed) if n_rows else list(ROWS_20))
@@ -336,7 +337,11 @@ def make_workbook(
     for _ in range(trailing_blank_rows):
         ws.cell(row=sheet_row, column=1, value=None)
         sheet_row += 1
-    if drop_header != "Ideological Motivation":
+    if dropdown == "x14":
+        lookup = wb.create_sheet("Lookup")  # the dropdown's choices live on another sheet
+        for r, choice in enumerate(("liberal", "conservative", "independent", "unknown"), start=1):
+            lookup.cell(row=r, column=1, value=choice)
+    if dropdown == "standard" and drop_header != "Ideological Motivation":
         motivation_col = headers.index("Ideological Motivation") + 1
         dropdown = DataValidation(
             type="list", formula1='"liberal,conservative,independent,unknown"', allow_blank=True
@@ -345,7 +350,39 @@ def make_workbook(
         letter = openpyxl.utils.get_column_letter(motivation_col)
         dropdown.add(f"{letter}{header_row + 1}:{letter}{header_row + len(data) + 5}")
     wb.save(path)
+    if dropdown == "x14":
+        add_x14_validation(path, f"H{header_row + 1}:H{header_row + len(data) + 5}")
     return data
+
+
+_X14_BLOCK = (
+    '<extLst><ext uri="{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}" '
+    'xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">'
+    '<x14:dataValidations xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main" count="1">'
+    '<x14:dataValidation type="list" showInputMessage="1" showErrorMessage="1">'
+    "<x14:formula1><xm:f>Lookup!$A$1:$A$4</xm:f></x14:formula1><xm:sqref>@SQREF@</xm:sqref>"
+    "</x14:dataValidation></x14:dataValidations></ext></extLst>"
+)
+
+
+def add_x14_validation(path: Path, sqref: str) -> None:
+    """Give the first sheet an Excel x14 (extension) dropdown, as in the real Heritage export.
+
+    openpyxl cannot write these and drops them when it loads and saves, which is the point: it
+    lets tests prove the round trip reports the loss.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(path) as source:
+        parts = {name: source.read(name) for name in source.namelist()}
+    sheet = parts["xl/worksheets/sheet1.xml"].decode("utf-8")
+    assert "</worksheet>" in sheet and "<extLst" not in sheet
+    parts["xl/worksheets/sheet1.xml"] = sheet.replace(
+        "</worksheet>", _X14_BLOCK.replace("@SQREF@", sqref) + "</worksheet>"
+    ).encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, content in parts.items():
+            target.writestr(name, content)
 
 
 def write_manifest(workbook: Path) -> str:

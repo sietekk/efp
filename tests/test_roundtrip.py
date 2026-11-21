@@ -9,7 +9,7 @@ import pytest
 
 from efp import db as database
 from efp.config import Config
-from efp.export.roundtrip import RoundTripError, verify_round_trip
+from efp.export.roundtrip import RoundTripError, Validations, count_validations, verify_round_trip
 from efp.ingest import loader
 from efp.ingest.loader import sha256_file
 from tests.fixtures.make_workbook import ROWS_20, make_workbook, write_manifest
@@ -31,8 +31,15 @@ def test_f1_passes_on_the_synthetic_workbook(
     ingested: sqlite3.Connection, config: Config, workbook: Path
 ) -> None:
     result = verify_round_trip(config, ingested, workbook)
-    assert (result.rows_verified, result.rows_in_window, result.source_nonempty) == (20, 19, 18)
+    assert (result.rows_verified, result.rows_in_window) == (20, 19)
+    assert (result.source_nonempty, result.source_nonempty_in_window) == (18, 17)  # 1998 row out
+    assert (result.source_with_url, result.source_with_url_in_window) == (18, 17)
     assert result.source_hyperlinks == 0
+    assert (result.validations_original, result.validations_copy) == (
+        Validations(1, 0),
+        Validations(1, 0),
+    )
+    assert not result.validations_lost
 
 
 def test_the_dry_run_leaves_no_file_and_no_database_change(
@@ -146,3 +153,31 @@ def test_openpyxl_keeps_the_dropdown_when_it_saves_a_copy(workbook: Path, tmp_pa
     validations = openpyxl.load_workbook(copy)["Cases"].data_validations.dataValidation
     assert len(validations) == 1
     assert "liberal" in str(validations[0].formula1)
+
+
+@pytest.mark.filterwarnings("ignore:Data Validation extension:UserWarning")
+def test_an_x14_dropdown_is_counted_and_its_loss_is_reported(
+    source_dir: Path, config: Config
+) -> None:
+    """The real Heritage workbook stores its dropdown as an x14 extension, which openpyxl drops."""
+    path = source_dir / "x14.xlsx"
+    make_workbook(path, dropdown="x14")
+    write_manifest(path)
+    assert count_validations(path) == Validations(0, 1)
+    loader.ingest(config, loader.prepare(config, path))
+    conn = database.connect(config, migrate=False, create=False)
+    try:
+        result = verify_round_trip(config, conn, path)
+    finally:
+        conn.close()
+    assert result.rows_verified == 20  # F1 itself still holds: the cell values are intact
+    assert result.validations_original == Validations(0, 1)
+    assert result.validations_copy == Validations(0, 0)
+    assert result.validations_lost
+
+
+def test_counting_validations_on_a_plain_workbook(workbook: Path, source_dir: Path) -> None:
+    assert count_validations(workbook) == Validations(1, 0)
+    bare = source_dir / "bare.xlsx"
+    make_workbook(bare, dropdown="none")
+    assert count_validations(bare) == Validations(0, 0)

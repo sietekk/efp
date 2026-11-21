@@ -85,6 +85,12 @@ def test_prepare_reports_counts_without_writing(
     prepared = loader.prepare(config, workbook)
     summary = prepared.summary
     assert (summary.total_rows, summary.in_window, summary.source_nonempty) == (20, 19, 18)
+    assert (
+        summary.window_source_nonempty,
+        summary.source_with_url,
+        summary.window_source_with_url,
+    ) == (17, 18, 17)
+    assert summary.duplicate_rows == 0
     assert summary.by_band_and_case_type[("before 2000", "Criminal Conviction")] == 1
     assert summary.by_band_and_case_type[("2000-09", "Criminal Conviction")] == 2
     assert sum(summary.by_band_and_case_type.values()) == 20
@@ -374,3 +380,80 @@ def test_a_no_op_run_notes_when_runner_stages_changed_but_changes_nothing(
     assert result.status == "noop"
     assert any("case_stage has 40" in n and "implies 60" in n for n in result.notes)
     assert _count(wider, "case_stage") == 40  # ingest never alters an existing database
+
+
+def test_source_url_counts_distinguish_a_note_from_a_link(source_dir: Path, config: Config) -> None:
+    rows = [
+        (
+            2010,
+            "OH",
+            "A Person",
+            "Criminal Conviction",
+            "Duplicate Voting",
+            None,
+            "https://example.test/a",
+            None,
+            None,
+        ),
+        (
+            2011,
+            "OH",
+            "B Person",
+            "Criminal Conviction",
+            "Duplicate Voting",
+            None,
+            "see the county clerk file",
+            None,
+            None,
+        ),
+        (
+            2012,
+            "OH",
+            "C Person",
+            "Criminal Conviction",
+            "Duplicate Voting",
+            None,
+            "HTTP://EXAMPLE.TEST/c and https://example.test/d",
+            None,
+            None,
+        ),
+        (2013, "OH", "D Person", "Criminal Conviction", "Duplicate Voting", None, None, None, None),
+        (
+            1990,
+            "OH",
+            "E Person",
+            "Criminal Conviction",
+            "Duplicate Voting",
+            None,
+            "https://example.test/e",
+            None,
+            None,
+        ),
+    ]
+    path = source_dir / "urls.xlsx"
+    make_workbook(path, rows=rows)
+    write_manifest(path)
+    summary = loader.prepare(config, path).summary
+    assert (summary.source_nonempty, summary.source_with_url) == (4, 3)
+    assert (summary.window_source_nonempty, summary.window_source_with_url) == (3, 2)
+
+
+def test_exact_duplicate_rows_are_counted_and_kept(source_dir: Path, config: Config) -> None:
+    same = (
+        2010,
+        "OH",
+        "Same Person",
+        "Criminal Conviction",
+        "Duplicate Voting",
+        "d",
+        "https://example.test/s",
+        None,
+        None,
+    )
+    path = source_dir / "dups.xlsx"
+    make_workbook(path, rows=[same, same, same, ROWS_20[0]])
+    write_manifest(path)
+    prepared = loader.prepare(config, path)
+    assert prepared.summary.duplicate_rows == 2
+    loader.ingest(config, prepared)
+    assert _count(config, "rows") == 4  # one row, one incidence: nothing is merged

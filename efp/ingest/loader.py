@@ -57,11 +57,18 @@ class IngestRefused(IngestError):
     """The database already holds rows that do not match this workbook."""
 
 
+_URL = re.compile(r"https?://", re.I)
+
+
 @dataclass(frozen=True)
 class Summary:
     total_rows: int
     in_window: int
-    source_nonempty: int
+    source_nonempty: int  # Source cell not blank, all rows
+    source_with_url: int  # Source cell contains an http(s) URL, all rows
+    window_source_nonempty: int  # the same two, restricted to in-window rows
+    window_source_with_url: int
+    duplicate_rows: int  # rows identical to another row in all nine columns
     by_band_and_case_type: dict[tuple[str, str], int]
 
 
@@ -144,13 +151,28 @@ def display_band(year: int) -> str:
 
 def summarise(data: WorkbookData, config: Config) -> Summary:
     counts: Counter[tuple[str, str]] = Counter()
-    in_scope = 0
-    source = 0
+    in_scope = nonempty = with_url = window_nonempty = window_url = 0
     for row in data.rows:
         counts[(display_band(row.year), (row.values[3] or "").strip() or "(blank)")] += 1
-        in_scope += in_window(row.year, config)
-        source += bool((row.values[6] or "").strip())
-    return Summary(len(data.rows), in_scope, source, dict(counts))
+        source = (row.values[6] or "").strip()
+        has_url = bool(_URL.search(source))
+        inside = in_window(row.year, config)
+        in_scope += inside
+        nonempty += bool(source)
+        with_url += has_url
+        window_nonempty += inside and bool(source)
+        window_url += inside and has_url
+    duplicates = len(data.rows) - len({r.sha256 for r in data.rows})
+    return Summary(
+        len(data.rows),
+        in_scope,
+        nonempty,
+        with_url,
+        window_nonempty,
+        window_url,
+        duplicates,
+        dict(counts),
+    )
 
 
 def _candidates(data: WorkbookData, config: Config) -> list[sampling.Candidate]:

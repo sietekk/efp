@@ -304,8 +304,24 @@ def export(
     typer.echo("F1 round trip: PASS (only a temporary copy was written, and it was deleted)")
     typer.echo(f"  rows verified against rows.row_sha256 : {outcome.rows_verified:,}")
     typer.echo(f"  rows in the year window (in_scope)    : {outcome.rows_in_window:,}")
-    typer.echo(f"  rows with a non-empty Source cell     : {outcome.source_nonempty:,}")
+    typer.echo(
+        f"  Source non-empty                      : {outcome.source_nonempty:,} of all rows, "
+        f"{outcome.source_nonempty_in_window:,} in the window"
+    )
+    typer.echo(
+        f"  Source containing an http(s) URL      : {outcome.source_with_url:,} of all rows, "
+        f"{outcome.source_with_url_in_window:,} in the window"
+    )
     typer.echo(f"  Source cells carrying a hyperlink     : {outcome.source_hyperlinks:,}")
+    typer.echo(f"  data validations in the original      : {outcome.validations_original}")
+    typer.echo(f"  data validations in the openpyxl copy : {outcome.validations_copy}")
+    if outcome.validations_lost:
+        typer.echo(
+            "WARNING: openpyxl dropped a data validation (the Ideological Motivation dropdown). "
+            "Cell values are intact (F1 holds), but export (build 19) cannot rely on openpyxl "
+            "load/save alone to keep the dropdown.",
+            err=True,
+        )
 
 
 @app.command()

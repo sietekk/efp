@@ -23,7 +23,12 @@ def render(result: Result) -> str:
         f"{prepared.data.header_row}",
         f"  rows loaded     : {summary.total_rows:,}",
         f"  in the window   : {summary.in_window:,}   (in_scope = 1)",
-        f"  non-empty Source: {summary.source_nonempty:,}",
+        f"  non-empty Source: {summary.source_nonempty:,} of all rows, "
+        f"{summary.window_source_nonempty:,} in the window",
+        f"  Source with URL : {summary.source_with_url:,} of all rows, "
+        f"{summary.window_source_with_url:,} in the window   (http:// or https://)",
+        f"  exact duplicates: {summary.duplicate_rows:,} row(s) identical to another in all nine "
+        "columns (kept: one row, one incidence)",
         "",
         "rows by year band and case type:",
     ]

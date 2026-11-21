@@ -13,8 +13,10 @@ is the proof.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,11 +39,46 @@ class RoundTripError(Exception):
 
 
 @dataclass(frozen=True)
+class Validations:
+    """Data validations in a workbook: ordinary ones and Excel's x14 extension ones."""
+
+    standard: int
+    extension: int
+
+    def __str__(self) -> str:
+        return f"{self.standard} standard, {self.extension} extension (x14)"
+
+
+@dataclass(frozen=True)
 class RoundTripResult:
     rows_verified: int
     rows_in_window: int
     source_nonempty: int
+    source_nonempty_in_window: int
+    source_with_url: int
+    source_with_url_in_window: int
     source_hyperlinks: int
+    validations_original: Validations
+    validations_copy: Validations
+
+    @property
+    def validations_lost(self) -> bool:
+        return (
+            self.validations_copy.standard + self.validations_copy.extension
+            < self.validations_original.standard + self.validations_original.extension
+        )
+
+
+def count_validations(workbook: Path) -> Validations:
+    """Count data validations straight from the sheet XML (openpyxl cannot see x14 ones)."""
+    standard = extension = 0
+    with zipfile.ZipFile(workbook) as archive:
+        for name in archive.namelist():
+            if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                xml = archive.read(name).decode("utf-8", "ignore")
+                standard += len(re.findall(r"<dataValidation[ >]", xml))
+                extension += len(re.findall(r"<x14:dataValidation[ >]", xml))
+    return Validations(standard, extension)
 
 
 def _count_source_hyperlinks(workbook: Path, sheet_name: str, header_row: int, letter: str) -> int:
@@ -85,6 +122,7 @@ def verify_round_trip(
         original = read_workbook(workbook)
     except WorkbookError as exc:
         raise RoundTripError([str(exc)]) from exc
+    validations_original = count_validations(workbook)
     hyperlinks = _count_source_hyperlinks(
         workbook, original.sheet_name, original.header_row, original.column_letters[6]
     )
@@ -96,6 +134,7 @@ def verify_round_trip(
             wb.save(copy)
         finally:
             wb.close()
+        validations_copy = count_validations(copy)
         try:
             again = read_workbook(copy)
         except WorkbookError as exc:
@@ -136,7 +175,23 @@ def verify_round_trip(
         raise RoundTripError(problems)
 
     in_window = conn.execute("SELECT count(*) FROM rows WHERE in_scope = 1").fetchone()[0]
-    nonempty = conn.execute(
-        "SELECT count(*) FROM rows WHERE source_raw IS NOT NULL AND trim(source_raw) != ''"
-    ).fetchone()[0]
-    return RoundTripResult(len(again.rows), in_window, nonempty, hyperlinks)
+    nonempty, nonempty_window, with_url, with_url_window = conn.execute(
+        "SELECT "
+        "coalesce(sum(trim(coalesce(source_raw, '')) != ''), 0), "
+        "coalesce(sum(in_scope = 1 AND trim(coalesce(source_raw, '')) != ''), 0), "
+        "coalesce(sum(source_raw LIKE '%http://%' OR source_raw LIKE '%https://%'), 0), "
+        "coalesce(sum(in_scope = 1 AND "
+        "(source_raw LIKE '%http://%' OR source_raw LIKE '%https://%')), 0) "
+        "FROM rows"
+    ).fetchone()
+    return RoundTripResult(
+        len(again.rows),
+        in_window,
+        nonempty,
+        nonempty_window,
+        with_url,
+        with_url_window,
+        hyperlinks,
+        validations_original,
+        validations_copy,
+    )
