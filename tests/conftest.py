@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import shutil
 import socket
-from collections.abc import Callable
+import sqlite3
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from efp import db as database
+from efp.config import Config, load_config
+
 FIXTURES = Path(__file__).parent / "fixtures"
+REPO = Path(__file__).resolve().parents[1]
 
 # Injected into a temporary env file. The hygiene test asserts none of these ever surfaces.
 SENTINELS: dict[str, str] = {
@@ -69,6 +75,28 @@ def write_config(tmp_path: Path, data_dir: Path, env_file: Path) -> Callable[...
         return path
 
     return _write
+
+
+@pytest.fixture
+def config(write_config: Callable[..., Path]) -> Config:
+    return load_config(write_config())
+
+
+@pytest.fixture
+def conn(config: Config) -> Iterator[sqlite3.Connection]:
+    """A migrated scratch database under tmp_path."""
+    connection = database.connect(config)
+    yield connection
+    connection.close()
+
+
+@pytest.fixture
+def migrations_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A private copy of migrations/ that db.py reads, so tests can edit or add files."""
+    target = tmp_path / "migrations_copy"
+    shutil.copytree(REPO / "migrations", target, ignore=shutil.ignore_patterns("*.md", ".*"))
+    monkeypatch.setattr(database, "migrations_dir", lambda: target)
+    return target
 
 
 # Every captured output and failure text from the whole suite, for the hygiene test to scan.

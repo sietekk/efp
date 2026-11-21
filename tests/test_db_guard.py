@@ -1,0 +1,81 @@
+"""Static guard: no code path under efp/ can alter the protected tables or their triggers.
+
+The triggers are the runtime defence; this test is the review-time one. Statements that appear
+in the allow-list are the only ones permitted, each for a stated reason.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from efp.audit import COMPLETE_SQL
+from tests.conftest import REPO
+
+PROTECTED = r"(rows|captures|decisions|audit_log)"
+
+# file (relative to efp/) -> why it may mention the statement
+PROBE_FILE = "dbcheck.py"  # selftest --db attempts these inside a transaction it always rolls back
+INGEST_DIR = "ingest/"  # the only writer of rows (build 03)
+DOCS_FILE = "db.py"  # its docstring names INSERT OR REPLACE to explain why recursive_triggers is on
+
+
+def _sources() -> list[tuple[str, str]]:
+    root = REPO / "efp"
+    return [
+        (str(p.relative_to(root)), p.read_text(encoding="utf-8"))
+        for p in sorted(root.rglob("*.py"))
+    ]
+
+
+def _hits(pattern: str, allowed_files: tuple[str, ...] = ()) -> list[str]:
+    regex = re.compile(pattern, re.I | re.S)
+    return [
+        name
+        for name, text in _sources()
+        if regex.search(text) and not name.startswith(allowed_files)
+    ]
+
+
+def test_nothing_deletes_from_protected_tables() -> None:
+    assert _hits(rf"DELETE\s+FROM\s+{PROTECTED}\b", (PROBE_FILE,)) == []
+
+
+def test_only_the_audit_completion_updates_a_protected_table() -> None:
+    sources = _sources()
+    pattern = re.compile(rf"UPDATE\s+{PROTECTED}\b[^\"']*", re.I)
+    offenders = []
+    for name, text in sources:
+        if name == PROBE_FILE:
+            continue
+        for match in pattern.finditer(text):
+            if not COMPLETE_SQL.startswith(match.group(0).strip()) and match.group(0).strip() != "":
+                offenders.append(f"{name}: {match.group(0)[:60]}")
+    assert offenders == []
+    assert COMPLETE_SQL == "UPDATE audit_log SET finished_at = ?, exit_code = ? WHERE audit_id = ?"
+
+
+def test_only_ingest_inserts_into_rows() -> None:
+    assert _hits(r"INSERT\s+(OR\s+\w+\s+)?INTO\s+rows\b", (PROBE_FILE, INGEST_DIR)) == []
+
+
+def test_nothing_uses_replace_semantics() -> None:
+    assert _hits(r"\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b", (PROBE_FILE, DOCS_FILE)) == []
+    db_py = (REPO / "efp" / DOCS_FILE).read_text(encoding="utf-8")
+    code = db_py.split('"""', 2)[2]  # everything after the module docstring
+    assert not re.search(r"REPLACE", code, re.I)
+    assert _hits(r"ON\s+CONFLICT\b[^;]*\bDO\s+UPDATE\b", (PROBE_FILE,)) == []
+
+
+def test_nothing_drops_or_rewrites_the_schema() -> None:
+    assert _hits(r"\bDROP\s+(TABLE|TRIGGER|INDEX|VIEW)\b") == []
+    assert _hits(r"\bALTER\s+TABLE\b") == []
+    assert _hits(r"writable_schema") == []
+    assert _hits(r"PRAGMA\s+recursive_triggers\s*=\s*(OFF|0)", ()) == []
+
+
+def test_the_guard_can_see_the_probe_file() -> None:
+    """If these statements ever disappear from dbcheck.py the allow-list above is stale."""
+    probe = (REPO / "efp" / PROBE_FILE).read_text(encoding="utf-8")
+    assert "INSERT OR REPLACE INTO rows" in probe
+    assert Path(REPO / "efp" / "db.py").exists()

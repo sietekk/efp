@@ -100,7 +100,8 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
 extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+# Tests: assert, dummy credentials, fixed-name f-string SQL, dummy /tmp paths, long SQL literals.
+"tests/**" = ["S101", "S105", "S106", "S108", "S608", "E501"]
 
 [tool.mypy]
 strict = true
