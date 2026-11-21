@@ -84,8 +84,9 @@ def test_invocation_writes_an_audit_row_once_the_table_exists(
     db = data_dir / "pipeline.db"
     conn = sqlite3.connect(db)
     conn.execute(
-        "CREATE TABLE audit_log (args_json TEXT, git_sha TEXT, lockfile_sha256 TEXT, "
-        "started_at TEXT, ended_at TEXT, exit_code INTEGER)"
+        "CREATE TABLE audit_log (audit_id INTEGER PRIMARY KEY, invoked_at TEXT, finished_at TEXT, "
+        "command TEXT, args_json TEXT, git_sha TEXT, lockfile_sha256 TEXT, config_sha256 TEXT, "
+        "exit_code INTEGER)"
     )
     conn.commit()
     conn.close()
@@ -95,12 +96,39 @@ def test_invocation_writes_an_audit_row_once_the_table_exists(
     assert result.exit_code == 2
 
     conn = sqlite3.connect(db)
-    rows = conn.execute("SELECT args_json, git_sha, exit_code FROM audit_log").fetchall()
+    rows = conn.execute(
+        "SELECT command, args_json, git_sha, config_sha256, exit_code FROM audit_log"
+    ).fetchall()
     conn.close()
     assert len(rows) == 1
-    assert json.loads(rows[0][0]) == ["run", "court"]
-    assert rows[0][1]
-    assert rows[0][2] == 2
+    command, args_json, sha, config_sha, exit_code = rows[0]
+    assert command == "run court"
+    assert json.loads(args_json) == ["run", "court"]
+    assert sha
+    assert config_sha and len(config_sha) == 64
+    assert exit_code == 2
+
+
+def test_usage_error_is_audited_with_its_real_exit_code(
+    cfg_env: Path, data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_dir.mkdir()
+    db = data_dir / "pipeline.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE audit_log (audit_id INTEGER PRIMARY KEY, invoked_at TEXT, finished_at TEXT, "
+        "command TEXT, args_json TEXT, git_sha TEXT, lockfile_sha256 TEXT, config_sha256 TEXT, "
+        "exit_code INTEGER)"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(sys, "argv", ["efp", "run"])
+    result = runner.invoke(app, ["run"])  # missing the STAGE argument
+    assert result.exit_code == 2
+    conn = sqlite3.connect(db)
+    codes = [r[0] for r in conn.execute("SELECT exit_code FROM audit_log")]
+    conn.close()
+    assert codes == [2]
 
 
 def test_audit_is_a_no_op_without_a_database(cfg_env: Path, data_dir: Path) -> None:

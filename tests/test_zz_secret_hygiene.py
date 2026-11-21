@@ -27,9 +27,10 @@ def _detach_pytest_handlers(log: logging.Logger) -> None:
     """pytest attaches its capture handlers to non-propagating loggers ahead of ours, so they
     would record the secrets these tests deliberately log. Production has no such handler;
     redaction protects the handlers efp installs."""
-    for handler in list(log.handlers):
-        if not getattr(handler, "_efp_handler", False):
-            log.removeHandler(handler)
+    for target in (log, logging.getLogger()):
+        for handler in list(target.handlers):
+            if not getattr(handler, "_efp_handler", False):
+                target.removeHandler(handler)
 
 
 def _assert_clean(text: str, where: str) -> None:

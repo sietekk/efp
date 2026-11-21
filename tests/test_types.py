@@ -12,14 +12,14 @@ from efp.types import Context, Row, StageResult
 
 
 def test_row_is_frozen() -> None:
-    row = Row(row_id="1", year=2010, state="CT")
+    row = Row(row_id=1, year=2010, state="CT")
     with pytest.raises(ValidationError):
         row.year = 2011  # type: ignore[misc]
 
 
 def test_stage_result_rejects_unknown_status() -> None:
     with pytest.raises(ValidationError):
-        StageResult(row_id="1", stage="court", status="maybe")  # type: ignore[arg-type]
+        StageResult(row_id=1, stage="court", status="maybe")  # type: ignore[arg-type]
 
 
 def test_context_carries_config_db_capture_and_logger(write_config: Callable[..., Path]) -> None:

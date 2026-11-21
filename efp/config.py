@@ -42,10 +42,16 @@ class Project(_Section):
 
     @field_validator("user_agent")
     @classmethod
-    def _user_agent_names_contact(cls, v: str) -> str:
+    def _user_agent_balanced(cls, v: str) -> str:
         if v.count("(") != v.count(")"):
             raise ValueError("user_agent has unbalanced parentheses")
         return v
+
+    @model_validator(mode="after")
+    def _user_agent_carries_contact(self) -> Project:
+        if self.contact not in self.user_agent:
+            raise ValueError("user_agent must include the contact address (project rule)")
+        return self
 
 
 class Paths(_Section):
@@ -88,7 +94,7 @@ class RateLimits(BaseModel):
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
-    default_rps: float = Field(gt=0)
+    default_rps: float = Field(gt=0, le=0.5)  # ceiling: 1 request per 2 seconds (spec 10)
     honor_robots_txt: bool
     retry_attempts: int = Field(ge=0)
     retry_backoff_seconds: float = Field(ge=0)

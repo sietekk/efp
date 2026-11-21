@@ -70,3 +70,16 @@ def test_loading_does_not_touch_the_environment(
     monkeypatch.delenv("COURTLISTENER_TOKEN", raising=False)
     load_secrets(env_file)
     assert "COURTLISTENER_TOKEN" not in os.environ
+
+
+def test_bare_pasted_key_is_counted_never_named(tmp_path: Path) -> None:
+    """A key pasted without NAME= must not surface anywhere (it would be the secret itself)."""
+    path = tmp_path / ".env"
+    bare = "sk-ant-api03-FAKEVALUE123"  # pragma: allowlist secret
+    path.write_text(f"{bare}\nFEC_API_KEY=x\nlowercase_name=y\n", encoding="utf-8")
+    path.chmod(0o600)
+    secrets = load_secrets(path)
+    assert secrets.unparseable_lines == 2
+    assert secrets.unknown_names == ()
+    assert bare not in repr(secrets)
+    assert secrets.present() == ["FEC_API_KEY"]

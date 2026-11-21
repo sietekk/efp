@@ -106,10 +106,14 @@ def setup_logging(config: Config | None, secret_values: Iterable[str] = ()) -> l
     """
     register_secret_values(secret_values)
     logger = logging.getLogger("efp")
-    for handler in list(logger.handlers):
-        if getattr(handler, _MARK, False):
-            logger.removeHandler(handler)
-            handler.close()
+    root = logging.getLogger()
+    # Our handlers sit on the root logger too, so records from third-party libraries (urllib3
+    # logs URLs, which can carry query-string keys) are redacted and written to the same file.
+    for target in (logger, root):
+        for handler in list(target.handlers):
+            if getattr(handler, _MARK, False):
+                target.removeHandler(handler)
+                handler.close()
     level = getattr(logging, config.logging.level) if config is not None else logging.INFO
     logger.setLevel(level)
     logger.propagate = False
@@ -129,4 +133,5 @@ def setup_logging(config: Config | None, secret_values: Iterable[str] = ()) -> l
         handler.addFilter(_ContextFilter())
         setattr(handler, _MARK, True)
         logger.addHandler(handler)
+        root.addHandler(handler)
     return logger

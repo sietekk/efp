@@ -7,6 +7,7 @@ are held as ``SecretStr``; error messages carry paths and modes only, never valu
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -29,6 +30,8 @@ SECRET_NAMES: tuple[str, ...] = (
     "GOOGLE_CSE_ID",
 )
 
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
 # ANTHROPIC_API_KEY is the spec's LLM_API_KEY (the SDK reads the former). The old name is
 # accepted in the file as an alias when the new one is absent.
 ALIASES: dict[str, str] = {"LLM_API_KEY": "ANTHROPIC_API_KEY"}
@@ -43,6 +46,7 @@ class Secrets(BaseModel):
 
     values: dict[str, SecretStr] = {}
     unknown_names: tuple[str, ...] = ()
+    unparseable_lines: int = 0
 
     def present(self) -> list[str]:
         """Names of secrets that are set and non-empty. Never values."""
@@ -87,7 +91,13 @@ def load_secrets(env_file: Path) -> Secrets:
         raise SecretsError(f"env file cannot be read: {env_file}") from None
     values: dict[str, SecretStr] = {}
     unknown: list[str] = []
+    unparseable = 0
     for name, value in raw.items():
+        # A line with no "=" (a pasted bare key) comes back as a name with no value, and a
+        # name that is not shaped like an env var may itself be a secret. Count, never name.
+        if value is None or not _ENV_NAME.match(name):
+            unparseable += 1
+            continue
         target = ALIASES.get(name, name)
         if target not in SECRET_NAMES:
             unknown.append(name)
@@ -95,7 +105,7 @@ def load_secrets(env_file: Path) -> Secrets:
         if not value or (target in values and target != name):
             continue
         values[target] = SecretStr(value)
-    return Secrets(values=values, unknown_names=tuple(unknown))
+    return Secrets(values=values, unknown_names=tuple(unknown), unparseable_lines=unparseable)
 
 
 def env_file_mode(path: Path) -> int | None:

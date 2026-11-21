@@ -78,3 +78,15 @@ def test_selftest_lists_extras(
     result = runner.invoke(app, ["selftest"])
     for extra in ("documents", "social", "extraction", "validation", "ocr-fallback"):
         assert f"extra {extra}" in result.output
+
+
+def test_selftest_never_prints_a_bare_pasted_key(
+    write_config: Callable[..., Path], env_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare = "sk-ant-api03-FAKEVALUE123"  # pragma: allowlist secret
+    env_file.write_text(f"{bare}\nFEC_API_KEY=x\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    monkeypatch.setenv("EFP_CONFIG", str(write_config()))
+    result = runner.invoke(app, ["selftest"])
+    assert bare not in result.output
+    assert "not NAME=value" in result.output

@@ -73,8 +73,13 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
-# naminter pins rich==15.0.0; instructor needs rich<15. Both floors are kept, but the two
-# extras cannot be installed into one environment. See reports/01-scaffold.md.
+# Both floors are kept; the conflicting extras cannot share one environment.
+# Reasons, found while resolving:
+#   social x extraction: naminter pins rich==15.0.0; instructor needs rich<15.
+#   ocr-fallback x archive-docker: paddleocr's pins and auto-archiver's seleniumbase (rich<15,
+#   requests/urllib3 ranges) have no common solution once either also meets social/extraction.
+# Consequence: stages needing conflicting extras run in separate environments
+# (uv run --extra <name> ...). See reports/01-scaffold.md.
 conflicts = [
     [{ extra = "social" }, { extra = "extraction" }],
     [{ extra = "ocr-fallback" }, { extra = "archive-docker" }],

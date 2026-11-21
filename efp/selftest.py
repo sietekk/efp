@@ -112,6 +112,15 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
                     required=False,
                 )
             )
+            if secrets.unparseable_lines:
+                checks.append(
+                    Check(
+                        "secrets unparseable lines",
+                        False,
+                        f"{secrets.unparseable_lines} line(s) are not NAME=value; fix the file",
+                        required=False,
+                    )
+                )
             if secrets.unknown_names:
                 checks.append(
                     Check(

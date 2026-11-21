@@ -1,9 +1,10 @@
 """Audit-log hook: every CLI invocation writes one ``audit_log`` row.
 
 Build 02 creates the table; until then (or when the database does not exist) recording is a
-no-op. Expected columns: ``args_json, git_sha, lockfile_sha256, started_at, ended_at,
-exit_code``. Build 02 must match these names or adjust this module. No CLI flag takes a secret,
-so argument values never hold one.
+no-op. Columns follow build 02: ``invoked_at, finished_at, command, args_json, git_sha,
+lockfile_sha256, config_sha256, exit_code``. The row is written once, at exit, because the
+table is append-only (triggers reject UPDATE). No CLI flag takes a secret, so argument values
+never hold one; build 02 adds argument redaction.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ def record(
     argv: Sequence[str],
     started: datetime,
     exit_code: int,
+    config_sha256: str | None = None,
 ) -> bool:
     """Insert one audit row. Returns True if written, False if skipped. Never raises."""
     db_path = config.paths.database
@@ -42,14 +44,16 @@ def record(
                 return False
             conn.execute(
                 "INSERT INTO audit_log "
-                "(args_json, git_sha, lockfile_sha256, started_at, ended_at, exit_code) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(invoked_at, finished_at, command, args_json, git_sha, lockfile_sha256, "
+                "config_sha256, exit_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
+                    started.isoformat(),
+                    datetime.now(UTC).isoformat(),
+                    " ".join(a for a in argv if not a.startswith("-"))[:200],
                     json.dumps(list(argv)),
                     git_sha(),
                     lockfile_sha256(),
-                    started.isoformat(),
-                    datetime.now(UTC).isoformat(),
+                    config_sha256,
                     exit_code,
                 ),
             )

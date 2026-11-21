@@ -6,6 +6,7 @@ invocation records an ``audit_log`` row on exit once build 02 creates the table.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,11 +14,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import NoReturn
 
-import click
 import typer
 
 from efp import audit
-from efp.config import Config, ConfigError, load_config
+from efp.config import Config, ConfigError, find_config, load_config
 from efp.logging import register_secret_values, setup_logging
 from efp.secrets import SecretsError, load_secrets
 from efp.selftest import run_checks
@@ -51,13 +51,24 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit
 
 
+def _file_sha256(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 def _exit_code_from_exception(exc: BaseException | None) -> int:
+    """Exit code for the exception active when the command context closes.
+
+    Typer vendors its own Click, so exceptions are matched by their ``exit_code`` attribute
+    (typer.Exit and usage errors carry one) rather than by class.
+    """
     if exc is None:
         return 0
-    if isinstance(exc, click.exceptions.Exit | typer.Exit):
-        return int(exc.exit_code)
-    if isinstance(exc, click.exceptions.Abort):
-        return 1
+    code = getattr(exc, "exit_code", None)
+    if isinstance(code, int):
+        return code
     if isinstance(exc, SystemExit):
         return exc.code if isinstance(exc.code, int) else 1
     return 1
@@ -83,6 +94,7 @@ def main(
         config = load_config()
     except ConfigError as exc:
         config_error = str(exc)
+    config_sha256 = _file_sha256(find_config()) if config is not None else None
     ctx.obj = AppState(config=config, config_error=config_error)
 
     secret_values: list[str] = []
@@ -96,7 +108,13 @@ def main(
 
     def _record() -> None:
         if config is not None:
-            audit.record(config, argv, started, _exit_code_from_exception(sys.exception()))
+            audit.record(
+                config,
+                argv,
+                started,
+                _exit_code_from_exception(sys.exception()),
+                config_sha256=config_sha256,
+            )
 
     ctx.call_on_close(_record)
 

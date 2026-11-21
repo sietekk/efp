@@ -69,3 +69,21 @@ def test_exceptions_are_logged_with_redaction(
     text = (data_dir / "logs" / "efp.log").read_text(encoding="utf-8")
     assert "hunter2-sentinel" not in text
     assert "***" in text
+
+
+def test_third_party_logger_records_are_redacted(
+    write_config: Callable[..., Path], data_dir: Path
+) -> None:
+    (data_dir / "logs").mkdir(parents=True)
+    cfg = load_config(write_config())
+    setup_logging(cfg, secret_values=["tp-secret-value"])
+    root = logging.getLogger()
+    for handler in list(root.handlers):  # keep pytest's capture handlers out of the way
+        if not getattr(handler, "_efp_handler", False):
+            root.removeHandler(handler)
+    logging.getLogger("urllib3.connectionpool").warning("GET /x?api_key=tp-secret-value")
+    for handler in root.handlers:
+        handler.flush()
+    text = (data_dir / "logs" / "efp.log").read_text(encoding="utf-8")
+    assert "tp-secret-value" not in text
+    assert "api_key=***" in text

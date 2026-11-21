@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from efp.config import Config
 
-StageStatus = Literal["done", "failed", "needs_review", "skipped", "gated"]
+StageStatus = Literal["pending", "running", "done", "failed", "needs_review", "skipped"]
 
 
 class Row(BaseModel):
@@ -19,7 +19,7 @@ class Row(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    row_id: str
+    row_id: int
     year: int | None = None
     state: str | None = None
     source: Mapping[str, Any] = Field(default_factory=dict)
@@ -30,7 +30,7 @@ class StageResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    row_id: str
+    row_id: int
     stage: str
     status: StageStatus
     gate_reason: str | None = None

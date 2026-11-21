@@ -60,7 +60,7 @@ def test_component_exposes_run_and_gate(name: str) -> None:
 def test_component_stubs_raise_not_implemented(name: str, write_config: object) -> None:
     module = importlib.import_module(f"efp.{name}")
     with pytest.raises(NotImplementedError, match=name):
-        module.gate(Row(row_id="1"))
+        module.gate(Row(row_id=1))
 
 
 def test_court_adapter_packages_exist() -> None:
