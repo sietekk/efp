@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "efp"
+version = "0.1.0"
+description = "Election Fraud Pipeline: research instrument for the Heritage election-fraud workbook"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # core
+    "typer",
+    "pydantic>=2",
+    "sqlite-utils>=4.2",
+    "duckdb",
+    "python-dotenv",
+    # http
+    "requests",
+    "requests-cache>=1.3",
+    "stamina>=26.1",
+    "pyrate-limiter>=4.5",
+    # archive
+    "warcio>=1.8",
+    "wayback>=0.5.1",
+    "cdx-toolkit>=0.9",
+    "savepagenow>=1.3",
+    "rfc3161-client>=1.0",
+    "bagit>=1.9",
+    "rocrate>=0.15",
+    # court
+    "courtlistener-api-client>=1.2",
+    "juriscraper>=3.0",
+    # identity (nameparser is LGPL: used as a dependency, not vendored)
+    "splink>=4.0,<5",
+    "rapidfuzz>=3.14",
+    "jellyfish>=1.2",
+    "nameparser>=2.3",
+    "probablepeople>=0.5",
+    "usaddress>=0.5",
+    # news
+    "trafilatura>=2.2",
+    "htmldate>=1.10",
+    "gdeltdoc>=1.12",
+    "mediacloud>=5.1",
+]
+
+[project.optional-dependencies]
+# auto-archiver runs via Docker subprocess (spec 10); its seleniumbase pins clash with others.
+archive-docker = ["auto-archiver>=1.2.9"]
+documents = ["pdfplumber>=0.11", "pypdf>=6", "ocrmypdf>=17", "docling>=2"]
+ocr-fallback = ["paddleocr>=3.7"]
+social = ["naminter>=1.0.9", "maigret>=0.6", "atproto>=0.0.72"]
+extraction = ["langextract>=1.7", "instructor>=1.17", "anthropic"]
+# krippendorff is GPL: used for reported numbers only, never redistributed.
+validation = ["scikit-learn>=1.9", "krippendorff", "statsmodels"]
+
+[project.scripts]
+efp = "efp.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "responses",
+    "vcrpy",
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "detect-secrets",
+    "types-requests",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+# naminter pins rich==15.0.0; instructor needs rich<15. Both floors are kept, but the two
+# extras cannot be installed into one environment. See reports/01-scaffold.md.
+conflicts = [
+    [{ extra = "social" }, { extra = "extraction" }],
+    [{ extra = "ocr-fallback" }, { extra = "archive-docker" }],
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["efp"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+strict = true
+files = ["efp"]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["dotenv.*", "sqlite_utils.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: hits real external services; never run in CI"]
+addopts = "-m 'not live' --cov=efp --cov-report=term-missing"
