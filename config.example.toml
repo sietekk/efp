@@ -153,5 +153,9 @@ redacted_csv = true
 # Decision 3: how Partisan Direction maps onto the Ideological Motivation dropdown. Export-time rule; change it and re-export.
 independent_means = "unaffiliated"   # one of: unaffiliated | centrist | nonpartisan_direction
 
+[database]
+busy_timeout_ms = 5000            # how long a writer waits on a locked database (SQLite busy_timeout)
+selftest_capture_sample = 200     # `efp selftest --db` hashes every captured body up to this many, else a seeded sample
+
 [logging]
 level = "INFO"                    # DEBUG | INFO | WARNING | ERROR | CRITICAL; JSON lines go to paths.logs/efp.log, readable lines to the console

@@ -221,6 +221,11 @@ class Export(_Section):
     independent_means: Literal["unaffiliated", "centrist", "nonpartisan_direction"]
 
 
+class DatabaseCfg(_Section):
+    busy_timeout_ms: int = Field(ge=0)
+    selftest_capture_sample: int = Field(gt=0)
+
+
 class LoggingCfg(_Section):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -240,6 +245,7 @@ class Config(_Section):
     llm: Llm
     search: Search
     export: Export
+    database: DatabaseCfg
     logging: LoggingCfg
 
 

@@ -132,5 +132,9 @@ provisional_prefix = "prov_"
 redacted_csv = true
 independent_means = "unaffiliated"
 
+[database]
+busy_timeout_ms = 5000            # how long a writer waits on a locked database (SQLite busy_timeout)
+selftest_capture_sample = 200     # `efp selftest --db` hashes every captured body up to this many, else a seeded sample
+
 [logging]
 level = "INFO"
