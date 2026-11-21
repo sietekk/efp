@@ -139,3 +139,132 @@ def test_read_only_open_never_creates_anything(config: Config, data_dir: Path) -
     with pytest.raises(database.DatabaseError, match="not found"):
         database.connect(config, migrate=False, create=False)
     assert not data_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "bad_sql",
+    [
+        "CREATE TABLE t (x INTEGER);\nCOMMIT;\nCREATE TABLE u (x INTEGER);",
+        "BEGIN;\nCREATE TABLE t (x INTEGER);",
+        "CREATE TABLE t (x INTEGER);\nEND;",
+        "SAVEPOINT s;\nCREATE TABLE t (x INTEGER);",
+        "CREATE TABLE t (x INTEGER);\nROLLBACK;",
+        "-- comment first\nCOMMIT;",
+    ],
+)
+def test_migrations_may_not_control_the_transaction(
+    config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_sql: str
+) -> None:
+    folder = tmp_path / "txn"
+    folder.mkdir()
+    (folder / "0001_bad.sql").write_text(bad_sql, encoding="utf-8")
+    monkeypatch.setattr(database, "migrations_dir", lambda: folder)
+    with pytest.raises(database.MigrationError, match="must not contain"):
+        database.migrate(config)
+    conn = database.connect(config, migrate=False, create=False)
+    assert "t" not in _tables(conn)  # nothing leaked out of the rejected migration
+    conn.close()
+
+
+def test_an_unterminated_comment_is_rejected_not_swallowed(
+    config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "unterminated"
+    folder.mkdir()
+    (folder / "0001_bad.sql").write_text(
+        "CREATE TABLE t (x INTEGER);\n/* never closed\nCREATE TABLE u (x INTEGER);",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(database, "migrations_dir", lambda: folder)
+    with pytest.raises(database.MigrationError, match="unterminated"):
+        database.migrate(config)
+    conn = database.connect(config, migrate=False, create=False)
+    assert "t" not in _tables(conn)
+    assert not conn.in_transaction
+    conn.close()
+
+
+def test_trigger_bodies_with_begin_end_are_allowed(
+    config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "trig"
+    folder.mkdir()
+    (folder / "0001_ok.sql").write_text(
+        "CREATE TABLE t (x INTEGER);\n"
+        "CREATE TRIGGER t_guard BEFORE DELETE ON t BEGIN SELECT RAISE(ABORT, 'no'); END;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(database, "migrations_dir", lambda: folder)
+    assert [m.name for m in database.migrate(config)] == ["ok"]
+
+
+def test_a_migration_already_applied_by_another_process_is_not_applied_twice(
+    config: Config,
+) -> None:
+    conn = database.connect(config)
+    migration = database.discover_migrations()[0]
+    assert database.apply_migration(conn, migration) is False  # re-read under the lock
+    changed = database.Migration(
+        migration.id, migration.name, migration.path, "f" * 64, migration.sql
+    )
+    with pytest.raises(database.MigrationError, match="different content"):
+        database.apply_migration(conn, changed)
+    conn.close()
+
+
+def test_a_busy_database_is_a_clear_error(
+    write_config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = load_config(write_config({"busy_timeout_ms = 5000": "busy_timeout_ms = 50"}))
+    database.migrate(config)
+    folder = tmp_path / "more"
+    folder.mkdir()
+    for m in database.discover_migrations():
+        (folder / m.path.name).write_text(m.sql, encoding="utf-8")
+    (folder / "0004_more.sql").write_text("CREATE TABLE more (x INTEGER);", encoding="utf-8")
+    monkeypatch.setattr(database, "migrations_dir", lambda: folder)
+    holder = sqlite3.connect(config.paths.database, isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(database.MigrationError, match="write lock"):
+            database.migrate(config)
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert [m.name for m in database.migrate(config)] == ["more"]
+
+
+def test_database_outside_the_data_directory_is_refused(
+    write_config: Callable[..., Path], data_dir: Path, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere" / "pipeline.db"
+    config = load_config(
+        write_config({f'database = "{data_dir}/pipeline.db"': f'database = "{elsewhere}"'})
+    )
+    with pytest.raises(database.DatabaseError, match=r"inside paths\.data_dir"):
+        database.connect(config)
+    assert not elsewhere.parent.exists()
+
+
+def test_a_created_database_is_private(config: Config) -> None:
+    database.connect(config).close()
+    for suffix in ("", "-wal", "-shm"):
+        path = config.paths.database.with_name(config.paths.database.name + suffix)
+        if path.exists():
+            assert stat.S_IMODE(os.stat(path).st_mode) == 0o600, path.name
+
+
+def test_a_path_with_uri_special_characters_does_not_create_stray_files(
+    write_config: Callable[..., Path], data_dir: Path
+) -> None:
+    odd = data_dir / "we%ird?x#y" / "pipeline.db"
+    config = load_config(
+        write_config({f'database = "{data_dir}/pipeline.db"': f'database = "{odd}"'})
+    )
+    database.migrate(config)
+    before = sorted(p.name for p in data_dir.rglob("*"))
+    conn = database.connect(config, migrate=False, create=False)
+    assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (3,)
+    conn.close()
+    assert sorted(p.name for p in data_dir.rglob("*")) == before
+    assert not (data_dir / "we").exists() and not (data_dir / "we%ird").is_file()

@@ -78,7 +78,7 @@ def start(
                     started.isoformat(),
                     command_of(safe),
                     json.dumps(safe),
-                    git_sha(),
+                    git_sha(full=True),
                     lockfile_sha256(),
                     config_sha256,
                 ),

@@ -79,6 +79,10 @@ EXPECTED_TRIGGERS: tuple[str, ...] = (
     "decisions_no_delete",
     "audit_log_no_delete",
     "audit_log_complete_once",
+    "rows_no_replace",
+    "captures_no_replace",
+    "decisions_no_replace",
+    "audit_log_no_replace",
 )
 
 # Orphan captures (no rows parent) are allowed only for these stages.
@@ -139,11 +143,36 @@ def _check_triggers_fire(conn: sqlite3.Connection) -> DbCheck:
             "ingested_at) VALUES (-1, 2001, 'XX', 'replaced', 1, ?, ?)",
             (zero, stamp),
         ),
+        (
+            "rows REPLACE INTO",
+            "REPLACE INTO rows (row_id, year, state, name, in_scope, row_sha256, ingested_at) "
+            "VALUES (-1, 2001, 'XX', 'replaced', 1, ?, ?)",
+            (zero, stamp),
+        ),
         ("captures UPDATE", "UPDATE captures SET stage = 'x' WHERE capture_id = -1", ()),
+        (
+            "captures INSERT OR REPLACE",
+            "INSERT OR REPLACE INTO captures (capture_id, row_id, stage, url_requested, "
+            "retrieved_at, content_sha256, body_path, tool, tool_version) "
+            "VALUES (-1, -1, 'x', 'u', ?, ?, 'store/00/x', 't', '0')",
+            (stamp, zero),
+        ),
         ("captures DELETE", "DELETE FROM captures WHERE capture_id = -1", ()),
         ("decisions UPDATE", "UPDATE decisions SET outcome = 'x' WHERE decision_id = -1", ()),
         ("decisions DELETE", "DELETE FROM decisions WHERE decision_id = -1", ()),
+        (
+            "decisions INSERT OR REPLACE",
+            "INSERT OR REPLACE INTO decisions (decision_id, row_id, kind, outcome, decided_by, "
+            "decided_at) VALUES (-1, -1, 'review', 'flipped', 'XX', ?)",
+            (stamp,),
+        ),
         ("audit_log DELETE", "DELETE FROM audit_log WHERE audit_id = -1", ()),
+        (
+            "audit_log INSERT OR REPLACE",
+            "INSERT OR REPLACE INTO audit_log (audit_id, invoked_at, command, args_json) "
+            "VALUES (-1, ?, 'x', '[]')",
+            (stamp,),
+        ),
         (
             "audit_log UPDATE of args",
             "UPDATE audit_log SET args_json = '[]' WHERE audit_id = -1",
@@ -197,7 +226,7 @@ def _check_triggers_fire(conn: sqlite3.Connection) -> DbCheck:
         else:
             failed.append("audit_log second completion (should be refused)")
     except sqlite3.Error as exc:
-        failed.append(f"setup failed: {exc}")
+        failed.append(f"probe could not run ({exc}); is another efp process holding the database?")
     finally:
         conn.rollback()
     left = conn.execute("SELECT count(*) FROM rows WHERE row_id = -1").fetchone()[0]
@@ -234,6 +263,8 @@ def _check_bodies(conn: sqlite3.Connection, config: Config) -> DbCheck:
                 bad.append(f"{capture_id}: body does not hash to content_sha256")
         except StoreError as exc:
             bad.append(f"{capture_id}: {exc}")
+    if total == 0:
+        return DbCheck("capture bodies exist and hash", True, "no captures yet (nothing to verify)")
     scope = f"sample of {len(chosen)} of {total}" if sampled else f"all {total}"
     if bad:
         return DbCheck(
@@ -255,16 +286,11 @@ def run_db_checks(config: Config) -> list[DbCheck]:
         return [DbCheck("database file", False, f"cannot open {path}: {exc}")]
     checks: list[DbCheck] = [DbCheck("database file", True, str(path))]
     try:
+        # journal_mode is a property of the file (it persists); foreign_keys and
+        # recursive_triggers are per connection and are set by db.connect(), so checking them
+        # here would only read back what connect() just wrote. The probes below test behaviour.
         journal = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
-        fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-        rec = conn.execute("PRAGMA recursive_triggers").fetchone()[0]
-        checks.append(
-            DbCheck(
-                "pragmas (WAL, foreign_keys, recursive_triggers)",
-                journal == "wal" and fk == 1 and rec == 1,
-                f"journal_mode={journal} foreign_keys={fk} recursive_triggers={rec}",
-            )
-        )
+        checks.append(DbCheck("journal mode is WAL", journal == "wal", f"journal_mode={journal}"))
         checks += _check_migrations(conn)
         tables, indexes, triggers = (
             _names(conn, "table"),
@@ -322,15 +348,14 @@ def run_db_checks(config: Config) -> list[DbCheck]:
                     "OR row_sha256 GLOB '*[^0-9a-f]*'"
                 )
             ]
-            checks.append(
-                DbCheck(
-                    "rows.row_sha256 well-formed",
-                    not bad_hash,
-                    f"malformed for row_id {bad_hash[:10]}"
-                    if bad_hash
-                    else "format only; recomputation arrives with build 03",
-                )
-            )
+            has_rows = conn.execute("SELECT 1 FROM rows LIMIT 1").fetchone() is not None
+            if bad_hash:
+                hash_detail = f"malformed for row_id {bad_hash[:10]}"
+            elif has_rows:
+                hash_detail = "format only (recomputation arrives with build 03)"
+            else:
+                hash_detail = "no rows yet (nothing to verify)"
+            checks.append(DbCheck("rows.row_sha256 well-formed", not bad_hash, hash_detail))
         else:
             checks.append(
                 DbCheck(
@@ -347,6 +372,8 @@ def run_db_checks(config: Config) -> list[DbCheck]:
                 "ok" if quick == ["ok"] else "; ".join(quick[:3]),
             )
         )
+    except sqlite3.Error as exc:
+        checks.append(DbCheck("database readable", False, f"sqlite error: {exc}"))
     finally:
         conn.close()
     return checks

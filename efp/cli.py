@@ -7,6 +7,7 @@ invocation records an ``audit_log`` row on exit once build 02 creates the table.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -228,7 +229,7 @@ def db_migrate(ctx: typer.Context) -> None:
         raise typer.Exit(1)
     try:
         applied = database.migrate(state.config)
-    except (database.DatabaseError, database.MigrationError) as exc:
+    except (database.DatabaseError, database.MigrationError, sqlite3.Error) as exc:
         typer.echo(f"migrate failed: {exc}", err=True)
         raise typer.Exit(1) from None
     if state.audit_id is None:

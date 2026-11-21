@@ -6,6 +6,7 @@ in the allow-list are the only ones permitted, each for a stated reason.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -17,13 +18,29 @@ PROTECTED = r"(rows|captures|decisions|audit_log)"
 # file (relative to efp/) -> why it may mention the statement
 PROBE_FILE = "dbcheck.py"  # selftest --db attempts these inside a transaction it always rolls back
 INGEST_DIR = "ingest/"  # the only writer of rows (build 03)
-DOCS_FILE = "db.py"  # its docstring names INSERT OR REPLACE to explain why recursive_triggers is on
+
+
+def _code_only(text: str) -> str:
+    """The module's code with docstrings and comments removed, so prose that explains a
+    limitation (for example "DROP TRIGGER is not blocked") is not mistaken for code that does it."""
+    tree = ast.parse(text)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
 
 
 def _sources() -> list[tuple[str, str]]:
     root = REPO / "efp"
     return [
-        (str(p.relative_to(root)), p.read_text(encoding="utf-8"))
+        (str(p.relative_to(root)), _code_only(p.read_text(encoding="utf-8")))
         for p in sorted(root.rglob("*.py"))
     ]
 
@@ -60,10 +77,7 @@ def test_only_ingest_inserts_into_rows() -> None:
 
 
 def test_nothing_uses_replace_semantics() -> None:
-    assert _hits(r"\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b", (PROBE_FILE, DOCS_FILE)) == []
-    db_py = (REPO / "efp" / DOCS_FILE).read_text(encoding="utf-8")
-    code = db_py.split('"""', 2)[2]  # everything after the module docstring
-    assert not re.search(r"REPLACE", code, re.I)
+    assert _hits(r"\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b", (PROBE_FILE,)) == []
     assert _hits(r"ON\s+CONFLICT\b[^;]*\bDO\s+UPDATE\b", (PROBE_FILE,)) == []
 
 
@@ -79,3 +93,16 @@ def test_the_guard_can_see_the_probe_file() -> None:
     probe = (REPO / "efp" / PROBE_FILE).read_text(encoding="utf-8")
     assert "INSERT OR REPLACE INTO rows" in probe
     assert Path(REPO / "efp" / "db.py").exists()
+
+
+def test_no_migration_drops_or_alters_the_protected_schema() -> None:
+    """A later migration must not undo the guarantees: no DROP TRIGGER, no DROP/ALTER of the
+    protected tables. (Adding indexes, new tables and new triggers is fine.)"""
+    offenders = []
+    for path in sorted((REPO / "migrations").glob("*.sql")):
+        text = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8"))
+        if re.search(r"\bDROP\s+TRIGGER\b", text, re.I):
+            offenders.append(f"{path.name}: DROP TRIGGER")
+        if re.search(rf"\b(DROP|ALTER)\s+TABLE\s+(IF\s+EXISTS\s+)?{PROTECTED}\b", text, re.I):
+            offenders.append(f"{path.name}: DROP/ALTER protected table")
+    assert offenders == []

@@ -26,6 +26,18 @@ _KEY_SHAPES = re.compile(
     r"xox[abprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"
 )
 _LONG_MIXED = re.compile(r"^[A-Za-z0-9_\-+/=]{28,}$")
+_SECRET_WORDS = r"token|key|pass|passwd|password|secret|credential|auth|sig|signature"  # noqa: S105  (regex words to match, not a password)
+# user:pass@host in a URL
+_URL_USERINFO = re.compile(r"(?<=://)[^/@\s]+@")
+# ?api_key=... &token=... in a URL or query string
+_QUERY_SECRET = re.compile(rf"(?i)([?&;])([\w.%-]*(?:{_SECRET_WORDS})[\w.%-]*)=([^&#\s]*)")
+# Header-shaped values: "Authorization: Bearer abc", "X-Api-Key: abc"
+_HEADER = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|x-api-key|api-key|x-auth-token|set-cookie|cookie)"
+    r"\s*[:=]\s*\S.*"
+)
+_BEARER = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}|\b(basic)\s+[A-Za-z0-9+/=]{16,}")
+_SHORT_SECRET_FLAGS = {"-p", "-P"}  # -p <password> in many tools; no efp flag uses them
 
 
 def _looks_like_secret(token: str) -> bool:
@@ -36,6 +48,14 @@ def _looks_like_secret(token: str) -> bool:
         has_alpha = any(c.isalpha() for c in token)
         return has_digit and has_alpha
     return False
+
+
+def _scrub(token: str) -> str:
+    """Remove credentials embedded in a URL, query string or header-shaped value."""
+    token = _URL_USERINFO.sub(f"{REDACTED}@", token)
+    token = _QUERY_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}={REDACTED}", token)
+    token = _HEADER.sub(lambda m: f"{m.group(1)}: {REDACTED}", token)
+    return _BEARER.sub(lambda m: f"{m.group(1) or m.group(2)} {REDACTED}", token)
 
 
 def redact_args(args: Sequence[str], secret_values: Iterable[str] = ()) -> list[str]:
@@ -51,13 +71,18 @@ def redact_args(args: Sequence[str], secret_values: Iterable[str] = ()) -> list[
         cleaned = arg
         for value in known:
             cleaned = cleaned.replace(value, REDACTED)
+        cleaned = _scrub(cleaned)
         if cleaned == arg:
             assignment = _SECRET_ASSIGNMENT.match(arg)
             if assignment:
                 cleaned = f"{assignment.group(1)}={REDACTED}"
             elif arg.startswith("-") and "=" in arg and _SECRET_FLAG.match(arg.split("=", 1)[0]):
                 cleaned = f"{arg.split('=', 1)[0]}={REDACTED}"
-            elif arg.startswith("-") and "=" not in arg and _SECRET_FLAG.match(arg):
+            elif (
+                arg.startswith("-")
+                and "=" not in arg
+                and (_SECRET_FLAG.match(arg) or arg in _SHORT_SECRET_FLAGS)
+            ):
                 redact_next = True
             elif _looks_like_secret(arg):
                 cleaned = REDACTED

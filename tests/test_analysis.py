@@ -90,3 +90,26 @@ def test_a_missing_extension_gives_instructions_not_a_download(
     monkeypatch.setattr(duckdb, "connect", lambda *_a, **_k: NoExtension())
     with pytest.raises(AnalysisError, match="INSTALL sqlite"):
         open_readonly(config)
+
+
+def test_duckdb_is_told_never_to_install_or_autoload_extensions(
+    conn: sqlite3.Connection, config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reproduces the review finding: with autoinstall on, LOAD downloads a missing extension."""
+    real_connect = duckdb.connect
+    seen: dict[str, object] = {}
+
+    def spy(database: str = ":memory:", *, config: dict[str, object] | None = None, **kw: object):
+        seen.update(config or {})
+        empty = tmp_path / "no_extensions"
+        empty.mkdir(exist_ok=True)
+        # An empty extension directory and no repository: a download would be needed to succeed.
+        merged = {**(config or {}), "extension_directory": str(empty)}
+        return real_connect(database, config=merged, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(duckdb, "connect", spy)
+    with pytest.raises(AnalysisError) as err:
+        open_readonly(config)
+    assert seen["autoinstall_known_extensions"] is False
+    assert seen["autoload_known_extensions"] is False
+    assert "Failed to install" not in str(err.value).split("Detail:")[0]

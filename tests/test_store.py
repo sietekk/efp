@@ -111,3 +111,30 @@ def test_tampering_is_detected(tmp_path: Path) -> None:
 def test_missing_body_is_reported(tmp_path: Path) -> None:
     with pytest.raises(StoreError, match="not found"):
         read_verified(tmp_path, DIGEST)
+
+
+def test_a_dangling_symlink_at_the_target_is_an_error_not_a_silent_success(tmp_path: Path) -> None:
+    target = store_path(DIGEST, tmp_path)
+    target.parent.mkdir(parents=True)
+    target.symlink_to(tmp_path / "nowhere")
+    with pytest.raises(StoreError, match="not a regular file"):
+        write_body(tmp_path, BODY)
+
+
+def test_a_symlink_to_valid_content_is_refused(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.write_bytes(BODY)
+    target = store_path(DIGEST, tmp_path)
+    target.parent.mkdir(parents=True)
+    target.symlink_to(real)
+    with pytest.raises(StoreError, match="not a regular file"):
+        write_body(tmp_path, BODY)
+
+
+def test_a_corrupt_existing_entry_is_reported_not_trusted(tmp_path: Path) -> None:
+    target = store_path(DIGEST, tmp_path)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"corrupt")
+    with pytest.raises(StoreError, match="does not match its hash"):
+        write_body(tmp_path, BODY)
+    assert target.read_bytes() == b"corrupt"  # never overwritten

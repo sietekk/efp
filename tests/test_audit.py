@@ -37,7 +37,7 @@ def test_start_then_finish_completes_the_row(config: Config) -> None:
     assert (row["command"], row["finished_at"], row["exit_code"]) == ("run court", None, None)
     assert json.loads(row["args_json"]) == ["run", "court", "--limit", "5"]
     assert row["config_sha256"] == "c" * 64
-    assert row["git_sha"]
+    assert len(row["git_sha"]) == 40  # the full SHA, not the short one
     assert audit.finish(config, audit_id, 2)
     row = _rows(config)[0]
     assert row["exit_code"] == 2 and row["finished_at"]

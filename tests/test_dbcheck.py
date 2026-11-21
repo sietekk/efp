@@ -24,7 +24,7 @@ runner = CliRunner()
 
 ALL_CHECKS = [
     "database file",
-    "pragmas (WAL, foreign_keys, recursive_triggers)",
+    "journal mode is WAL",
     "migrations match files",
     "tables present",
     "indexes present",
@@ -218,15 +218,42 @@ def test_triggers_that_do_not_fire_are_caught(conn: sqlite3.Connection, config: 
     assert not check.ok and "rows UPDATE" in check.detail
 
 
-def test_recursive_triggers_off_would_be_caught(conn: sqlite3.Connection, config: Config) -> None:
-    """The REPLACE probe: a database whose DELETE trigger is gone fails even if the name exists."""
+def test_a_neutered_delete_trigger_is_caught_and_replace_stays_blocked(
+    conn: sqlite3.Connection, config: Config
+) -> None:
     conn.execute("DROP TRIGGER rows_no_delete")
     conn.execute("CREATE TRIGGER rows_no_delete BEFORE DELETE ON rows BEGIN SELECT 1; END")
     conn.commit()
     check = _by_name(run_db_checks(config))["append-only triggers fire"]
-    assert (
-        not check.ok and "rows DELETE" in check.detail and "rows INSERT OR REPLACE" in check.detail
-    )
+    assert not check.ok and "rows DELETE" in check.detail
+    assert "REPLACE" not in check.detail, "the insert triggers still refuse REPLACE"
+
+
+def test_a_dropped_replace_trigger_is_caught_by_name(
+    conn: sqlite3.Connection, config: Config
+) -> None:
+    conn.execute("DROP TRIGGER captures_no_replace")
+    conn.commit()
+    checks = _by_name(run_db_checks(config))
+    assert not checks["triggers present"].ok
+    assert "captures_no_replace" in checks["triggers present"].detail
+
+
+def test_a_corrupt_database_is_a_failed_check_not_a_traceback(
+    config: Config, data_dir: Path
+) -> None:
+    data_dir.mkdir()
+    config.paths.database.write_bytes(b"this is not a sqlite database" * 100)
+    checks = run_db_checks(config)
+    assert not all(c.ok for c in checks)
+
+
+def test_empty_database_checks_say_there_was_nothing_to_verify(
+    conn: sqlite3.Connection, config: Config
+) -> None:
+    checks = _by_name(run_db_checks(config))
+    assert "nothing to verify" in checks["capture bodies exist and hash"].detail
+    assert "no rows yet" in checks["rows.row_sha256 well-formed"].detail
 
 
 def test_cli_selftest_db_passes_on_a_fresh_database(

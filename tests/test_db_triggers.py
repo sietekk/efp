@@ -81,22 +81,73 @@ def test_replace_and_upsert_are_rejected_on_every_append_only_table(
     )
 
 
-def test_recursive_triggers_is_what_closes_the_replace_hole(config: Config) -> None:
-    """Documents why db.connect() sets the pragma: with it off, REPLACE bypasses DELETE triggers."""
+@pytest.mark.parametrize("recursive", ["ON", "OFF"])
+def test_replace_is_rejected_whatever_the_recursive_triggers_setting(
+    config: Config, recursive: str
+) -> None:
+    """The insert triggers close the REPLACE hole independently of PRAGMA recursive_triggers."""
     conn = database.connect(config)
     insert_row(conn)
     conn.commit()
-    conn.execute("PRAGMA recursive_triggers = OFF")
-    conn.execute(
+    conn.execute(f"PRAGMA recursive_triggers = {recursive}")
+    _refused(
+        conn,
         "INSERT OR REPLACE INTO rows (row_id, year, state, name, in_scope, row_sha256, ingested_at) "
         "VALUES (1, 2011, 'NY', 'Replaced Person', 1, ?, ?)",
         (ZERO, STAMP),
     )
-    assert conn.execute("SELECT name FROM rows").fetchone() == ("Replaced Person",)
+    assert conn.execute("SELECT name FROM rows").fetchone() == ("Synthetic Person",)
     conn.close()
-    fresh = database.connect(config)
-    assert fresh.execute("PRAGMA recursive_triggers").fetchone()[0] == 1
-    fresh.close()
+
+
+def _raw(config: Config) -> sqlite3.Connection:
+    """A connection that did NOT go through efp.db.connect(): default pragmas, nothing set."""
+    return sqlite3.connect(config.paths.database)
+
+
+def test_a_raw_connection_cannot_replace_protected_rows(config: Config) -> None:
+    conn = database.connect(config)
+    insert_row(conn)
+    insert_capture(conn)
+    insert_decision(conn)
+    insert_audit(conn)
+    conn.commit()
+    conn.close()
+    raw = _raw(config)
+    assert raw.execute("PRAGMA recursive_triggers").fetchone()[0] == 0  # the premise
+    for sql in (
+        "REPLACE INTO rows (row_id, year, state, name, in_scope, row_sha256, ingested_at) "
+        f"VALUES (1, 1999, 'XX', 'CLIREPLACED', 1, '{ZERO}', '{STAMP}')",
+        "INSERT OR REPLACE INTO captures (capture_id, stage, url_requested, retrieved_at, "
+        f"content_sha256, body_path, tool, tool_version) VALUES (1, 'x', 'u', '{STAMP}', '{ZERO}', "
+        "'b', 't', '0')",
+        "INSERT OR REPLACE INTO decisions (decision_id, row_id, kind, outcome, decided_by, "
+        f"decided_at) VALUES (1, 1, 'review', 'REVERSED-IN-PLACE', 'XX', '{STAMP}')",
+        f"REPLACE INTO audit_log (audit_id, invoked_at, command, args_json) VALUES (1, '{STAMP}', "
+        "'x', '[]')",
+        "INSERT INTO rows (row_id, year, state, name, in_scope, row_sha256, ingested_at) "
+        f"VALUES (1, 1999, 'XX', 'DUPLICATE', 1, '{ZERO}', '{STAMP}')",
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match=APPEND_ONLY):
+            raw.execute(sql)
+    assert raw.execute("SELECT name FROM rows").fetchone() == ("Synthetic Person",)
+    assert raw.execute("SELECT outcome FROM decisions").fetchone() == ("confirmed",)
+    raw.close()
+
+
+def test_a_raw_connection_can_still_append_new_rows(config: Config) -> None:
+    conn = database.connect(config)
+    insert_row(conn)
+    conn.commit()
+    conn.close()
+    raw = _raw(config)
+    raw.execute(  # NULL key: SQLite assigns the next id, which must not trip the trigger
+        "INSERT INTO rows (year, state, name, in_scope, row_sha256, ingested_at) "
+        f"VALUES (2012, 'NY', 'Another Synthetic', 1, '{ZERO}', '{STAMP}')"
+    )
+    raw.commit()
+    assert raw.execute("SELECT count(*) FROM rows").fetchone() == (2,)
+    raw.close()
 
 
 def test_inserts_still_work(seeded: sqlite3.Connection) -> None:

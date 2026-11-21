@@ -23,7 +23,12 @@ def open_readonly(config: Config, *, alias: str = "pipeline") -> duckdb.DuckDBPy
         raise AnalysisError(f"database not found: {db_path}")
     if not alias.isidentifier():
         raise AnalysisError("alias must be a plain identifier")
-    conn = duckdb.connect(":memory:")
+    # DuckDB would otherwise download a known extension on LOAD (autoinstall). That is a network
+    # fetch outside the capture layer, so both are switched off.
+    conn = duckdb.connect(
+        ":memory:",
+        config={"autoinstall_known_extensions": False, "autoload_known_extensions": False},
+    )
     try:
         conn.execute("LOAD sqlite")
     except duckdb.Error as exc:

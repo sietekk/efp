@@ -59,3 +59,28 @@ def test_key_shapes_are_redacted(token: str) -> None:
 def test_short_ids_and_paths_are_not_mistaken_for_secrets() -> None:
     args = ["ingest", "/Users/someone/data/heritage-voter-fraud-map-search.xlsx", "20261027", "CT"]
     assert redact_args(args) == args
+
+
+def test_credentials_embedded_in_urls_are_removed() -> None:
+    assert redact_args(["selftest", "https://x/?token=NOTINENV99"]) == [
+        "selftest", f"https://x/?token={REDACTED}",
+    ]  # fmt: skip
+    url = "https://user:pw@host/p?a=1&api_key=zzz&b=2"  # pragma: allowlist secret
+    assert redact_args([url]) == [f"https://{REDACTED}@host/p?a=1&api_key={REDACTED}&b=2"]
+
+
+def test_header_shaped_values_are_removed() -> None:
+    assert redact_args(["Authorization: Bearer abc12345def"]) == [f"Authorization: {REDACTED}"]
+    assert redact_args(["X-Api-Key: abc"]) == [f"X-Api-Key: {REDACTED}"]
+    assert redact_args(["Bearer abcdefgh12345"]) == [f"Bearer {REDACTED}"]
+
+
+def test_dash_p_takes_a_secret_value() -> None:
+    assert redact_args(["run", "-p", "hunter2", "--limit", "5"]) == [
+        "run", "-p", REDACTED, "--limit", "5",
+    ]  # fmt: skip
+
+
+def test_ordinary_prose_is_left_alone() -> None:
+    args = ["--note", "basic information about the case", "--state", "CT"]
+    assert redact_args(args) == args

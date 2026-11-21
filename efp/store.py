@@ -61,6 +61,14 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _verify_existing(target: Path, digest: str) -> None:
+    """The file at ``target`` must be a regular file that hashes to its name (never a symlink)."""
+    if target.is_symlink() or not target.is_file():
+        raise StoreError(f"store entry is not a regular file: {digest[:12]}...")
+    if sha256_hex(target.read_bytes()) != digest:
+        raise StoreError(f"existing store entry does not match its hash: {digest[:12]}...")
+
+
 def write_body(store_root: Path, data: bytes) -> str:
     """Store ``data`` under its digest and return the digest. Idempotent; never overwrites.
 
@@ -69,7 +77,8 @@ def write_body(store_root: Path, data: bytes) -> str:
     """
     digest = sha256_hex(data)
     target = store_path(digest, store_root)
-    if target.exists():
+    if target.exists() or target.is_symlink():
+        _verify_existing(target, digest)
         return digest
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".tmp-")
@@ -83,6 +92,7 @@ def write_body(store_root: Path, data: bytes) -> str:
             os.link(tmp_name, target)
     finally:
         os.unlink(tmp_name)
+    _verify_existing(target, digest)
     return digest
 
 
