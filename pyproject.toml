@@ -43,6 +43,7 @@ dependencies = [
     "htmldate>=1.10",
     "gdeltdoc>=1.12",
     "mediacloud>=5.1",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +70,7 @@ dev = [
     "pre-commit",
     "detect-secrets",
     "types-requests",
+    "types-openpyxl>=3.1.5.20261017",
 ]
 
 [tool.uv]
