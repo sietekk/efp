@@ -32,6 +32,8 @@ year_to = 2025
 # The 50-row stratified sample is drawn in build 03 and frozen by hash; runs with --sample use it.
 sample_size = 50
 sample_seed = 20261027
+# Where `efp ingest` writes the frozen sample: row_id and row_sha256 only, no names. Repo-relative.
+sample_file = "tests/fixtures/sample_rows.json"
 
 [first_pass]
 # Flags that keep the first pass within docs/plan.md. Do not flip these without the operator.

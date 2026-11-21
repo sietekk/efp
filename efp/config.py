@@ -79,6 +79,7 @@ class Scope(_Section):
     year_to: int
     sample_size: int = Field(gt=0)
     sample_seed: int
+    sample_file: str  # repository-relative path of the frozen sample (row ids and hashes only)
 
 
 class FirstPass(_Section):
