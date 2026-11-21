@@ -56,7 +56,7 @@ def test_component_exposes_run_and_gate(name: str) -> None:
     assert callable(module.gate)
 
 
-@pytest.mark.parametrize("name", COMPONENTS)
+@pytest.mark.parametrize("name", [c for c in COMPONENTS if c != "ingest"])
 def test_component_stubs_raise_not_implemented(name: str, write_config: object) -> None:
     module = importlib.import_module(f"efp.{name}")
     with pytest.raises(NotImplementedError, match=name):
@@ -128,3 +128,12 @@ def test_shell_scripts_are_bash() -> None:
         lines = script.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "#!/usr/bin/env bash", script.name
         assert "set -euo pipefail" in lines, script.name
+
+
+def test_ingest_is_a_command_not_a_stage() -> None:
+    """Built in 03: the component interface stays, but there is no per-row stage work."""
+    import efp.ingest as ingest
+
+    assert ingest.gate(Row(row_id=1)) is True
+    assert ingest.run([], None) == []  # type: ignore[arg-type]
+    assert ingest.BUILD == "03"

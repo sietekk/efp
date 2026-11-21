@@ -12,9 +12,7 @@ runner = CliRunner()
 
 # command -> build that will implement it
 STUBS: dict[tuple[str, ...], str] = {
-    ("ingest", "book.xlsx"): "03",
     ("run", "court"): "04",
-    ("status",): "19",
     ("review", "court"): "04",
     ("import", "f.pdf", "--row", "1", "--source", "westlaw"): "14",
     ("identity", "explain", "1"): "12",
@@ -69,7 +67,7 @@ def test_version_prints_version_and_sha() -> None:
 
 def test_commands_work_without_any_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EFP_CONFIG", str(tmp_path / "missing.toml"))
-    result = runner.invoke(app, ["status"])
+    result = runner.invoke(app, ["review", "court"])
     assert result.exit_code == 2
     assert "not built yet" in result.output
 

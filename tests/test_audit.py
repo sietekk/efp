@@ -35,7 +35,10 @@ def test_start_then_finish_completes_the_row(config: Config) -> None:
     assert audit_id is not None
     row = _rows(config)[0]
     assert (row["command"], row["finished_at"], row["exit_code"]) == ("run court", None, None)
-    assert json.loads(row["args_json"]) == ["run", "court", "--limit", "5"]
+    assert json.loads(row["args_json"]) == {
+        "argv": ["run", "court", "--limit", "5"],
+        "population": "all",
+    }
     assert row["config_sha256"] == "c" * 64
     assert len(row["git_sha"]) == 40  # the full SHA, not the short one
     assert audit.finish(config, audit_id, 2)
@@ -85,7 +88,7 @@ def test_arguments_are_redacted_before_storage(config: Config) -> None:
         "sk-ant-api03-abcdefghijklmnop",
     ):  # pragma: allowlist secret
         assert value not in stored
-    assert json.loads(row["args_json"])[-2:] == ["--limit", "5"]
+    assert json.loads(row["args_json"])["argv"][-2:] == ["--limit", "5"]
 
 
 def test_every_cli_invocation_is_recorded(
@@ -93,13 +96,18 @@ def test_every_cli_invocation_is_recorded(
 ) -> None:
     database.migrate(config)
     monkeypatch.setenv("EFP_CONFIG", str(write_config()))
-    for argv, code in ((["run", "court"], 2), (["status"], 2), (["run"], 2), (["selftest"], 0)):
+    for argv, code in (
+        (["run", "court"], 2),
+        (["review", "court"], 2),
+        (["run"], 2),
+        (["selftest"], 0),
+    ):
         monkeypatch.setattr(sys, "argv", ["efp", *argv])
         assert runner.invoke(app, argv).exit_code == code
     rows = _rows(config)
     assert [(r["command"], r["exit_code"]) for r in rows] == [
         ("run court", 2),
-        ("status", 2),
+        ("review court", 2),
         ("run", 2),  # usage error: missing STAGE
         ("selftest", 0),
     ]
@@ -115,7 +123,9 @@ def test_the_invocation_that_creates_the_database_is_recorded(
     monkeypatch.setattr(sys, "argv", ["efp", "db", "migrate"])
     result = runner.invoke(app, ["db", "migrate"])
     assert result.exit_code == 0, result.output
-    assert "applied: 0001_core, 0002_supporting, 0003_triggers" in result.output
+    assert (
+        "applied: 0001_core, 0002_supporting, 0003_triggers, 0004_source_workbook" in result.output
+    )
     rows = _rows(config)
     assert [(r["command"], r["exit_code"]) for r in rows] == [("db migrate", 0)]
 
