@@ -1,0 +1,152 @@
+# efp configuration. Copy to config.toml (committed; it holds no secrets).
+# Secrets are read from ~/.config/efp/.env only. Every key here is documented;
+# a build may add keys but must document them in this file in the same PR.
+
+[project]
+name = "efp"
+user_agent = "efp-research/0.1 (University of New Haven, National Security; contact: mconr5@unh.newhaven.edu"
+contact = "mconr5@unh.newhaven.edu"
+
+[paths]
+# Everything the pipeline writes lives under data_dir, outside the repository, on an encrypted volume.
+data_dir = "~/efp-data"
+source_workbook = "~/efp-data/source/heritage-voter-fraud-map-search-20260406150111.xlsx"
+database = "~/efp-data/pipeline.db"
+store = "~/efp-data/store"
+bulk = "~/efp-data/bulk"
+manifests = "~/efp-data/manifests"
+bags = "~/efp-data/bags"
+logs = "~/efp-data/logs"
+exports = "~/efp-data/exports"
+import_inbox = "~/efp-data/import"
+env_file = "~/.config/efp/.env"
+
+[scope]
+# "all" = every row with year 2000-2025 (first-pass default; decision 2 is unanswered).
+# "convictions" = criminal convictions only. Changing this changes the export filter, not the research.
+population = "all"
+year_from = 2000
+year_to = 2025
+# The 50-row stratified sample is drawn in build 03 and frozen by hash; runs with --sample
+sample_size = 50
+sample_seed = 20261027
+
+[first_pass]
+# Flags that keep the first pass within docs/plan.md. Do not flip these without the operator.
+online_only = true
+social_enabled = true             # D10 runs in the first pass; the gate also requires [irb].cleared
+voter_file_enrichment = false     # NC and OH direct downloads only if decision 6 is answered yes
+people_search_enabled = false     # never true; present so the audit log can prove it was off
+google_search_enabled = false     # optional discovery for pre-2017 coverage; capped below
+
+[rate_limits]
+# Requests per second per domain: 80% of the published limit, or 1 request per 2 seconds where none is published (spec section 10).
+default_rps = 0.5
+"www.justice.gov" = 3.0           # DOJ: published < 4/s
+"www.courtlistener.com" = 0.8     # REST quota is per day (125 default); the daily cap is below
+"web.archive.org" = 0.5           # polite: CDX and Availability
+"api.gdeltproject.org" = 0.2      # about one request per 5 seconds
+"api.open.fec.gov" = 0.25         # 1,000 requests per hour
+"ballotpedia.org" = 0.2           # low rate, read only
+honor_robots_txt = true
+retry_attempts = 3
+retry_backoff_seconds = 5
+
+[rate_limits.daily_caps]
+"www.courtlistener.com" = 100     # 80% of the 125/day default quota
+
+[capture]
+timeout_seconds = 10
+max_redirects = 10
+robots_cache_hours = 24
+spn_per_minute = 5
+tsa_urls = ["http://timestamp.digicert.com", "http://freetsa.org/tsr"]
+
+[runner]
+batch_size = 50
+max_attempts_per_stage = 3
+# Stages in the first pass, in predecessor order; export is a command, not a stage.
+stages = ["resolve_links", "court", "identity", "documents", "news", "social", "extract", "code"]
+
+# Module chains per stage (build 04). Order matters; policy is first_hit | all | first_available | ladder.
+# A module that is unavailable (no key, gated, tool missing, no labels yet) is skipped with its reason recorded.
+[stages.resolve_links]
+modules = ["resolve.live", "resolve.bitly_info", "resolve.wayback_short", "resolve.wayback_target", "resolve.commoncrawl"]
+policy = "first_hit"
+
+[stages.court]
+modules = ["court.doj", "court.pin_reports", "court.state_ag", "court.courtlistener_bulk", "court.courtlistener_api", "court.recap", "court.state_docket"]
+policy = "first_hit"
+
+[stages.documents]
+modules = ["documents.pdfplumber", "documents.docling", "documents.ocrmypdf", "documents.paddleocr", "documents.claude_transcribe"]
+policy = "ladder"
+
+[stages.identity]
+candidate_modules = ["identity.cand.court", "identity.cand.dime", "identity.cand.fec", "identity.cand.ftm", "identity.cand.harvard_local", "identity.cand.legislators", "identity.cand.voter_file"]
+candidate_policy = "all"
+parameter_modules = ["identity.params.labeled_pairs", "identity.params.published_priors"]
+parameter_policy = "first_available"
+
+[stages.news]
+modules = ["news.gdelt", "news.mediacloud", "news.wayback_outlets", "news.google_cse"]
+policy = "all"
+
+[stages.import]
+modules = ["import.pdf", "import.saved_html", "import.hunchly"]
+policy = "first_available"
+
+[stages.social]
+enumerate_modules = ["social.enumerate.naminter", "social.enumerate.maigret"]
+enumerate_policy = "all"
+retrieve_modules = ["social.retrieve.bluesky", "social.retrieve.reddit_r4r", "social.retrieve.meta_content_library", "social.retrieve.x_api"]
+retrieve_policy = "all"           # the last three are gated (applications or paid) and report themselves unavailable
+allowlist_path = "allowlist.json"
+
+[stages.extract]
+modules = ["extract.langextract", "extract.instructor", "extract.anthropic_citations"]
+policy = "first_available"
+require_sample_approval = false   # true = hold the volume run until `efp run extract --approve-volume`
+
+[stages.archive]
+modules = ["archive.spn", "archive.perma", "archive.autoarchiver"]
+policy = "all"
+
+[stages.validate]
+label_modules = ["validate.labels.gold_set", "validate.labels.sample_tally", "validate.labels.none"]
+label_policy = "first_available"
+
+[irb]
+# The human-subjects determination that permits the social stage. Fill every field; the stage is unavailable until cleared = true.
+cleared = true
+determination = "approved"               # e.g. "exempt" or "approved", in the IRB's own words
+date = "2026-10-10"                        # YYYY-MM-DD
+reference = "test"                   # protocol or determination number
+scope_notes = "test"                 # any conditions attached: public posts only, retention limits, no contact with subjects
+
+[identity]
+confirm_threshold = 0.99
+review_threshold = 0.90
+labeled_pairs_required = 150      # the operator labels these in `efp review` before thresholds are set
+audit_sample = 50                 # the F3 false-confirmation audit
+
+[documents]
+ocr_quality_threshold = 0.85      # pages below this are review-flagged and never reach extraction unflagged
+llm_transcription_fallback = true   # Claude transcribes a page only when both OCR paths fail; counts against the budget
+
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-5"         # Sonnet-class for extraction; confirm the current id in build 01; logged per call with the prompt hash
+transcription_model = "claude-sonnet-5"   # OCR fallback on page images; few pages, same tier
+temperature = 0.0
+max_monthly_usd = 150.0           # the run stops at this cap
+sample_runs = 3                   # three runs on the sample, disagreement flagged
+
+[search]
+google_cse_daily_cap = 100        # the free tier; set to 0 to disable
+
+[export]
+provisional_prefix = "prov_"      # new columns are appended under this prefix until the build 21 review lifts it
+redacted_csv = true
+# Decision 3: how Partisan Direction maps onto the Ideological Motivation dropdown. Export-time rule; change it and re-export.
+independent_means = "unaffiliated"   # one of: unaffiliated | centrist | nonpartisan_direction
