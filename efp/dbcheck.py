@@ -41,6 +41,7 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "gold_set",
     "state_adapters",
     "audit_log",
+    "source_workbook",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -83,6 +84,9 @@ EXPECTED_TRIGGERS: tuple[str, ...] = (
     "captures_no_replace",
     "decisions_no_replace",
     "audit_log_no_replace",
+    "source_workbook_no_update",
+    "source_workbook_no_delete",
+    "source_workbook_no_replace",
 )
 
 # Orphan captures (no rows parent) are allowed only for these stages.
@@ -204,6 +208,24 @@ def _check_triggers_fire(conn: sqlite3.Connection) -> DbCheck:
             "VALUES (-1, ?, 'selftest', '[]')",
             (stamp,),
         )
+        if conn.execute("SELECT 1 FROM source_workbook").fetchone() is None:
+            conn.execute(
+                "INSERT INTO source_workbook (workbook_id, sha256, filename, sheet_name, "
+                "header_row, data_rows, year_from, year_to, ingested_at) "
+                "VALUES (1, ?, 'selftest.xlsx', 'Sheet', 1, 0, 2000, 2025, ?)",
+                (zero, stamp),
+            )
+        attempts += [
+            ("source_workbook UPDATE", "UPDATE source_workbook SET sha256 = 'x'", ()),
+            ("source_workbook DELETE", "DELETE FROM source_workbook", ()),
+            (
+                "source_workbook INSERT OR REPLACE",
+                "INSERT OR REPLACE INTO source_workbook (workbook_id, sha256, filename, "
+                "sheet_name, header_row, data_rows, year_from, year_to, ingested_at) "
+                "VALUES (1, 'x', 'x', 'x', 1, 0, 2000, 2025, ?)",
+                (stamp,),
+            ),
+        ]
         for label, sql, params in attempts:
             (refused if _try_write(conn, sql, params) else failed).append(label)
         # The completion write is allowed exactly once.
@@ -275,6 +297,33 @@ def _check_bodies(conn: sqlite3.Connection, config: Config) -> DbCheck:
     return DbCheck("capture bodies exist and hash", True, f"{scope} verified")
 
 
+def _check_workbook_hashes(conn: sqlite3.Connection, config: Config) -> DbCheck:
+    """Recompute every row hash from the source workbook and compare with ``rows``."""
+    from efp.ingest.loader import sha256_file
+    from efp.ingest.reader import WorkbookError, read_workbook
+
+    name = "rows.row_sha256 matches the source workbook"
+    record = conn.execute("SELECT sha256 FROM source_workbook").fetchone()
+    if record is None:
+        return DbCheck(name, True, "no workbook ingested yet (nothing to verify)")
+    path = config.paths.source_workbook
+    if not path.is_file():
+        return DbCheck(name, True, f"skipped: the workbook is not at {path} (not an error)")
+    if sha256_file(path) != record[0]:
+        return DbCheck(
+            name, False, "the file at paths.source_workbook is not the workbook that was ingested"
+        )
+    try:
+        fresh = {r.row_id: r.sha256 for r in read_workbook(path).rows}
+    except WorkbookError as exc:
+        return DbCheck(name, False, f"workbook no longer reads cleanly: {exc}")
+    stored = dict(conn.execute("SELECT row_id, row_sha256 FROM rows"))
+    bad = sorted(i for i in set(fresh) | set(stored) if fresh.get(i) != stored.get(i))
+    if bad:
+        return DbCheck(name, False, f"{len(bad)} row(s) differ, first row_id(s): {bad[:5]}")
+    return DbCheck(name, True, f"all {len(stored):,} rows recomputed from the workbook and match")
+
+
 def run_db_checks(config: Config) -> list[DbCheck]:
     """Run every database check. A missing database is one failing check; nothing is created."""
     path = config.paths.database
@@ -310,9 +359,9 @@ def run_db_checks(config: Config) -> list[DbCheck]:
                     f"missing: {', '.join(missing)}" if missing else f"{len(expected)} found",
                 )
             )
-        if all(t in tables for t in ("rows", "captures", "decisions", "audit_log")) and all(
-            t in triggers for t in EXPECTED_TRIGGERS
-        ):
+        if all(
+            t in tables for t in ("rows", "captures", "decisions", "audit_log", "source_workbook")
+        ) and all(t in triggers for t in EXPECTED_TRIGGERS):
             checks.append(_check_triggers_fire(conn))
             checks.append(_check_bodies(conn, config))
             orphans = [
@@ -356,6 +405,7 @@ def run_db_checks(config: Config) -> list[DbCheck]:
             else:
                 hash_detail = "no rows yet (nothing to verify)"
             checks.append(DbCheck("rows.row_sha256 well-formed", not bad_hash, hash_detail))
+            checks.append(_check_workbook_hashes(conn, config))
         else:
             checks.append(
                 DbCheck(
