@@ -86,9 +86,13 @@ packages = ["efp"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
@@ -105,5 +109,6 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["live: hits real external services; never run in CI"]
 addopts = "-m 'not live' --cov=efp --cov-report=term-missing"

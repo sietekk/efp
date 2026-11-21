@@ -1,0 +1,24 @@
+# Local hooks: tool versions come from uv.lock, so there is no separate fetch.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types: [python]
+      - id: detect-secrets
+        name: detect-secrets (secret scanner)
+        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        exclude: ^uv\.lock$
+      - id: no-data-paths
+        name: no data or secrets paths in code, tests, workflows
+        entry: bash scripts/check-no-data-paths.sh
+        language: system
+        files: ^(efp|tests|scripts|\.github)/
