@@ -1,0 +1,46 @@
+# Secrets and data never enter the repository. The real locations are
+# ~/.config/efp/.env and ~/efp-data/ (see CLAUDE.md). These patterns are a
+# second line of defense in case something is copied in by mistake.
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+efp-data/
+store/
+bulk/
+bags/
+manifests/
+*.warc
+*.warc.gz
+*.wacz
+*.xlsx
+!tests/fixtures/*.xlsx
+*.pdf
+!tests/fixtures/*.pdf
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local settings (the shared settings file, if any, is committed)
+.claude/settings.local.json

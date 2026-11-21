@@ -1,0 +1,30 @@
+{
+  "model": "opusplan",
+  "permissions": {
+    "allow": [
+      "Bash(uv sync*)",
+      "Bash(uv run pytest*)",
+      "Bash(uv run ruff*)",
+      "Bash(uv run mypy*)",
+      "Bash(uv run efp *)",
+      "Bash(uv add *)",
+      "Bash(uv lock*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout -b build/*)",
+      "Bash(git push -u origin build/*)",
+      "Bash(gh pr create *)",
+      "Bash(pre-commit run*)"
+    ],
+    "deny": [
+      "Read(~/.config/efp/**)",
+      "Read(~/efp-data/source/**)",
+      "Bash(git push --force*)",
+      "Bash(git push origin main*)",
+      "Bash(rm -rf ~/efp-data*)"
+    ]
+  }
+}

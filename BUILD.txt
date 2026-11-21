@@ -1,0 +1,157 @@
+EFP BUILD INSTRUCTIONS (copy/paste, in order)
+Repo folder: ~/Documents/UNH/Fall 2026 Research/dev/efp
+Reasons and background: RUNBOOK.md. Prompt order and models: build/README.md.
+Environment: uv manages Python 3.12 and the virtualenv (.venv in the repo); nothing else to install for Python.
+Shell: bash. Every command below is bash; macOS Terminal reads ~/.bash_profile for login shells.
+
+==================================================================
+0. ONE-TIME TOOLS
+==================================================================
+
+brew install uv gh tesseract ghostscript qpdf
+
+# Claude Code
+curl -fsSL https://claude.ai/install.sh | bash
+claude --version
+
+# Only if `claude` or `uv` is not found afterwards (the installers put binaries in ~/.local/bin):
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
+source ~/.bash_profile
+
+# Sign-ins (each once)
+gh auth login
+claude            # then type /login, then /exit
+
+==================================================================
+1. TURN THE KIT FOLDER INTO THE REPOSITORY
+==================================================================
+
+cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+git init -b main
+git add -A
+git commit -m "Kit: plan, spec, build prompts, CLAUDE.md"
+gh repo create efp --private --source=. --push
+
+# Branch protection (pull requests only onto main). Needs a paid GitHub plan for a private repo;
+# if the command is refused, skip it. The workflow (Claude Code opens PRs, you merge) does not depend on it.
+gh api -X PUT repos/{owner}/efp/branches/main/protection --input - <<'EOF'
+{"required_status_checks":null,"enforce_admins":false,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null}
+EOF
+
+==================================================================
+2. DATA FOLDER AND SECRETS (OUTSIDE THE REPO)
+==================================================================
+
+# FileVault must be on: System Settings > Privacy & Security > FileVault
+mkdir -p ~/efp-data/{source,store,manifests,bags,bulk,exports,logs,import} ~/.config/efp
+chmod 700 ~/.config/efp
+cp .env.example ~/.config/efp/.env
+chmod 600 ~/.config/efp/.env
+
+# The Heritage workbook, byte for byte, plus its hash. Edit the path first.
+cp "/PATH/TO/heritage-voter-fraud-map-search-20260406150111.xlsx" ~/efp-data/source/
+( cd ~/efp-data/source && shasum -a 256 *.xlsx > MANIFEST.txt && cat MANIFEST.txt )
+
+==================================================================
+3. KEYS (ALL SELF-SERVE). PASTE EACH INTO ~/.config/efp/.env
+==================================================================
+
+open -e ~/.config/efp/.env
+
+#  COURTLISTENER_TOKEN            https://www.courtlistener.com  -> account -> profile -> API token
+#  FEC_API_KEY, CONGRESS_API_KEY  https://api.data.gov/signup   (one key; paste into both lines)
+#  OPENSTATES_KEY                 https://open.pluralpolicy.com  -> account -> API key
+#  IA_ACCESS, IA_SECRET           https://archive.org/account/s3.php
+#  MEDIACLOUD_KEY                 https://search.mediacloud.org  -> sign up -> profile -> API token
+#  ANTHROPIC_API_KEY              https://console.anthropic.com  -> API keys
+#  GOOGLE_CSE_KEY, GOOGLE_CSE_ID  optional; https://programmablesearchengine.google.com + a Google Cloud API key
+#  PACER_USER, PACER_PASS, PERMA_API_KEY   leave blank (gated in the first pass)
+
+==================================================================
+4. CONFIG (COMMITTED, NO SECRETS)
+==================================================================
+
+cp config.example.toml config.toml
+open -e config.toml
+#  - replace YOUR-UNH-ADDRESS (two places) with your UNH email
+#  - fill [irb]: cleared = true, determination, date, reference, scope_notes
+#  - confirm [llm].model is the current Sonnet-class id
+git add config.toml
+git commit -m "Config: contact, IRB determination, model"
+git push
+
+==================================================================
+5. THE THREE DOCUMENTS STILL TO EXPORT INTO docs/
+==================================================================
+
+# Open each artifact, export as Markdown, save to the path shown, then commit.
+#  docs/tasks.md          <- Election Fraud Pipeline Task List   https://claude.ai/artifact/EkuRo8Njb2LFCgaqXUDtFD
+#  docs/research-plan.md  <- Research Plan, main tab              https://claude.ai/artifact/DCgdMWZKAheQMYTpkE6w26
+#  docs/tool-register.md  <- Research Plan, "Tool register" tab   (same artifact)
+git add docs/tasks.md docs/research-plan.md docs/tool-register.md
+git commit -m "Docs: task list, research plan, tool register"
+git push
+
+==================================================================
+6. FIRST BUILD
+==================================================================
+
+cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+git checkout main && git pull
+claude --permission-mode plan
+
+# In Claude Code: paste the whole of build/01-scaffold.md as the first message.
+# Read the proposal. Approve it (or redirect). It creates pyproject.toml and uv.lock, builds on
+# branch build/01-scaffold, writes reports/01-scaffold.md, and opens a PR.
+
+==================================================================
+7. EVERY LATER BUILD
+==================================================================
+
+cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+git checkout main && git pull
+uv sync
+
+# Launch with the model the index assigns (build/README.md, Model column):
+claude --permission-mode plan                   # 01 03 06 07 09 10 13 17 19 20 21   (opusplan: Opus plans, Sonnet builds)
+claude --model opus --permission-mode plan      # 02 04 05 12 15 16 18              (contract-critical)
+claude --model sonnet --permission-mode plan    # 08 11 14                           (many similar modules)
+
+# Then paste build/NN-<name>.md. Order: 01 02 03 04 | 05 06 | 07 08 09 | 10 11 | 12 | 13 14 15 | 16 17 18 | 19 20 | 21
+# If the previous PR is not merged yet, Claude Code stacks on its branch and says so. Merge in order.
+
+==================================================================
+8. YOUR REVIEW LOOP (AFTER EACH BUILD)
+==================================================================
+
+cat reports/NN-<name>.md
+uv run efp status
+uv run efp modules                              # which sources ran, which were skipped and why
+uv run efp review <stage> --sample 10           # ten random rows with their captures
+gh pr list
+gh pr merge <number> --merge --delete-branch
+
+==================================================================
+9. LONG RUNS (DETACHED) AND LOGS
+==================================================================
+
+# Ask Claude Code to start long stages this way, or do it yourself:
+nohup uv run efp run resolve_links > ~/efp-data/logs/resolve_links.log 2>&1 &
+tail -f ~/efp-data/logs/resolve_links.log
+uv run efp status
+
+==================================================================
+10. YOUR INPUTS THAT REFINE RESULTS (NOTHING WAITS FOR THEM)
+==================================================================
+
+uv run efp review identity --label              # 150 pairs; then: uv run efp identity refit
+open -e reports/first-pass/sample_tally.md      # 50-row extraction tally; then: uv run efp validate
+uv run efp gold code --coder A                  # gold set, when a second coder is available
+uv run efp review qa                            # the 100-row QA review (build 21); then the fix cycle re-runs
+
+==================================================================
+11. RESET
+==================================================================
+
+uv run efp run <stage> --reset                  # re-run a stage from stored captures (no re-fetch)
+rm ~/efp-data/pipeline.db && uv run efp ingest ~/efp-data/source/*.xlsx   # start over; the store is kept
