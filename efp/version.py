@@ -21,13 +21,13 @@ def repo_root() -> Path | None:
     return candidate if (candidate / "pyproject.toml").is_file() else None
 
 
-def git_sha() -> str:
+def git_sha(*, full: bool = False) -> str:
     root = repo_root()
     if root is None:
         return "unknown"
     try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607
+        out = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", *([] if full else ["--short"]), "HEAD"],  # noqa: S607
             cwd=root,
             capture_output=True,
             text=True,

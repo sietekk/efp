@@ -7,8 +7,10 @@ invocation records an ``audit_log`` row on exit once build 02 creates the table.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import sys
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -17,7 +19,9 @@ from typing import NoReturn
 import typer
 
 from efp import audit
+from efp import db as database
 from efp.config import Config, ConfigError, find_config, load_config
+from efp.dbcheck import run_db_checks
 from efp.logging import register_secret_values, setup_logging
 from efp.secrets import SecretsError, load_secrets
 from efp.selftest import run_checks
@@ -31,12 +35,22 @@ app = typer.Typer(
 )
 identity_app = typer.Typer(help="Identity resolution tools.", no_args_is_help=True)
 app.add_typer(identity_app, name="identity")
+db_app = typer.Typer(help="Database administration.", no_args_is_help=True)
+app.add_typer(db_app, name="db")
+
+
+def _no_audit() -> int | None:
+    return None
 
 
 @dataclass
 class AppState:
     config: Config | None
     config_error: str | None
+    audit_id: int | None = None
+    # Writes this invocation's audit row. A command that creates the database calls it again
+    # afterwards, so the invocation that makes the database is recorded too.
+    start_audit: Callable[[], int | None] = field(default=_no_audit)
 
 
 class LicensedSource(StrEnum):
@@ -95,7 +109,8 @@ def main(
     except ConfigError as exc:
         config_error = str(exc)
     config_sha256 = _file_sha256(find_config()) if config is not None else None
-    ctx.obj = AppState(config=config, config_error=config_error)
+    state = AppState(config=config, config_error=config_error)
+    ctx.obj = state
 
     secret_values: list[str] = []
     if config is not None:
@@ -106,17 +121,22 @@ def main(
     setup_logging(config, secret_values)
     register_secret_values(secret_values)
 
-    def _record() -> None:
-        if config is not None:
-            audit.record(
-                config,
-                argv,
-                started,
-                _exit_code_from_exception(sys.exception()),
-                config_sha256=config_sha256,
+    if config is not None:
+        audited = config
+
+        def _start() -> int | None:
+            return audit.start(
+                audited, argv, started, config_sha256=config_sha256, secret_values=secret_values
             )
 
-    ctx.call_on_close(_record)
+        state.start_audit = _start
+        state.audit_id = _start()
+
+    def _finish() -> None:
+        if config is not None:
+            audit.finish(config, state.audit_id, _exit_code_from_exception(sys.exception()))
+
+    ctx.call_on_close(_finish)
 
 
 def _not_built(build: str) -> NoReturn:
@@ -200,13 +220,51 @@ def manifest(
     _not_built("20")
 
 
+@db_app.command("migrate")
+def db_migrate(ctx: typer.Context) -> None:
+    """Create the database if needed and apply pending migrations."""
+    state: AppState = ctx.obj
+    if state.config is None:
+        typer.echo(f"configuration error: {state.config_error}", err=True)
+        raise typer.Exit(1)
+    try:
+        applied = database.migrate(state.config)
+    except (database.DatabaseError, database.MigrationError, sqlite3.Error) as exc:
+        typer.echo(f"migrate failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    if state.audit_id is None:
+        state.audit_id = state.start_audit()
+    if applied:
+        typer.echo("applied: " + ", ".join(f"{m.id:04d}_{m.name}" for m in applied))
+    else:
+        typer.echo("up to date: no unapplied migrations")
+
+
 @app.command()
 def selftest(
     ctx: typer.Context,
     strict: bool = typer.Option(False, "--strict", help="Exit 1 if any required item is missing."),
+    db: bool = typer.Option(
+        False, "--db", help="Check the database instead: migrations, triggers, bodies, keys."
+    ),
 ) -> None:
     """Report versions, secrets present (names only), data directory, env file and extras."""
     state: AppState = ctx.obj
+    if db:
+        if state.config is None:
+            typer.echo(f"configuration error: {state.config_error}", err=True)
+            raise typer.Exit(1)
+        db_checks = run_db_checks(state.config)
+        db_width = max(len(c.name) for c in db_checks)
+        for check in db_checks:
+            typer.echo(
+                f"[{'ok    ' if check.ok else 'FAILED'}] {check.name:<{db_width}}  {check.detail}"
+            )
+        failed = [c for c in db_checks if not c.ok]
+        typer.echo(f"\n{len(db_checks)} check(s) run, {len(failed)} failed")
+        if failed:
+            raise typer.Exit(1)
+        return
     checks = run_checks(state.config, state.config_error)
     width = max(len(c.name) for c in checks)
     for c in checks:
