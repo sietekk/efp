@@ -1,0 +1,60 @@
+# CircleCI pipeline for efp. Mirrors .github/workflows/ci.yml step for step:
+# no secrets, no data directory, no live-network tests (the `live` pytest marker is never run in CI).
+version: 2.1
+
+executors:
+  python:
+    docker:
+      - image: cimg/python:3.12
+    resource_class: medium
+
+jobs:
+  checks:
+    executor: python
+    environment:
+      UV_VERSION: "0.13.9"            # same pin as setup-uv in the GitHub Actions workflow
+      UV_CACHE_DIR: /home/circleci/.cache/uv
+      UV_LINK_MODE: copy
+    steps:
+      - checkout
+      - run:
+          name: Install uv
+          command: |
+            curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$BASH_ENV"
+      - restore_cache:
+          keys:
+            - uv-v1-{{ checksum "uv.lock" }}
+            - uv-v1-
+      - run:
+          name: Python 3.12 and locked dependencies
+          command: |
+            uv python install 3.12
+            uv sync --locked
+      - save_cache:
+          key: uv-v1-{{ checksum "uv.lock" }}
+          paths:
+            - /home/circleci/.cache/uv
+      - run:
+          name: ruff
+          command: |
+            uv run ruff check .
+            uv run ruff format --check .
+      - run:
+          name: mypy
+          command: uv run mypy efp
+      - run:
+          name: pytest (not live)
+          command: uv run pytest -m "not live" --junitxml=test-results/pytest/junit.xml
+      - store_test_results:
+          path: test-results
+      - run:
+          name: Fresh-clone checks (no data directory present)
+          command: |
+            uv run efp --version
+            uv run efp selftest
+
+workflows:
+  ci:
+    jobs:
+      - checks

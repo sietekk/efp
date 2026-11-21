@@ -1,0 +1,136 @@
+# Synthetic, complete configuration for tests. __DATA__ and __ENV__ are replaced by conftest.
+[project]
+name = "efp"
+user_agent = "efp-test/0.0 (Test University; contact: test@example.invalid)"
+contact = "test@example.invalid"
+
+[paths]
+data_dir = "__DATA__"
+source_workbook = "__DATA__/source/test.xlsx"
+database = "__DATA__/pipeline.db"
+store = "__DATA__/store"
+bulk = "__DATA__/bulk"
+manifests = "__DATA__/manifests"
+bags = "__DATA__/bags"
+logs = "__DATA__/logs"
+exports = "__DATA__/exports"
+import_inbox = "__DATA__/import"
+env_file = "__ENV__"
+
+[scope]
+population = "all"
+year_from = 2000
+year_to = 2025
+sample_size = 50
+sample_seed = 1
+
+[first_pass]
+online_only = true
+social_enabled = false
+voter_file_enrichment = false
+people_search_enabled = false
+google_search_enabled = false
+
+[rate_limits]
+default_rps = 0.5
+"example.test" = 1.0
+honor_robots_txt = true
+retry_attempts = 3
+retry_backoff_seconds = 5
+
+[rate_limits.daily_caps]
+"example.test" = 10
+
+[capture]
+timeout_seconds = 10
+max_redirects = 10
+robots_cache_hours = 24
+spn_per_minute = 5
+tsa_urls = ["http://tsa.example.test"]
+
+[runner]
+batch_size = 50
+max_attempts_per_stage = 3
+stages = ["resolve_links", "court"]
+
+[stages.resolve_links]
+modules = ["resolve.live"]
+policy = "first_hit"
+
+[stages.court]
+modules = ["court.doj"]
+policy = "first_hit"
+
+[stages.documents]
+modules = ["documents.pdfplumber"]
+policy = "ladder"
+
+[stages.identity]
+candidate_modules = ["identity.cand.court"]
+candidate_policy = "all"
+parameter_modules = ["identity.params.published_priors"]
+parameter_policy = "first_available"
+
+[stages.news]
+modules = ["news.gdelt"]
+policy = "all"
+
+[stages.import]
+modules = ["import.pdf"]
+policy = "first_available"
+
+[stages.social]
+enumerate_modules = ["social.enumerate.naminter"]
+enumerate_policy = "all"
+retrieve_modules = ["social.retrieve.bluesky"]
+retrieve_policy = "all"
+allowlist_path = "allowlist.json"
+
+[stages.extract]
+modules = ["extract.langextract"]
+policy = "first_available"
+require_sample_approval = false
+
+[stages.archive]
+modules = ["archive.spn"]
+policy = "all"
+
+[stages.validate]
+label_modules = ["validate.labels.none"]
+label_policy = "first_available"
+
+[irb]
+cleared = false
+determination = ""
+date = ""
+reference = ""
+scope_notes = ""
+
+[identity]
+confirm_threshold = 0.99
+review_threshold = 0.90
+labeled_pairs_required = 150
+audit_sample = 50
+
+[documents]
+ocr_quality_threshold = 0.85
+llm_transcription_fallback = true
+
+[llm]
+provider = "anthropic"
+model = "test-model"
+transcription_model = "test-model"
+temperature = 0.0
+max_monthly_usd = 1.0
+sample_runs = 3
+
+[search]
+google_cse_daily_cap = 0
+
+[export]
+provisional_prefix = "prov_"
+redacted_csv = true
+independent_means = "unaffiliated"
+
+[logging]
+level = "INFO"

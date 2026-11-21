@@ -34,7 +34,6 @@ __pycache__/
 .coverage
 htmlcov/
 dist/
-build/
 
 # Editors and OS
 .DS_Store
