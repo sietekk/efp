@@ -26,11 +26,27 @@ refused (`MigrationError`). To change the schema add `0004_*.sql`; never edit an
 | `case_stage` | The one mutable work table. |
 | `codes` | **Not** append-only (see below). |
 
-`INSERT OR REPLACE` deletes the conflicting row, and SQLite fires DELETE triggers for that only when
-`PRAGMA recursive_triggers` is ON. `efp.db.connect()` always turns it on, and `efp selftest --db`
-checks that a REPLACE against `rows` is refused. SQLite cannot stop `DROP TRIGGER` or `DROP TABLE`
-from a raw connection; `tests/test_db_guard.py` fails if code under `efp/` could issue one, and the
-database lives outside the repository under the data directory.
+Each protected table also has a `BEFORE INSERT` trigger that refuses an insert whose key already
+exists. That is what `REPLACE` / `INSERT OR REPLACE` / `ON CONFLICT DO UPDATE` do after removing the old
+row, and SQLite fires the DELETE trigger for that only when `PRAGMA recursive_triggers` is ON, which is
+**off by default** in a plain `sqlite3` shell or any non-efp connection. The insert triggers do not
+depend on that setting. `efp.db.connect()` also turns `recursive_triggers` ON as a second layer.
+
+### What is and is not protected (read this)
+
+| Actor | Can it change or delete a protected row? |
+| --- | --- |
+| Code using `efp.db.connect()` | No: UPDATE, DELETE and REPLACE are rejected by triggers. |
+| A raw connection (`sqlite3` shell, a notebook, another library) | No for UPDATE, DELETE and REPLACE: the triggers live in the database file, not in the connection. |
+| A raw connection issuing **schema** statements | **Yes.** `DROP TRIGGER`, `ALTER TABLE ... DROP COLUMN`, `DROP TABLE` or `PRAGMA writable_schema` can remove the protection, and SQLite has no way to forbid that. |
+
+So the protection is strong against mistakes and against code, and weak against a person who opens
+the file with a SQLite client and drops a trigger. The mitigations are: the database lives outside the
+repository under the data directory (mode 0600, directory 0700); `efp selftest --db` verifies every
+trigger exists *and fires*; `tests/test_db_guard.py` fails if any code under `efp/`, or any later
+migration, drops a trigger or alters a protected table; and the weekly hash manifest (build 20)
+records `captures`, which is what makes silent tampering detectable. Analysis goes through
+`efp/analysis.py`, which attaches the file read-only.
 
 ### Why `codes` is not append-only
 
