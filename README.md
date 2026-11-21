@@ -31,4 +31,8 @@ The `social` and `extraction` extras cannot be installed together, nor can `ocr-
 `archive-docker`; their upstream pins conflict (see `reports/01-scaffold.md`). Install one at a
 time with `uv sync --extra <name>`.
 
+On macOS, if `uv run efp` fails with `ModuleNotFoundError: No module named 'efp'` while
+`uv run pytest` passes, the editable-install `.pth` files in `.venv` have the `hidden` flag and
+Python skips them. Clear it with `chflags nohidden .venv/lib/python3.12/site-packages/*.pth`.
+
 Every shell snippet, hook and script in this repository is bash (`#!/usr/bin/env bash`).
