@@ -138,8 +138,8 @@ llm_transcription_fallback = true   # Claude transcribes a page only when both O
 
 [llm]
 provider = "anthropic"
-model = "claude-sonnet-5"         # Sonnet-class for extraction; confirm the current id in build 01; logged per call with the prompt hash
-transcription_model = "claude-sonnet-5"   # OCR fallback on page images; few pages, same tier
+model = "claude-sonnet-5-5"       # Sonnet-class for extraction; pinned in build 01, UNVERIFIED against the API until the first call; logged per call with the prompt hash
+transcription_model = "claude-sonnet-5-5"   # OCR fallback on page images; few pages, same tier
 temperature = 0.0
 max_monthly_usd = 150.0           # the run stops at this cap
 sample_runs = 3                   # three runs on the sample, disagreement flagged
@@ -152,3 +152,6 @@ provisional_prefix = "prov_"      # new columns are appended under this prefix u
 redacted_csv = true
 # Decision 3: how Partisan Direction maps onto the Ideological Motivation dropdown. Export-time rule; change it and re-export.
 independent_means = "unaffiliated"   # one of: unaffiliated | centrist | nonpartisan_direction
+
+[logging]
+level = "INFO"                    # DEBUG | INFO | WARNING | ERROR | CRITICAL; JSON lines go to paths.logs/efp.log, readable lines to the console
