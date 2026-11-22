@@ -1172,3 +1172,83 @@ def test_a_throttle_is_a_typed_run_scoped_memory_that_a_new_run_clears(
         assert not cap.is_throttled("courtlistener")  # the start of a run forgets it
     finally:
         cap.close()
+
+
+def test_identifiers_of_a_record_that_turned_weak_or_stopped_being_found_are_not_readable(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.court.located import Located
+    from efp.court.names import parse_name
+    from tests.dbhelpers import insert_capture
+
+    add_court_row(conn, 1)
+    insert_capture(conn, 901, 1, content_sha256="b" * 64)
+    text = "Alex Example, 47, of Dayton, Ohio, pleaded guilty in Case No. 3:13-cr-00045."
+
+    def item(weak: bool) -> Located:
+        return Located(
+            source_kind="doj_release", jurisdiction="US", court=None, case_number=None,
+            document_kind="press_release", url="u", strategy="court.doj", capture_id=901,
+            text=text, text_capture_id=901, basis={"release_uuid": "r1"}, weak=weak,
+        )  # fmt: skip
+
+    def readable() -> set[str]:
+        return {r[0] for r in conn.execute("SELECT kind FROM court_identifiers_current")}
+
+    state = component.CaseState(component.classify("", "", []), parse_name("Alex Example"))
+    state.located = [item(False)]
+    record = component._upsert_record(conn, 1, state.located[0])
+    component._insert_identifiers(conn, 1, state)
+    assert {"age", "city"} <= readable()  # confirmed: the facts are readable
+    # a later run finds the same release ambiguous: the facts written earlier must disappear
+    component._upsert_record(conn, 1, item(True))
+    assert not ({"age", "city", "dob", "office", "employer", "party_on_ballot"} & readable())
+    assert conn.execute("SELECT count(*) FROM identifiers WHERE kind = 'age'").fetchone()[0] == 1
+    # confirmed again, then no longer found at all: nothing from it is readable
+    component._upsert_record(conn, 1, item(False))
+    assert {"age", "city"} <= readable()
+    component._supersede(conn, 1, {"court.doj"}, set())
+    assert readable() == set() and record
+
+
+def test_a_pin_report_that_failed_to_fetch_is_tried_once_per_run_not_per_row(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from efp.court import pin
+
+    url = "https://www.justice.gov/criminal/dead-report.pdf"
+    wired = config.model_copy(
+        update={"court": config.court.model_copy(update={"pin_report_urls": [url]})}
+    )
+    monkeypatch.setattr(pin, "_backend", lambda: lambda _pdf: [])
+    rsps.get("https://www.justice.gov/robots.txt", status=404)
+    rsps.get(url, status=404)
+    ctx, cap, _ = make_ctx(wired, conn)
+    index = pin.PinIndex(wired.paths.bulk / "pin.sqlite")
+    try:
+        module = pin.CourtPin()
+        for _ in range(3):  # three pre-2013 rows
+            task = SimpleNamespace(cs=SimpleNamespace(notes=[]))
+            module._ensure_indexed(ctx, index, task)  # type: ignore[arg-type]
+
+        def captures() -> int:
+            return int(
+                conn.execute(
+                    "SELECT count(*) FROM captures WHERE url_requested = ?", (url,)
+                ).fetchone()[0]
+            )
+
+        # the response cache already spares the network a repeat of a 404, but without the memory
+        # every row would still write its own capture row: once per run, however many rows
+        assert captures() == 1
+        cap.clear_throttles()  # the next run starts fresh and tries again
+        module._ensure_indexed(ctx, index, SimpleNamespace(cs=SimpleNamespace(notes=[])))  # type: ignore[arg-type]
+        assert captures() == 2
+    finally:
+        index.close()
+        cap.close()

@@ -261,6 +261,7 @@ class Capture:
         self.warcs = WarcStore(config.paths.warc, software=f"efp/{package_version()}")
         self._robots: dict[str, _Robots] = {}
         self._throttled: set[str] = set()  # services that answered 429 in this run
+        self._failed: set[str] = set()  # URLs that could not be fetched in this run
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
         self._ua_token = self.user_agent.split("/")[0].split()[0]
@@ -421,8 +422,16 @@ class Capture:
         return name in self._throttled
 
     def clear_throttles(self) -> None:
-        """Forget every throttle; the runner calls this at the start of each run."""
+        """Forget every throttle and failed fetch (the runner calls this at the start of a run)."""
         self._throttled.clear()
+        self._failed.clear()
+
+    def note_failed(self, url: str) -> None:
+        """Remember that ``url`` could not be fetched, so this run tries it once (not per row)."""
+        self._failed.add(url)
+
+    def failed_this_run(self, url: str) -> bool:
+        return url in self._failed
 
     @contextmanager
     def wait_limit(self, seconds: float) -> Iterator[None]:

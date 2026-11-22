@@ -149,12 +149,14 @@ def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
     basis = json.dumps(basis_dict, sort_keys=True, default=str)
     if found is not None:
         conn.execute(
-            "UPDATE court_records SET weak = ?, basis_json = ?, capture_id = ?, court = ?, "
+            "UPDATE court_records SET weak = ?, basis_json = ?, capture_id = ?, "
+            "text_capture_id = ?, court = ?, "
             "jurisdiction = ?, case_number = ?, current = 1 WHERE record_id = ?",
             (
                 int(item.weak),
                 basis,
                 item.capture_id,
+                item.text_capture_id,
                 item.court,
                 item.jurisdiction,
                 item.case_number,
@@ -164,8 +166,8 @@ def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
         return int(found[0])
     cursor = conn.execute(
         "INSERT INTO court_records (row_id, source_kind, jurisdiction, court, case_number, "
-        "document_kind, strategy, capture_id, found_at, weak, basis_json, docket_id, current) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+        "document_kind, strategy, capture_id, found_at, weak, basis_json, docket_id, current, "
+        "text_capture_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
         (
             row_id,
             item.source_kind,
@@ -179,6 +181,7 @@ def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
             int(item.weak),
             basis,
             item.docket_id,
+            item.text_capture_id,
         ),
     )
     return int(cursor.lastrowid or 0)

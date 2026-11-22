@@ -151,12 +151,17 @@ class CourtPin:
         for url in ctx.config.court.pin_report_urls:
             if index.indexed(url):
                 continue
+            if cap(ctx).failed_this_run(url):  # tried once this run; a later run tries again
+                task.cs.notes.append(f"PIN report {url}: not fetched earlier in this run"[:200])
+                continue
             try:
                 record = cap(ctx).fetch(url, row_id=None, stage=STAGE, kind="page")
             except CaptureError as exc:
+                cap(ctx).note_failed(url)
                 task.cs.notes.append(f"PIN report not captured: {exc}"[:200])
                 continue
             if not record.ok:
+                cap(ctx).note_failed(url)
                 task.cs.notes.append(f"PIN report {url}: HTTP {record.http_status}"[:200])
                 continue
             try:
