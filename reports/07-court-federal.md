@@ -141,6 +141,14 @@ An eighth review round:
 | The bulk loader treated an empty federal-court set as "no filter" and loaded every court's dockets when the courts file's jurisdiction codes matched nothing | It stops with a `BulkLayoutError` naming the codes it expects, and no index is left in place |
 | `read_rows` dropped rows shorter than the header without counting them | They are counted into `bad_rows` (recorded in the index `meta`), so a truncated file is visible |
 
+A ninth review round:
+
+| Issue | Fix |
+| --- | --- |
+| The DOJ title search stopped at its page cap (6 x 50 releases per surname) without checking it had reached the row's years, so a common surname and an older row gave a clean `not_found` | `search_title` records when it ran out of pages with every release still newer than the window. The module then falls back to the date-sorted harvest back to the window (shared by every row); if the harvest cap stops short, the row is `deferred_coverage` with the same flag, note and `:coverage` hash as before, and earlier DOJ records stay current. The match is reported as `title_search+harvest` |
+| The harvest path parsed the HTML of every indexed release in the row's window, for every row | The local index is filtered in SQL on the surname (and its aliases) in the title or body before a `Release` is built, so only plausible releases are parsed |
+| `efp court bulk load` let a truncated `.bz2`/`.gz` (`EOFError`, `zlib.error`) or a malformed CSV (`csv.Error`) escape as a traceback | They are caught: "load failed", exit 1, audit row written, no half-built index left |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

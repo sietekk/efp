@@ -436,3 +436,52 @@ def test_a_capped_harvest_that_does_not_reach_the_window_is_a_deferred_coverage_
     assert summary["flags"]["doj_coverage_gap"] is True  # type: ignore[index]
     assert any("harvest reaches back only to 2020" in n for n in summary["notes"])  # type: ignore[union-attr]
     assert result.input_hash and result.input_hash.endswith(":coverage")
+
+
+def test_a_title_search_that_fills_its_pages_before_the_window_falls_back_to_the_harvest(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    small = config.model_copy(
+        update={
+            "court": config.court.model_copy(update={"doj_pagesize": 2, "doj_harvest_max_pages": 2})
+        }
+    )
+    add_court_row(conn, 1)  # a 2014 row; every release the feed shows is from 2020
+    _site(rsps)
+    newer = doj_page(
+        release("Example sentenced", "x", date="2020-01-01", uuid="a"),
+        release("Example pleads", "x", date="2020-02-01", uuid="b"),
+    )
+    rsps.get(API, json=newer)
+    result = process(small, conn, 1)
+    summary = result.summary_json
+    assert summary["flags"]["doj"]["found_by"] == "title_search+harvest"  # type: ignore[index]
+    assert summary["court_status"] == "deferred_coverage"  # not a proven absence
+    assert result.input_hash and result.input_hash.endswith(":coverage")
+
+
+def test_the_harvest_reads_only_releases_that_mention_the_surname(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        client = doj.DojClient(ctx)
+        client.index.add(
+            [
+                doj.parse_releases(
+                    doj_page(
+                        release("Alex Example pleads", "voter fraud", uuid="a", date="2014-01-01"),
+                        release("Budget news", "nothing", uuid="b", date="2014-02-01"),
+                        release("Other", "Mr. EXAMPLE was named", uuid="c", date="2014-03-01"),
+                    ),
+                    None,
+                )[i]
+                for i in range(3)
+            ]
+        )
+        names = {r.uuid for r in client.index.between(2013, 2015, ["example"])}
+        assert names == {"a", "c"}  # the unrelated release is never built, so never parsed
+        assert len(client.index.between(2013, 2015)) == 3
+        client.close()
+    finally:
+        cap.close()

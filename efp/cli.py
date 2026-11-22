@@ -6,9 +6,11 @@ invocation records an ``audit_log`` row on exit once build 02 creates the table.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import sqlite3
 import sys
+import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -439,7 +441,7 @@ def court_bulk_load(ctx: typer.Context) -> None:
         except court_bulk.BulkLayoutError as exc:
             typer.echo(f"layout error: {exc}", err=True)
             raise typer.Exit(1) from None
-        except (OSError, ValueError, duckdb.Error) as exc:
+        except (OSError, ValueError, EOFError, csv.Error, zlib.error, duckdb.Error) as exc:
             typer.echo(f"load failed: {type(exc).__name__}: {exc}", err=True)
             raise typer.Exit(1) from None
         typer.echo(

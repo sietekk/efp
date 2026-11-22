@@ -139,3 +139,14 @@ def test_selftest_reports_the_bulk_index_and_the_court_sources(
     after = runner.invoke(app, ["selftest"]).output
     assert "dataset 2026-09-30" in after and "dockets" in after and "courtlistener api" in after
     assert "SENTINEL" not in after  # names only, never values
+
+
+def test_load_of_a_truncated_compressed_file_is_a_clean_failure_not_a_traceback(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    paths = write_bulk_files(config.paths.bulk / "courtlistener", compress=True)
+    data = paths["dockets"].read_bytes()
+    paths["dockets"].write_bytes(data[: len(data) // 2])  # a download cut short
+    result = runner.invoke(app, ["court", "bulk", "load"])
+    assert result.exit_code == 1 and "load failed" in result.output
+    assert not bulk.index_path(config).exists()

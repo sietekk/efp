@@ -166,11 +166,27 @@ class DojIndex:
         )
         self.conn.commit()
 
-    def between(self, first_year: int, last_year: int) -> list[Release]:
+    def between(
+        self, first_year: int, last_year: int, surnames: list[str] | None = None
+    ) -> list[Release]:
+        """Releases in the years, optionally only those that mention one of the surnames (so the
+        caller never parses the HTML of releases that cannot be about the subject)."""
+        where, args = "date >= ? AND date < ?", [f"{first_year:04d}", f"{last_year + 1:04d}"]
+        if surnames:
+            clause = []
+            for name in surnames:
+                like = (
+                    "%"
+                    + name.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                    + "%"
+                )
+                clause.append("(lower(title) LIKE ? ESCAPE '\\' OR lower(body) LIKE ? ESCAPE '\\')")
+                args += [like, like]
+            where += " AND (" + " OR ".join(clause) + ")"
         rows = self.conn.execute(
-            "SELECT uuid, title, url, date, body, capture_id FROM releases "
-            "WHERE date >= ? AND date < ? ORDER BY date",
-            (f"{first_year:04d}", f"{last_year + 1:04d}"),
+            "SELECT uuid, title, url, date, body, capture_id FROM releases "  # noqa: S608
+            f"WHERE {where} ORDER BY date",
+            args,
         ).fetchall()
         return [
             Release(u, t, url, datetime.fromisoformat(d) if d else None, b, c)
@@ -212,6 +228,7 @@ class DojClient:
         # whether the server honours the title keyword is a property of the server, not of a row:
         # remembered on the capture client so it is probed once per run
         self.title_search_works: bool | None = getattr(cap(ctx), "_doj_title_works", None)
+        self.title_capped = False  # a title search stopped on its page cap before the window
 
     def close(self) -> None:
         self.index.close()
@@ -234,6 +251,7 @@ class DojClient:
     def search_title(self, keyword: str, row_id: int | None, first_year: int) -> list[Release]:
         """Newest first, page by page, until the releases are older than ``first_year``."""
         found: list[Release] = []
+        self.title_capped = False
         for page in range(MAX_TITLE_PAGES):
             params = {
                 TITLE_PARAM: keyword,
@@ -266,6 +284,11 @@ class DojClient:
                 dated and min(dated) < first_year
             ):
                 break
+        else:
+            # ran out of pages with every release still newer than the window: the title search
+            # does not cover the row's years (a common surname), so the caller must not read its
+            # silence as absence
+            self.title_capped = True
         return found
 
     def covered(self, first_year: int) -> bool:
@@ -304,20 +327,30 @@ class DojClient:
         """Releases that could name the subject, and how they were found."""
         # the subject's surname and the surnames of any aliases ("aka")
         keywords = list(dict.fromkeys(v.surname for v in parts.variants() if v.usable))
+        capped = False
+        found: list[Release] = []
         if self.title_search_works is not False:
-            found: list[Release] = []
             for keyword in keywords:
                 found.extend(self.search_title(keyword, row_id, first_year))
+                capped = capped or self.title_capped
                 if self._title_ignored():
                     break
-            if self.title_search_works:
+            if self.title_search_works and not capped:
                 unique = {r.uuid: r for r in found}
                 in_window = [
                     r for r in unique.values() if r.date and first_year <= r.date.year <= last_year
                 ]
                 return in_window, "title_search"
+        # The server ignores the title parameter, or a common surname filled the title search's
+        # pages before the window: page the date-sorted feed back to the window instead (the
+        # index is shared by every row) and read only releases that mention the surname.
         self.harvest(first_year, row_id)
-        return self.index.between(first_year, last_year), "harvest"
+        local = self.index.between(first_year, last_year, keywords)
+        if capped:
+            merged = {r.uuid: r for r in found if r.date and first_year <= r.date.year <= last_year}
+            merged.update({r.uuid: r for r in local})
+            return list(merged.values()), "title_search+harvest"
+        return local, "harvest"
 
 
 @dataclass(frozen=True)
@@ -449,7 +482,7 @@ class CourtDoj:
             )
         )
         cs.flags["doj"] = {"found_by": how, "candidates": len(releases), "matched": len(matches)}
-        if how == "harvest" and not covered:
+        if "harvest" in how and not covered:
             # The capped harvest stopped before the row's window: an absence here proves nothing.
             cs.flags["doj_coverage_gap"] = True
             cs.flags["doj"]["oldest_harvested"] = oldest
