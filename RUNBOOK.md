@@ -1,6 +1,6 @@
 # Runbook: building the pipeline with Claude Code
 
-Everything below happens on your Mac, in bash (every snippet here and in `BUILD.txt` is bash; if a tool is not found after install, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bash_profile`). Budget an hour for setup, then one build prompt at a time. This folder is the repository's starting state; it was placed at `~/Documents/UNH/Fall 2026 Research/dev/efp`.
+Everything below happens on your Mac, in bash (every snippet here and in `BUILD.txt` is bash; if a tool is not found after install, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bash_profile`). Budget an hour for setup, then one build prompt at a time. This folder is the repository's starting state; it lives at `~/dev/efp` (it started in `~/Documents`, an iCloud-synced folder, which is why it moved; see the README).
 
 ## 0. Prerequisites (one time)
 
@@ -18,8 +18,12 @@ Sign in to GitHub once (`gh auth login`) and to Claude Code once (run `claude`, 
 
 ## 1. Turn this folder into the repository
 
+Keep the folder outside iCloud-synced locations (macOS Desktop and Documents): the sync marks
+files in `.venv` hidden, which breaks the install, and creates conflict copies. The project lives
+at `~/dev/efp`.
+
 ```bash
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+cd ~/dev/efp
 git init -b main
 git add -A
 git commit -m "Kit: plan, spec, build prompts, CLAUDE.md"
@@ -73,7 +77,7 @@ Commit them to `main`. Claude Code reads all of `docs/`. Build 18 (coding) canno
 ## 5. The first build
 
 ```bash
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp && git checkout main && git pull
+cd ~/dev/efp && git checkout main && git pull
 claude --permission-mode plan
 ```
 
@@ -90,7 +94,7 @@ Pick the model with `/model` if you want to change it. Plan mode toggles with Sh
 ## 6. Every later build
 
 ```bash
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp && git checkout main && git pull
+cd ~/dev/efp && git checkout main && git pull
 uv sync
 claude --permission-mode plan
 ```
