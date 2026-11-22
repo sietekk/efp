@@ -13,26 +13,27 @@ from efp.config import Config, load_config
 from tests.conftest import REPO
 
 
+def _next_prefix() -> str:
+    """The prefix a new migration would take, so these tests do not break when one is added."""
+    return f"{len(database.discover_migrations()) + 1:04d}"
+
+
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def test_fresh_database_applies_all_migrations(config: Config) -> None:
     applied = database.migrate(config)
-    assert [m.id for m in applied] == [1, 2, 3, 4, 5]
+    known = database.discover_migrations()
+    assert [m.id for m in applied] == list(range(1, len(known) + 1))
     conn = database.connect(config, migrate=False, create=False)
     try:
         assert {"rows", "case_stage", "captures", "audit_log", "schema_migrations"} <= _tables(conn)
         recorded = conn.execute(
             "SELECT id, name, sha256 FROM schema_migrations ORDER BY id"
         ).fetchall()
-        assert [r[1] for r in recorded] == [
-            "core",
-            "supporting",
-            "triggers",
-            "source_workbook",
-            "case_stage_summary",
-        ]
+        assert [r[1] for r in recorded] == [m.name for m in known]
+        assert [r[1] for r in recorded][:4] == ["core", "supporting", "triggers", "source_workbook"]
         assert all(len(r[2]) == 64 for r in recorded)
     finally:
         conn.close()
@@ -73,14 +74,15 @@ def test_modified_migration_is_detected(config: Config, migrations_copy: Path) -
 
 def test_deleted_migration_is_detected(config: Config, migrations_copy: Path) -> None:
     database.migrate(config)
-    (migrations_copy / "0005_case_stage_summary.sql").unlink()
-    with pytest.raises(database.MigrationError, match="0005_case_stage_summary"):
+    last = database.discover_migrations()[-1].path.name
+    (migrations_copy / last).unlink()
+    with pytest.raises(database.MigrationError, match=last.removesuffix(".sql")):
         database.connect(config)
 
 
 def test_new_migration_is_applied_after_the_old_ones(config: Config, migrations_copy: Path) -> None:
     database.migrate(config)
-    (migrations_copy / "0006_extra.sql").write_text(
+    (migrations_copy / f"{_next_prefix()}_extra.sql").write_text(
         "CREATE TABLE extra (x INTEGER);", encoding="utf-8"
     )
     assert [m.name for m in database.migrate(config)] == ["extra"]
@@ -227,7 +229,9 @@ def test_a_busy_database_is_a_clear_error(
     folder.mkdir()
     for m in database.discover_migrations():
         (folder / m.path.name).write_text(m.sql, encoding="utf-8")
-    (folder / "0006_more.sql").write_text("CREATE TABLE more (x INTEGER);", encoding="utf-8")
+    (folder / f"{_next_prefix()}_more.sql").write_text(
+        "CREATE TABLE more (x INTEGER);", encoding="utf-8"
+    )
     monkeypatch.setattr(database, "migrations_dir", lambda: folder)
     holder = sqlite3.connect(config.paths.database, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
@@ -270,7 +274,9 @@ def test_a_path_with_uri_special_characters_does_not_create_stray_files(
     database.migrate(config)
     before = sorted(p.name for p in data_dir.rglob("*"))
     conn = database.connect(config, migrate=False, create=False)
-    assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (5,)
+    assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (
+        len(database.discover_migrations()),
+    )
     conn.close()
     assert sorted(p.name for p in data_dir.rglob("*")) == before
     assert not (data_dir / "we").exists() and not (data_dir / "we%ird").is_file()

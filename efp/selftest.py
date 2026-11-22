@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import sqlite3
 import sys
 from dataclasses import dataclass
 from importlib import metadata
+from urllib.parse import urlsplit
 
 from efp.config import Config
 from efp.secrets import SECRET_NAMES, SecretsError, env_file_mode, load_secrets
-from efp.version import git_sha, package_version
+from efp.version import git_sha, package_version, repo_root
 
 # One marker module per optional extra.
 EXTRAS: dict[str, str] = {
@@ -79,6 +81,8 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
     checks.append(Check("data directory", paths.data_dir.is_dir(), _where(paths.data_dir)))
     for label, path in (
         ("store", paths.store),
+        ("cache", paths.cache),
+        ("warc", paths.warc),
         ("bulk", paths.bulk),
         ("manifests", paths.manifests),
         ("bags", paths.bags),
@@ -91,6 +95,7 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
         Check("database", paths.database.is_file(), _where(paths.database), required=False)
     )
 
+    present_secrets: list[str] = []
     mode = env_file_mode(paths.env_file)
     if mode is None:
         checks.append(Check("env file", False, f"missing: {paths.env_file}"))
@@ -104,6 +109,7 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
             checks.append(Check("secrets", False, str(exc)))
         else:
             present = secrets.present()
+            present_secrets = list(present)
             checks.append(
                 Check(
                     "secrets present",
@@ -131,6 +137,7 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
                     )
                 )
 
+    checks.extend(capture_checks(config, present_secrets))
     for extra, module in EXTRAS.items():
         checks.append(
             Check(f"extra {extra}", _installed(module), f"marker module {module}", required=False)
@@ -138,6 +145,111 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
     docker = shutil.which("docker")
     checks.append(Check("docker", docker is not None, docker or "not on PATH", required=False))
     return checks
+
+
+CAPTURE_LIBS = (
+    ("requests_cache", "HTTP cache"),
+    ("pyrate_limiter", "rate limiter"),
+    ("stamina", "retries"),
+    ("warcio", "WARC writer"),
+    ("rfc3161_client", "RFC 3161"),
+    ("bagit", "BagIt"),
+    ("filelock", "cross-process lock"),
+)
+
+
+def _tsa_anchors(config: Config) -> int:
+    root = repo_root()
+    folder = (root / "reference" / "tsa") if root else None
+    return len(list(folder.glob("*.pem"))) if folder is not None and folder.is_dir() else 0
+
+
+def _spn_queue(config: Config) -> str:
+    if not config.paths.database.is_file():
+        return "no database yet"
+    try:
+        conn = sqlite3.connect(f"{config.paths.database.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return "database not readable"
+    try:
+        counts = dict(conn.execute("SELECT status, count(*) FROM spn_queue GROUP BY status"))
+    except sqlite3.Error:
+        return "spn_queue not migrated yet (run `efp db migrate`)"
+    finally:
+        conn.close()
+    waiting = counts.get("pending", 0) + counts.get("deferred", 0)
+    return (
+        f"{waiting} waiting, {counts.get('submitted', 0)} in flight, "
+        f"{counts.get('done', 0)} archived"
+    )
+
+
+def capture_checks(config: Config, present_secrets: list[str]) -> list[Check]:
+    """The capture layer's health: libraries, budgets in force, and which optional keys exist."""
+    missing = [label for module, label in CAPTURE_LIBS if not _installed(module)]
+    out = [
+        Check(
+            "capture layer",
+            not missing,
+            "http cache, rate limiter, retries, WARC, RFC 3161 and BagIt libraries importable"
+            if not missing
+            else "missing: " + ", ".join(missing),
+        ),
+    ]
+    limits = config.rate_limits
+    named = ", ".join(f"{h} {1 / r:g}s" for h, r in sorted(limits.domains().items()))
+    out.append(
+        Check(
+            "budgets",
+            True,
+            f"default 1 per {1 / limits.default_rps:g}s; {named}; robots.txt "
+            f"{'honored' if limits.honor_robots_txt else 'NOT honored'}",
+        )
+    )
+    spn_keys = all(k in present_secrets for k in ("IA_ACCESS", "IA_SECRET"))
+    out.append(
+        Check(
+            "save page now",
+            spn_keys,
+            f"keys present; ~{config.capture.spn_per_minute}/min; queue: {_spn_queue(config)}"
+            if spn_keys
+            else f"IA_ACCESS/IA_SECRET absent: pages queue, nothing is submitted; "
+            f"queue: {_spn_queue(config)}",
+            required=False,
+        )
+    )
+    perma = "PERMA_API_KEY" in present_secrets
+    out.append(
+        Check(
+            "perma.cc",
+            perma,
+            "key present (cited URLs only)"
+            if perma
+            else "PERMA_API_KEY absent: no-op (free tier needs a registrar affiliation: gated)",
+            required=False,
+        )
+    )
+    hosts = {urlsplit(u).hostname for u in config.capture.tsa_urls}
+    out.append(
+        Check(
+            "rfc3161 tsas",
+            len(hosts) >= 2,
+            f"{len(hosts)} independent TSA(s): {', '.join(sorted(h for h in hosts if h))}",
+            required=False,
+        )
+    )
+    anchors = _tsa_anchors(config)
+    out.append(
+        Check(
+            "tsa trust anchors",
+            anchors > 0,
+            f"{anchors} pinned in reference/tsa/"
+            if anchors
+            else "none pinned in reference/tsa/: tokens verify the imprint, not the signature",
+            required=False,
+        )
+    )
+    return out
 
 
 def _where(path: object) -> str:

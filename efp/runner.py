@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from efp.capture import LazyCapture
 from efp.config import Config
 from efp.logging import redact
 from efp.scope import population_sql
@@ -696,4 +697,5 @@ def render_dry_run(report: DryRunReport) -> str:
 
 
 def make_context(config: Config, conn: sqlite3.Connection | None) -> Context:
-    return Context(config=config, db=conn, log=logging.getLogger("efp.runner"))
+    capture = LazyCapture(config, conn) if conn is not None else None
+    return Context(config=config, db=conn, capture=capture, log=logging.getLogger("efp.runner"))

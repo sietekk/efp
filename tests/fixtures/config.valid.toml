@@ -12,6 +12,8 @@ store = "__DATA__/store"
 bulk = "__DATA__/bulk"
 manifests = "__DATA__/manifests"
 bags = "__DATA__/bags"
+cache = "__DATA__/cache"
+warc = "__DATA__/store/warc"
 logs = "__DATA__/logs"
 exports = "__DATA__/exports"
 import_inbox = "__DATA__/import"
@@ -46,6 +48,8 @@ retry_backoff_seconds = 5
 timeout_seconds = 10
 max_redirects = 10
 robots_cache_hours = 24
+cache_expire_hours = 24
+max_wait_seconds = 30
 spn_per_minute = 5
 tsa_urls = ["http://tsa.example.test"]
 

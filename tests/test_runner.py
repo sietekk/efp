@@ -531,14 +531,15 @@ def test_dry_run_with_reset_says_how_many_rows_it_would_reset(full_config: Confi
     )
 
 
-def test_cli_dry_run_and_status_change_nothing_on_a_database_at_migration_4(
+def test_cli_dry_run_and_status_change_nothing_on_a_database_one_migration_behind(
     full_config_path: Path, migrations_copy: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from typer.testing import CliRunner
 
     from efp.cli import app
 
-    (migrations_copy / "0005_case_stage_summary.sql").unlink()
+    newest = database.discover_migrations()[-1]
+    (migrations_copy / newest.path.name).unlink()  # the operator's database lacks the newest
     config = load_config(full_config_path)
     conn = database.connect(config)
     seed(conn)
@@ -554,5 +555,5 @@ def test_cli_dry_run_and_status_change_nothing_on_a_database_at_migration_4(
         _dump(conn),
         conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0],
     ) == before
-    assert before[1] == 4  # the dry run did not apply migration 5
+    assert before[1] == newest.id - 1  # the dry run did not apply the newest migration
     conn.close()

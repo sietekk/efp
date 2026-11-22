@@ -17,7 +17,6 @@ STUBS: dict[tuple[str, ...], str] = {
     ("identity", "explain", "1"): "12",
     ("audit", "1"): "19",
     ("export",): "19",
-    ("manifest",): "20",
 }
 
 
