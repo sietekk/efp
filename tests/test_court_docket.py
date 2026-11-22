@@ -421,7 +421,7 @@ def test_the_browser_capture_is_deferred_when_docker_is_not_there_and_stores_a_w
         monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/docker")
 
         def fake_run(args: list[str], **_kw: Any) -> subprocess.CompletedProcess[bytes]:
-            if args[1] == "info":
+            if args[1] in ("info", "image"):
                 return subprocess.CompletedProcess(args, 0, b"", b"")
             mount = args[args.index("-v") + 1].split(":")[0]
             target = Path(mount) / "collections" / "efp"
@@ -539,7 +539,8 @@ def test_a_county_only_state_uses_the_county_the_row_names_and_never_one_county_
     assert named["assisted"]["platform"] == "county_clerks"  # type: ignore[index]  # not the "wants"
     for row_id in (2, 3):  # no county named, or one that was not probed
         other = process(config, conn, row_id).summary_json
-        assert other["court_status"] == "not_found" and not other["assisted"]  # type: ignore[index]
+        # not searched and not absent: a coverage gap, never a recorded negative
+        assert other["court_status"] == "deferred_coverage" and not other["assisted"]  # type: ignore[index]
         assert any("county" in n for n in other["notes"])  # type: ignore[union-attr]
 
 
@@ -665,3 +666,109 @@ def test_the_cleared_list_is_case_insensitive(write_config: Callable[..., Path])
         write_config({"docket_terms_cleared = []": 'docket_terms_cleared = [" wi "]'})
     )
     assert cfg.court.docket_terms_cleared == ["WI"]
+
+
+def test_reprobing_one_state_keeps_every_other_states_rows_in_the_gated_list(
+    cli_config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import csv
+
+    seeds = tmp_path / "portals.csv"
+    seeds.write_text(
+        "state,portal,url,platform,scope,note\n"
+        "FL,Broward,https://broward.example/,county_clerks,county:Broward,\n"
+        "TX,Dallas,https://dallas.example/,county_clerks,county:Dallas,\n"
+    )
+    monkeypatch.setattr(dp, "seeds_path", lambda: seeds)
+    rsps.get("https://broward.example/", body="<p>subscription required</p>")
+    rsps.get("https://dallas.example/", status=404)
+    assert _invoke("court", "docket", "probe").exit_code == 0
+    queue = Path(cli_config.paths.data_dir) / "queues" / "portal_accounts.csv"
+    assert {r["state"] for r in csv.DictReader(queue.open())} == {"FL", "TX"}
+    seeds.write_text(  # the FL portal's address was corrected: a fresh page, not the cached one
+        "state,portal,url,platform,scope,note\n"
+        "FL,Broward,https://broward2.example/,county_clerks,county:Broward,\n"
+        "TX,Dallas,https://dallas.example/,county_clerks,county:Dallas,\n"
+    )
+    rsps.get("https://broward2.example/", body="<html></html>")
+    assert _invoke("court", "docket", "probe", "--state", "FL").exit_code == 0
+    rows = list(csv.DictReader(queue.open()))
+    assert {r["state"] for r in rows} == {"FL", "TX"}  # TX was not erased
+    assert [r["wants"] for r in rows if r["state"] == "FL"] == ["search-not-found"]  # FL refreshed
+
+
+def _docker(monkeypatch: pytest.MonkeyPatch, calls: list[list[str]], big: int = 0) -> None:
+    monkeypatch.setattr("shutil.which", lambda _n: "/usr/bin/docker")
+
+    def fake_run(args: list[str], **_kw: Any) -> subprocess.CompletedProcess[bytes]:
+        calls.append(args)
+        if args[1] == "image":
+            return subprocess.CompletedProcess(args, 0, b"sha256:abc123def456\n", b"")
+        if args[1] == "run":
+            target = Path(args[args.index("-v") + 1].split(":")[0]) / "collections" / "efp"
+            target.mkdir(parents=True)
+            (target / "efp.wacz").write_bytes(b"PK" + b"x" * big)
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+
+def test_an_earlier_wacz_is_reused_not_fetched_again_and_the_image_is_recorded(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.dbhelpers import insert_row
+
+    insert_row(conn, 1)
+    conn.commit()
+    cap = make_capture(config, conn)
+    calls: list[list[str]] = []
+    _docker(monkeypatch, calls)
+    try:
+        first = cap.browser("https://example.test/search", row_id=1, stage="court")
+        crawls = len([c for c in calls if c[1] == "run"])
+        again = cap.browser("https://example.test/search", row_id=1, stage="court")
+        assert len([c for c in calls if c[1] == "run"]) == crawls == 1  # no second crawl
+        assert again.capture_id != first.capture_id and again.from_cache  # but a row says so
+        assert again.content_sha256 == first.content_sha256
+        row = conn.execute(
+            "SELECT tool_version, headers_json FROM captures WHERE capture_id = ?",
+            (first.capture_id,),
+        ).fetchone()
+        headers = json.loads(row[1])
+        assert (
+            row[0] == "test" and headers["image_id"] == "sha256:abc123def456"
+        )  # the tag, not efp's
+        cap.browser("https://example.test/search", row_id=1, stage="court", refresh=True)
+        assert len([c for c in calls if c[1] == "run"]) == 2  # refresh asks again
+    finally:
+        cap.close()
+
+
+def test_an_unpinned_browser_image_and_an_oversized_wacz_are_refused(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.dbhelpers import insert_row
+
+    insert_row(conn, 1)
+    conn.commit()
+    latest = config.model_copy(
+        update={"court": config.court.model_copy(update={"docket_browser_image": "x/y:latest"})}
+    )
+    cap = make_capture(latest, conn)
+    try:
+        with pytest.raises(CaptureError, match="not pinned"):
+            cap.browser("https://example.test/s", row_id=1, stage="court")
+    finally:
+        cap.close()
+    cap2 = make_capture(config, conn)
+    _docker(monkeypatch, [], big=64)
+    monkeypatch.setattr("efp.capture.MAX_WACZ_BYTES", 10)
+    try:
+        with pytest.raises(CaptureError, match="larger than"):
+            cap2.browser("https://example.test/s", row_id=1, stage="court")
+    finally:
+        cap2.close()

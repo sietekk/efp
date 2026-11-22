@@ -93,6 +93,7 @@ CACHE_IGNORED = sorted(
 )
 
 _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+MAX_WACZ_BYTES = 250 * 1024 * 1024  # a browser capture of one page is far smaller than this
 _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
 
@@ -637,7 +638,9 @@ class Capture:
             response.close()
         raise CaptureError("no response received")  # unreachable
 
-    def browser(self, url: str, *, row_id: int | None, stage: str) -> CaptureRecord:
+    def browser(
+        self, url: str, *, row_id: int | None, stage: str, refresh: bool = False
+    ) -> CaptureRecord:
         """Capture one JavaScript-heavy page with Browsertrix Crawler in Docker, as a WACZ.
 
         For an ``automated`` docket portal that renders its results only in a browser and whose
@@ -646,9 +649,46 @@ class Capture:
         first, the WACZ is stored content-addressed and a ``captures`` row names it in
         ``wacz_path``. If Docker is not installed or not running this raises ``CaptureError``: the
         caller records the row deferred, never as a negative.
+
+        What the capture store already holds is not fetched again: an earlier WACZ of the URL is
+        reused (a new ``captures`` row says so, no Docker, no budget) unless ``refresh`` is set.
+        The image must be pinned to a version or digest; the resolved image id is recorded.
         """
         if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
             raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
+        image = self.config.court.docket_browser_image
+        if "@sha256:" not in image and (
+            ":" not in image.rsplit("/", 1)[-1] or image.endswith(":latest")
+        ):
+            raise CaptureError(
+                f"court.docket_browser_image {image!r} is not pinned to a version or digest"
+            )
+        clean = redact_url(url, api=False)
+        if not refresh:
+            earlier = self._conn.execute(
+                "SELECT capture_id, content_sha256, wacz_path, tool_version FROM captures "
+                "WHERE tool = 'browsertrix' AND url_requested = ? AND wacz_path IS NOT NULL "
+                "ORDER BY capture_id DESC LIMIT 1",
+                (clean,),
+            ).fetchone()
+            if earlier is not None:
+                return self._insert(
+                    row_id=row_id,
+                    stage=stage,
+                    url_requested=clean,
+                    url_final=clean,
+                    http_status=None,
+                    content_type="application/wacz",
+                    digest=earlier[1],
+                    headers={"reused_capture_id": earlier[0], "image": image},
+                    warc_path=None,
+                    wacz_path=earlier[2],
+                    tool="browsertrix",
+                    tool_version=earlier[3],
+                    manual_source=None,
+                    site_data_sha256=None,
+                    from_cache=True,
+                )
         docker = shutil.which("docker")
         if docker is None:
             raise CaptureError("docker is not available: the browser capture is deferred")
@@ -664,7 +704,6 @@ class Capture:
             self.limiter.acquire(urlsplit(url).hostname or "", max_wait=None)
         except RateLimitTimeout as exc:
             raise CaptureBudgetError(str(exc)) from exc
-        image = self.config.court.docket_browser_image
         name = f"efp-bt-{uuid.uuid4().hex[:12]}"
         with tempfile.TemporaryDirectory(prefix="efp-wacz-") as scratch:
             try:
@@ -689,21 +728,36 @@ class Capture:
             found = sorted(Path(scratch).rglob("*.wacz"))
             if done.returncode != 0 or not found:
                 raise CaptureError(f"{scrub_text(url)}: the browser capture produced no WACZ")
+            if found[0].stat().st_size > MAX_WACZ_BYTES:
+                raise CaptureError(
+                    f"{scrub_text(url)}: the WACZ is larger than {MAX_WACZ_BYTES} bytes"
+                )
             data = found[0].read_bytes()
+            try:
+                inspected = subprocess.run(  # noqa: S603
+                    [docker, "image", "inspect", "--format", "{{.Id}}", image],
+                    capture_output=True,
+                    timeout=30,
+                    check=False,
+                )
+                image_id = inspected.stdout.decode("utf-8", errors="replace").strip()
+            except (OSError, subprocess.TimeoutExpired):
+                image_id = ""
         digest = write_body(self.config.paths.store, data)
+        tag = image.split("@")[0].rsplit(":", 1)[-1] if ":" in image.rsplit("/", 1)[-1] else ""
         return self._insert(
             row_id=row_id,
             stage=stage,
-            url_requested=redact_url(url, api=False),
-            url_final=redact_url(url, api=False),
+            url_requested=clean,
+            url_final=clean,
             http_status=None,
             content_type="application/wacz",
             digest=digest,
-            headers={"image": image},
+            headers={"image": image, "image_id": image_id},
             warc_path=None,
             wacz_path=body_relpath(digest),
             tool="browsertrix",
-            tool_version=package_version(),
+            tool_version=tag or image_id[:19] or "unknown",  # Browsertrix's, not efp's
             manual_source=None,
             site_data_sha256=None,
             from_cache=False,

@@ -132,6 +132,9 @@ class CourtStateDocket:
                 text = f"{row.source.get('details') or ''} {row.source.get('source_raw') or ''}"
                 chosen = county_portal(state, text)
                 if chosen is None:
+                    # not searched and not absent: no portal was probed for this county, so the
+                    # row is a coverage gap (deferred), never a recorded negative
+                    cs.flags["docket_coverage_gap"] = True
                     cs.notes.append(
                         f"{state} has county-level docket portals only and the row names none of "
                         "the probed counties: no docket portal probed for this row's county"

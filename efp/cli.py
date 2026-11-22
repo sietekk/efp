@@ -572,7 +572,15 @@ def court_docket_probe(
             if p.verdict is not None and docket_probe.is_gated(p.verdict)
         ]
         target = docket_queue.queues_dir(config) / "portal_accounts.csv"
-        docket_queue.write_csv(target, docket_queue.PORTAL_COLUMNS, gated)
+        if state_code:  # one state re-probed: replace its rows, keep everyone else's
+            docket_queue.merge_csv(
+                target,
+                docket_queue.PORTAL_COLUMNS,
+                gated,
+                replace_states={state_code.upper()},
+            )
+        else:
+            docket_queue.write_csv(target, docket_queue.PORTAL_COLUMNS, gated)
         typer.echo(f"{len(gated)} portal(s) recorded as gated or manual in {target.name}")
         root = repo_root()
         if snapshot and root is not None:

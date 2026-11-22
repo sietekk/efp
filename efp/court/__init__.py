@@ -397,7 +397,11 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     errored = bool(run.errors)
-    coverage_gap = bool(state.flags.get("doj_coverage_gap") or state.flags.get("ag_coverage_gap"))
+    coverage_gap = bool(
+        state.flags.get("doj_coverage_gap")
+        or state.flags.get("ag_coverage_gap")
+        or state.flags.get("docket_coverage_gap")
+    )
     status = court_status(
         state.located,
         quota_exhausted=quota_hit,

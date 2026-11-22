@@ -41,6 +41,18 @@ def write_csv(path: Path, columns: list[str], rows: list[dict[str, Any]]) -> Pat
     return path
 
 
+def merge_csv(
+    path: Path, columns: list[str], rows: list[dict[str, Any]], *, replace_states: set[str]
+) -> Path:
+    """Write ``rows`` into the file, replacing only the rows of ``replace_states``: re-probing one
+    state must not erase the work list of every other state."""
+    kept: list[dict[str, Any]] = []
+    if path.is_file():
+        with path.open(newline="", encoding="utf-8") as handle:
+            kept = [r for r in csv.DictReader(handle) if r.get("state") not in replace_states]
+    return write_csv(path, columns, [*kept, *rows])
+
+
 def assisted_rows(
     conn: sqlite3.Connection, *, state: str | None = None, limit: int | None = None
 ) -> list[dict[str, Any]]:

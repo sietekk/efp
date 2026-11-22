@@ -65,7 +65,7 @@ ag_harvest_max_pages = 1500       # cap on the pages (or months) one state's ind
 ag_max_candidates = 20            # election-related releases read per row
 docket_terms_cleared = []         # states whose docket-portal terms you have read and cleared for automated search (e.g. ["WI"]); empty = nothing is automated
 docket_assisted_limit = 50        # rows `efp review court --assisted` lists at once
-docket_browser_image = "webrecorder/browsertrix-crawler:latest"  # run in Docker, only for JS-only portals whose terms allow a browser
+docket_browser_image = "webrecorder/browsertrix-crawler:1.13.2"  # pinned (a version or digest: `latest` is refused); run in Docker, only for JS-only portals whose terms allow a browser
 pacer_queue = "queues/pacer.csv"  # federal dockets whose documents are not in RECAP; a relative path is under paths.data_dir (it names row ids and case numbers)
 
 [rate_limits]
