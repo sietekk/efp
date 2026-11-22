@@ -276,6 +276,7 @@ class Capture:
         self._throttled: set[str] = set()  # services that answered 429 in this run
         self._failed: set[str] = set()  # URLs that could not be fetched in this run
         self._once: set[str] = set()  # work done once per run (see once_per_run)
+        self.run_state: dict[str, Any] = {}  # what a component learned this run (cleared per run)
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
         self._ua_token = self.user_agent.split("/")[0].split()[0]
@@ -440,6 +441,7 @@ class Capture:
         self._throttled.clear()
         self._failed.clear()
         self._once.clear()
+        self.run_state.clear()
 
     def note_failed(self, url: str) -> None:
         """Remember that ``url`` could not be fetched, so this run tries it once (not per row)."""

@@ -274,7 +274,7 @@ class DojClient:
         self.index = DojIndex(self.config.paths.bulk / "doj_releases.sqlite")
         # whether the server honours the title keyword is a property of the server, not of a row:
         # remembered on the capture client so it is probed once per run
-        self.title_search_works: bool | None = getattr(cap(ctx), "_doj_title_works", None)
+        self.title_search_works: bool | None = cap(ctx).run_state.get("doj_title_works")
         self.title_capped = False  # a title search stopped on its page cap before the window
 
     def close(self) -> None:
@@ -320,19 +320,21 @@ class DojClient:
                     return releases
                 if honors_title(releases, keyword):
                     self.title_search_works = True
-                    cap(self.ctx)._doj_title_works = True
-                    cap(self.ctx)._doj_title_misses = 0  # consecutive misses: a success resets
+                    cap(self.ctx).run_state["doj_title_works"] = True
+                    cap(self.ctx).run_state["doj_title_misses"] = (
+                        0  # consecutive misses: a success resets
+                    )
                 else:
                     # One keyword that matched nothing in the titles is weak evidence the server
                     # ignores the parameter (it may match bodies, or the name may be absent from
                     # titles). Only several misses in a row, before it has ever been shown to
                     # honor the parameter, disable the title search for the run.
                     if self.title_search_works is not True:
-                        misses = getattr(cap(self.ctx), "_doj_title_misses", 0) + 1
-                        cap(self.ctx)._doj_title_misses = misses
+                        misses = cap(self.ctx).run_state.get("doj_title_misses", 0) + 1
+                        cap(self.ctx).run_state["doj_title_misses"] = misses
                         if misses >= TITLE_PROBES:
                             self.title_search_works = False
-                            cap(self.ctx)._doj_title_works = False
+                            cap(self.ctx).run_state["doj_title_works"] = False
                     return releases
             found.extend(releases)
             dated = [r.date.year for r in releases if r.date]

@@ -71,184 +71,23 @@ None in the build's own runs. Independent review (`done-when-reviewer`) found 18
 
 One bug in build 05 surfaced and was fixed here: a daily cap of exactly 1 produced an invalid rate list in the limiter (regression test added).
 
-## Follow-up fixes after PR review
+## What the court stage does, after twenty review rounds
 
-Three issues were raised on the PR and are fixed with tests:
+This PR went through twenty rounds of review findings (each fixed with tests). The commits record the order; this section is the resulting behaviour, which is what to review and to build on. Nothing here is measured against the real network or data: it is tested on synthetic fixtures.
 
-| Issue | Fix |
-| --- | --- |
-| A bulk download wedged forever on a complete or oversized `.part` (the retry asked for a range past the end and got 416) | A `.part` already the expected size is finalized without a request; one longer than the file is discarded; a 416 for a shorter stale part discards it and restarts from zero in the same call; a 206 whose `Content-Range` does not start at the offset is discarded; a wrong-sized finish removes the part so it cannot wedge the next try |
-| A weak or ambiguous docket match produced `court_status = primary_record`, and a weak bulk hit ended the `first_hit` chain so the API and state modules never ran | `court_status` is `primary_record` only for a docket that is not weak; a row with only weak dockets is `candidate_only`. Every module now returns *hit* only for a non-weak result with a case number, so a weak match is recorded but the chain goes on (DOJ, bulk and API; PIN entries are always weak, so that module never stops it). `court_records` gained `weak` and `basis_json` (migration 0008), so a reader of the table sees the candidate and the evidence |
-| A row whose API lookup hit the daily quota finished `done` / `not_found` and escaped `--recheck`; the quota was detected by substring; malformed JSON failed the row | The quota is a typed `CaptureBudgetError` (also raised for HTTP 429). Such a row finishes with `court_status = deferred_quota` and an input hash that never matches, so `efp run court --recheck` revisits exactly those rows. A non-JSON CourtListener answer is a noted miss, not a failed row |
+**Statuses.** `court_status` has eight values. `primary_record` needs a docket that is not weak; `candidate_only` is a weak docket, or only weak or report-only records; `press_release_only` needs a record that is not weak. Three values mean the search did not finish, are never negatives, and win over `press_release_only`: `deferred_error` (a module raised, or the API or DOJ listing failed), `deferred_quota` (the CourtListener daily budget was spent or a 429 came back, a cap of 0 included) and `deferred_coverage` (the DOJ harvest did not reach the row's years). `gated_portal` is set by build 09; `not_found` means every applicable strategy completed and found nothing. The plan's four are a subset.
 
-A second review round added three more, also fixed with tests:
+**Deferral and `--recheck`.** A deferred row finishes `done` with an input hash that carries a suffix (`:quota`, `:error`, `:recap`, `:coverage`), so it never matches the recomputed hash and `efp run court --recheck` revisits exactly those rows. The base hash holds the row's inputs, the modules that can run, the bulk quarter, the PIN URLs and, only for rows the DOJ module can apply to and only while the feed's newest date is inside their release window, that date.
 
-| Issue | Fix |
-| --- | --- |
-| A module that raised (`run_chain` turns an exception into an error outcome and continues) left the row `done` / `not_found` with an unchanged hash, so a failure looked like a negative | The row's `summary_json.errors` lists the failures. With nothing located the status is `deferred_error`; with something located the finding stands. Either way the input hash gains `:error`, so `--recheck` retries it |
-| A row without a year became `year = 0` and built invalid date bounds, which the bulk query rejects and the API would have spent a quota call on, with the failure swallowed | The DOJ, bulk and API modules are not applicable to a row with no year (with the reason), and the search functions refuse a non-positive year. (The schema makes `rows.year` NOT NULL, so this is a guard, not a known case) |
-| The RECAP-documents step spent API quota on bulk hits, set no quota flag when the budget ran out, and queued the unchecked docket for PACER with a quota message as the reason | Only a docket that is not weak is looked up (a candidate that may be someone else's is neither looked up nor queued). A budget error sets the same `api_quota_exhausted` flag and `:quota` hash suffix as the docket search; any "could not look it up for now" outcome (budget, token, API error) adds `:recap` to the hash and is **not** queued, because its documents are unknown, not absent |
+**Weak records.** One rule (`docket_is_weak`) decides it for the bulk and API paths: unknown row state, unknown court state, several matches (counted before `top_candidates` truncates), an initial-only match, an unknown filing date, or a bulk score under 3. A weak result is recorded but is a *miss* for its module, so the chain goes on. A weak record gives no person-level identifier (only its case number) and is never looked up in RECAP or queued for PACER.
 
-A third review round, also fixed with tests:
+**Records and readers.** Migration 0008 adds `weak`, `basis_json`, `docket_id`, `current` and `text_capture_id` to `court_records` and three views. A docket is identified by its CourtListener docket id and a non-docket record by a stable `identity` (a DOJ release's uuid, else its text or capture hash); a record found again is updated in place and one a strategy ran for and no longer finds is `current = 0`, never deleted. **Builds 08 and later read `court_records_current`, `court_records_confirmed` and `court_identifiers_current`, never the tables:** a filing is only as current and confirmed as its docket, and an identifier only as current as the record it was read from.
 
-| Issue | Fix |
-| --- | --- |
-| `court_records` de-duplication ignored `weak` and `docket_id`, so a docket that turned weak on a later run kept its old "primary" row while `summary_json` said `candidate_only`; a changed API response inserted a duplicate | A docket is identified by its CourtListener docket id (not the search response's hash) and is **updated** when found again: `weak`, `basis_json` and its capture follow the latest run. A record a strategy that ran this time no longer finds is marked `current = 0` (never deleted; RECAP filings are kept, since their absence may only mean the archive was not asked). Migration 0009 adds `docket_id` and `current`; readers should use `current = 1` |
-| `Capture.download` skipped `robots.txt` and the 429/5xx retry | It now checks `robots.txt` (a disallow is recorded and refused) and retries 429/5xx with a pause, as `fetch` does; a spent domain budget is a `CaptureBudgetError`. This **replaces decision 14** above: bulk downloads do honor `robots.txt` |
-| `wait_limit` set one shared value on the adapter | It is thread-local, so a parallel fetch keeps its own budget wait |
-| `court bulk fetch` chose the newest file of each kind independently, so mismatched dates could be downloaded and then rejected by `load` | `latest_set` returns the newest single date that has all four kinds (empty when none does), and the command says which kinds exist on which dates |
+**Capture layer.** `Capture.download` honours `robots.txt`, retries 429/5xx, resumes only under a strong ETag or a `Last-Modified` date (`If-Range`), restarts from zero otherwise or after a 416 that is not "the part is the whole file", resumes a connection broken mid-stream a bounded number of times, and refuses to follow a redirect. `Retry-After` is honoured only when another attempt follows. `wait_limit` and the 429 memory are per-run and typed (`mark_throttled`, `once_per_run`, `clear_throttles`, called at the start of each run). A `rate_limits.daily_caps` value of 0 means the domain is switched off: no request is made and rows needing it are deferred.
 
-A fourth review round, also fixed with tests:
+**DOJ.** The title search is authoritative only if one of its releases survives the name match, and falls back to the date-sorted harvest when it is empty, capped or unmatched. A row fetches at most `court.doj_harvest_pages_per_row` harvest pages; `efp court doj harvest` walks the whole range once (run it before `efp run court`). The harvest refreshes the feed's fresh end once per run, and a harvest that stops short of the row's window defers the row. PIN reports are read once per reader (name and version); a failed fetch is tried once per run.
 
-| Issue | Fix |
-| --- | --- |
-| The CourtListener API module (and the DOJ listing) turned an outage, a 5xx or a bad answer into a clean *miss*, so the row ended `not_found` with a hash `--recheck` never revisits | A non-budget `CaptureError` is now `Outcome.error`: the row is `deferred_error` (or keeps its finding) with `:error` on its hash. A spent budget stays a quota deferral |
-| `_supersede` counted a quota-spent or failed API run as "evaluated" and retired earlier dockets | An errored module is never evaluated, and a spent budget removes the API and RECAP strategies from the evaluated set, so earlier records stay `current = 1` |
-
-A fifth review round:
-
-| Issue | Fix |
-| --- | --- |
-| The API module called a docket weak only when the row's state was unknown, so several dockets for a common name, an initial-only match or a court of unknown state were stored as confirmed (and the RECAP step then took filings from the first) | One shared rule, `efp.court.located.docket_is_weak`, is used by both the bulk and the API module: weak when the row's state is unknown, the court's state is unknown, several dockets matched, only an initial and the surname matched, or (bulk) the score is below 3. `search_party` still lets a docket of unknown court state through, but it is now a candidate |
-
-A sixth review round:
-
-| Issue | Fix |
-| --- | --- |
-| The bulk search had no lower filing-date bound when `date_terminated` was NULL, so a 2003 docket matched a 2020 row (the API path already used `year - 8`) | Both paths use one constant, `LOOKBACK_YEARS` (`efp.court.located`); bulk adds `date_filed >= year - 8`. A docket with no filing date is kept but weak (`docket_is_weak(date_known=...)`, applied in the API path too) |
-| A daily cap of 0 was read as "1 a day" | Settled (see "The daily cap of 0" below): 0 means "switched off", the limiter never reads it as 1 |
-| A connection broken mid-stream in `Capture.download` escaped as a raw exception | It is caught: the download resumes from the `.part` file with a Range request, up to `rate_limits.retry_attempts` times with backoff, then ends as a `CaptureError` ("run the download again to resume") with the part kept |
-
-A seventh review round:
-
-| Issue | Fix |
-| --- | --- |
-| The DOJ title-probe miss counter was cumulative and could switch off a title search that had been shown to work | Misses are consecutive: a success resets the count, and a server that has honored the parameter once is never switched off |
-| A capped DOJ harvest that stopped before the row's window gave a clean `not_found` for older rows | The row gets `court_status = deferred_coverage`, a `doj_coverage_gap` flag with the oldest harvested date, a note naming `court.doj_harvest_max_pages`, and `:coverage` on its hash, so `--recheck` revisits it after the cap is raised |
-
-Low-confidence review notes, handled:
-
-- **Daily cap 0** is valid and means "switched off" (see "The daily cap of 0" below); there is no contract change for operator configs.
-- **Resume validator:** a resumed download keeps the ETag it started under beside the `.part` file and sends `If-Range`; if the file was replaced the server answers 200 in full and the download restarts instead of stitching two files. A weak ETag, or a part begun before this change, resumes as before.
-- **Coverage gap and supersede:** `court.doj` is not counted as evaluated when the harvest did not reach the window, so an earlier DOJ record stays current.
-- **Known, accepted:** `_upsert_record` overwrites a record's `capture_id` with the latest capture of the same document; the earlier capture remains in `captures` but the record no longer points to it.
-
-An eighth review round:
-
-| Issue | Fix |
-| --- | --- |
-| A non-docket record (a DOJ release) was identified by the content hash of its page or listing capture, which changes on every fetch, so each `--recheck` inserted a new record and retired the old | The identity is kept in `basis_json` (`identity`): the release's own uuid for DOJ releases (`basis.release_uuid`), else the extracted text's content hash, else the capture's. The record is updated in place when found again |
-| The bulk loader treated an empty federal-court set as "no filter" and loaded every court's dockets when the courts file's jurisdiction codes matched nothing | It stops with a `BulkLayoutError` naming the codes it expects, and no index is left in place |
-| `read_rows` dropped rows shorter than the header without counting them | They are counted into `bad_rows` (recorded in the index `meta`), so a truncated file is visible |
-
-A ninth review round:
-
-| Issue | Fix |
-| --- | --- |
-| The DOJ title search stopped at its page cap (6 x 50 releases per surname) without checking it had reached the row's years, so a common surname and an older row gave a clean `not_found` | `search_title` records when it ran out of pages with every release still newer than the window. The module then falls back to the date-sorted harvest back to the window (shared by every row); if the harvest cap stops short, the row is `deferred_coverage` with the same flag, note and `:coverage` hash as before, and earlier DOJ records stay current. The match is reported as `title_search+harvest` |
-| The harvest path parsed the HTML of every indexed release in the row's window, for every row | The local index is filtered in SQL on the surname (and its aliases) in the title or body before a `Release` is built, so only plausible releases are parsed |
-| `efp court bulk load` let a truncated `.bz2`/`.gz` (`EOFError`, `zlib.error`) or a malformed CSV (`csv.Error`) escape as a traceback | They are caught: "load failed", exit 1, audit row written, no half-built index left |
-
-A tenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| A robots-blocked bulk download was recorded with `url_requested = "GET"` (the verb was passed where the URL belongs), and captures cannot be corrected later | The blocked file's URL is passed; a test asserts the `robots_disallow` capture's `url_requested` |
-| An empty DOJ title result counted as "the server honors the title" and as an authoritative miss, so a name that appears only in a release body gave a silent `not_found` | An empty page leaves the parameter undecided (no miss counted, nothing cached). When the title search yields nothing usable in the window, the harvest index is read too (the harvest is shared by every row, bounded by `doj_harvest_max_pages`, and a short reach is the existing `deferred_coverage`); the hits are `title_search+harvest` or `harvest` |
-
-Minor review items, handled:
-
-- **Harvest coverage:** the index's `done` flag now means only "the feed ran out of pages". Reaching another row's window is not coverage of an earlier one: `covered()` is "exhausted, or the oldest year reached is before the row's first year".
-- **PIN reports read once:** each URL is marked indexed even when it yields no entries (a scanned PDF) or cannot be read (a corrupt or encrypted one, noted on the row), so it is not re-fetched and re-parsed for every pre-2013 row, and a bad PDF no longer turns every such row into `deferred_error`.
-- **Download reuse** checks the file's size and SHA-256 against the manifest the download recorded, so a same-sized foreign or corrupt file (or one with no listed size) is fetched again, not indexed as a trusted quarter.
-- **For later builds:** nothing reads `court_records.current` yet. Whichever build reads the table (identity, export) must filter on `current = 1`, or superseded candidates will look live.
-
-An eleventh review round:
-
-| Issue | Fix |
-| --- | --- |
-| The CourtListener "fail fast" still retried a 429 (sleeping `Retry-After`, up to 300 s, and spending another token each time), and every later row repeated it | The request is made with `retry=False`, so a 429 is the answer and maps to the budget error at once; the throttled state is remembered on the capture client, so the rest of the run does not ask again (each such row is `deferred_quota`) |
-| A docket for a row classified `unknown`, or any non-best candidate, was queued for PACER as "not found in RECAP" although RECAP was never asked | Those outcomes are `skipped`, and only a docket that was actually checked and found absent is queued |
-| The DOJ harvest ran inside one row's processing (thousands of requests at 0.5 per second, past the 120-minute stale limit) | A row fetches at most `court.doj_harvest_pages_per_row` pages (25, about a minute); progress is kept, a short reach is `deferred_coverage`, and the new `efp court doj harvest --until-year 2012` walks the whole range in one resumable step. Run it once before `efp run court`; it exits 2 if the cap stopped it short of the year |
-
-New config key: `court.doj_harvest_pages_per_row` (documented in `config.example.toml`).
-
-A twelfth review round:
-
-| Issue | Fix |
-| --- | --- |
-| Identifiers (age, city, birth date, office, employer, party) were read from weak records too, so a release about a possibly different person fed this row's identity signals | A weak record yields only its case number (which names the document, not the person); person-level kinds come only from records that are not weak |
-| A row with a DOJ release whose docket search was deferred (quota, a module error, a harvest gap) was reported as the finished `press_release_only` | A deferral now wins over `press_release_only`: the row is `deferred_error`, `deferred_quota` or `deferred_coverage` (the release is still recorded). A docket result (`primary_record`, `candidate_only`) is unaffected |
-
-(Superseded by the fifteenth round below: the view `court_identifiers_current` now enforces this for readers.)
-
-A thirteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| The DOJ title search was taken as the answer on any in-window title carrying the surname, although DOJ titles rarely name the defendant and the hit may be someone else | The title result is authoritative only if one of its releases survives the same name match the module applies; otherwise the harvest is read too (`title_search+harvest`), with the usual `deferred_coverage` if it does not reach the window |
-| A row whose only record was a weak report paragraph (or a weak release) was labelled the finished `press_release_only` | `press_release_only` needs a record that is not weak; weak-only or report-only rows are `candidate_only` |
-| The weak rule counted candidates after truncation to `top_candidates`, so `top_candidates = 1` made an ambiguous name look settled | `search_dockets_all` and `search_party_all` return every match; the modules count before truncating (the truncating wrappers remain for callers that want the best few) |
-
-Two last review notes, handled:
-
-- **`current` and `weak` are now enforced for readers.** Migration 0010 adds two views: `court_records_current` (`current = 1`) and `court_records_confirmed` (`current = 1 AND weak = 0`). Builds 08 and later read these, never the table, or they would treat superseded rows and candidates as findings. (Nothing in `efp/` reads `court_records` yet.)
-- **The 429 memory is typed and run-scoped.** `Capture.mark_throttled` / `is_throttled` / `clear_throttles` replace the dynamic attribute, and `run_stage` clears the memory at the start of every run, so a long-lived process that reuses one client is not deferred by an old 429.
-
-### The daily cap of 0 (settled)
-
-The value had flipped meaning during this build: accepted by the config and silently read by the limiter as "1 a day", then rejected by the config. It now has one meaning everywhere: **`rate_limits.daily_caps.<host> = 0` switches that domain off.** The config accepts 0 (it rejects only a negative number), `DomainLimiter.acquire` refuses a 0-cap domain at once (no waiting, no bucket, no request) with the same error as a spent budget, and a row that needs the domain is deferred (`deferred_quota` for CourtListener), not failed, and picked up by `--recheck` once the cap is raised. `config.example.toml` documents it; tests cover the config, the limiter and a capture fetch. Nothing changes for an operator config that already used 0.
-
-A fourteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| `efp court doj harvest` defaulted to 2012, one year short for the earliest rows the DOJ module admits (a 2012 row's window starts in 2011 and needs the harvest to get past it), so those rows were still `deferred_coverage` after the documented harvest | The default is derived from the config: `COVERAGE_FROM - 2 * court.doj_year_slack` (2011 with the default slack of 1, which reaches releases from 2010). The RUNBOOK no longer hard-codes a year; `--until-year` still overrides |
-| `efp court bulk load` indexed whatever files were in the folder; a file with no download manifest made every bulk-derived record rest on capture id 0 | The load verifies each file's size and SHA-256 against its `bulk_download` manifest and refuses (naming the file and the reason) if a manifest is missing or differs; `efp court bulk fetch --yes` downloads and records them |
-
-A fifteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| Person-level identifiers written from a record outlived it: after the record turned weak or was superseded, its age, city, birth date and the like stayed in `identifiers` | `court_records` now names the text capture it was read from (`text_capture_id`), and migration 0011 adds the view `court_identifiers_current`: identifiers whose source record is still current, person-level kinds only if that record is also not weak (a case number from any current record). Later builds read the view, not `identifiers`; a test re-runs a record through confirmed, weak, confirmed and no-longer-found and checks what the view shows at each step. This replaces the "known, accepted" note above |
-| A PIN report URL that failed to fetch was requested again for every pre-2013 row | A failed fetch is remembered per run on the capture client (cleared at the start of each run, never persisted), so it is tried once per run. Checked first: the response cache already spares the network a repeat of a 404 (one request for three rows), but without the memory each row still wrote its own capture row, and a connection error is not cached at all |
-
-A sixteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| Filings that RECAP listed as available but whose download failed (a 5xx, a spent budget, a robots block) were skipped silently, so a docket with no filing fetched was reported "not in the RECAP archive" and queued for PACER purchase, and `--recheck` never retried it | Failed downloads are counted. If none succeeded and at least one failed, the outcome is `documents not fetched (n listed): ...`, transient (`:recap` on the hash, never queued), and a spent budget also sets the quota flag. Only an empty listing, or one whose entries are all unavailable, is reported as absent from RECAP and queued |
-
-A seventeenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| A PIN report that failed to read, or yielded no entries, was marked read forever, so installing or fixing `pdfplumber`/`pypdf` never re-read it and `--reset`/`--recheck` could not help (the index is a separate file) | The mark records which reader tried (name and version). A report that yielded entries is final; a failed or empty read is final only for that reader, so a different or upgraded one reads it again |
-| The DOJ harvest walked only backward and never saw releases published after it began, while `covered()` checked only the old end | The index records the newest release the walk has seen. Once per run, before reading the harvest, the walk is repeated from page 0 (bypassing the response cache) until it reaches a release already indexed, within the per-row page budget. The newest date is part of the court input hash, so `--recheck` revisits rows when the fresh end moved |
-
-Both use new `CREATE TABLE IF NOT EXISTS` tables in the derived index files (`harvest_newest`, and a reader column on `indexed_urls`); the repository's database guard forbids altering a table from code. The once-per-run memory on the capture client is `Capture.once_per_run`, cleared with the throttles at the start of each run.
-
-An eighteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| Filings are re-captured only for a docket that is not weak, so when a docket turned weak or was no longer found, its earlier filing rows kept `current = 1, weak = 0` and stayed in `court_records_confirmed` | Migration 0012 redefines both views: a filing is current only while its parent docket record (same row, same docket id) is current, and confirmed only while that docket is also not weak. The filing rows themselves are untouched, so they come back if the docket is confirmed again |
-
-A nineteenth review round:
-
-| Issue | Fix |
-| --- | --- |
-| `retry=False` still slept on `Retry-After` for a 429 (up to `capture.max_wait_seconds`) before returning it, so the CourtListener "no retry, no sleep" fail-fast still lost minutes per throttled row; the final attempt of a retried fetch slept too | `Capture._send` honors `Retry-After` only when another attempt follows. Two tests assert on the sleep stub (no sleep for `retry=False`; `attempts - 1` sleeps for a retried fetch, none after the last) and both fail on the old code. Note for test authors: `tests/test_capture.py`'s fixture puts stamina in testing mode with 4 attempts, which overrides `retry=False`; the test sets 1 attempt itself |
-
-A twentieth review round:
-
-| Issue | Fix |
-| --- | --- |
-| The DOJ feed's newest date was in every court row's input hash, so any new DOJ release made `efp run court --recheck` re-run every row (each federal re-run spends CourtListener quota) | The date is part of the hash only for rows the DOJ module can apply to (federal or unknown classification, usable name, year in range), and only while the feed's newest date is inside the row's release window; once it is past the window's end it reads "past" and stops mattering. Pre-2013, state-classified and long-past rows keep their hash when the feed moves |
-| A resumed download with no strong validator could splice a changed file and record the splice as trusted | The sidecar keeps a strong ETag, else the `Last-Modified` date, and a resume sends it as `If-Range`. A part that began with neither is not resumed: it restarts from zero (a part already the expected size is still finished). Nothing is spliced across files |
-| A 416 deleted a complete `.part` and restarted a multi-GB download when the size was not known beforehand | A 416's `Content-Range: bytes */N` is read: N equal to the part's length means it is the whole file and it is finished; anything else is stale and restarts |
-
-`court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
+**Bulk loader.** It refuses a courts file with no federal court, counts short rows, fails cleanly on a truncated or malformed file, and refuses to load a file whose size and SHA-256 differ from its download manifest (or that has none), so every bulk-derived record names a real manifest capture.
 
 ## Gated sources encountered (not worked around)
 
@@ -284,7 +123,7 @@ Two of the plan's nine numbers draw on this stage. Primary-record rate: rows wit
 11. **Identifier extraction is windowed to the subject's sentence** and abstains rather than guess when a release names several defendants and the facts cannot be attributed. This lowers yield on multi-defendant releases by design.
 12. **Downloads** are recorded as manifests, not copies; the raw files stay in `~/efp-data/bulk/` (off backup) and a download refuses to follow a redirect.
 13. **Two local indexes** live under `paths.bulk` (`doj_releases.sqlite`, `pin_reports.sqlite`): derived, rebuildable, every page behind them is a capture.
-14. **(Superseded by the third review round: downloads now check `robots.txt`.)** Bulk downloads did not check `robots.txt`. `Capture.download` (and the bucket listing, which is `kind="api"`) fetches the CourtListener S3 bulk files from the address the listing names, under the domain's rate budget and logged, but without a `robots.txt` check, as for any documented data endpoint. The default I took: treat the bucket as a published dataset, not a scrape target. Say so if you want the check added.
+14. **Bulk downloads honour `robots.txt`.** (An earlier version treated the S3 bucket as a published dataset and skipped the check; `CLAUDE.md` says every network call honours it, so the check is made and a disallow is recorded and refused.)
 15. **API quota.** A row the CourtListener API could not be asked about (daily budget spent) finishes `done` with `court_status = deferred_quota` and an input hash that never matches, so `efp run court --recheck` revisits exactly those rows once the budget resets.
 16. **The row's `state` is free text.** `efp.court.doj.normalize_state` accepts a postal abbreviation or a full state name and treats anything else (blank, "N/A", "Unknown", "Multiple") as unknown. An unknown state applies no state filter and makes every docket match weak; before, a junk value was used as a filter and matched nothing. Ingest does not normalize the column; I could not read the real database to see which values occur, so this is a guard, not a fix for a known value.
 
@@ -292,6 +131,6 @@ Two of the plan's nine numbers draw on this stage. Primary-record rate: rows wit
 
 - *"The bulk index is loaded and `efp selftest` reports its row counts and the quarter it came from."* The code path and its report are tested (`test_selftest_reports_the_bulk_index_and_the_court_sources`, `test_fetch_with_yes_downloads_each_file_and_load_builds_the_index`). **The real index is not loaded;** commands above.
 - *"`uv run efp run court --sample` shows per-strategy results on the 50 rows; the full run (detached) gives every in-scope row a logged attempt for every applicable federal strategy, and `efp status` reports the court-status distribution, federal and state separately."* Holds on synthetic data end to end (`test_the_runner_drives_the_court_component_and_a_second_run_is_a_no_op`, `test_status_reports_court_status_with_federal_and_state_apart`); every module's outcome is recorded per row. **Not run on the real data.**
-- *"`queues/pacer.csv` lists every federal docket whose documents are not in RECAP."* The queue is written and de-duplicated (`test_a_docket_with_no_documents_in_recap_goes_to_the_pacer_queue_once`, `test_dockets_beyond_the_first_are_queued_as_not_checked_not_as_missing_from_recap`). Dockets whose documents were not checked (a non-federal classification, no token, a spent daily budget, or beyond the best candidate per row) are listed with that reason rather than as "missing". **The real queue does not exist until the run.**
+- *"`queues/pacer.csv` lists every federal docket whose documents are not in RECAP."* The queue is written and de-duplicated (`test_a_docket_with_no_documents_in_recap_goes_to_the_pacer_queue_once`, `test_weak_candidates_are_neither_looked_up_in_recap_nor_queued_for_purchase`). Dockets whose documents were not checked (a non-federal classification, no token, a spent daily budget, or beyond the best candidate per row) are listed with that reason rather than as "missing". **The real queue does not exist until the run.**
 
 Review checkpoint (yours): the court-status distribution and the weak records, once the run has produced them.

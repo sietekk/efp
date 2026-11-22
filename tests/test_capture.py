@@ -777,3 +777,11 @@ def test_a_416_for_a_part_that_is_the_whole_file_finishes_it_without_restarting(
     gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
     assert len(gets) == 1 and dest.read_bytes() == b"abcdef"  # finished, not downloaded again
     assert record.http_status == 200 and not (tmp_path / "f.csv.part").exists()
+
+
+def test_run_state_is_cleared_with_the_throttles_at_the_start_of_a_run(cap: Capture) -> None:
+    cap.run_state["doj_title_works"] = False
+    cap.mark_throttled("courtlistener")
+    assert cap.once_per_run("x") and not cap.once_per_run("x")
+    cap.clear_throttles()
+    assert cap.run_state == {} and not cap.is_throttled("courtlistener") and cap.once_per_run("x")
