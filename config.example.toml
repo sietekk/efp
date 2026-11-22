@@ -62,6 +62,9 @@ doj_year_slack = 1                # DOJ releases within this many years of the r
 doj_pagesize = 50                 # the API maximum
 doj_harvest_max_pages = 4000      # cap on the date-sorted harvest used if the server ignores the title search
 doj_harvest_pages_per_row = 25    # pages of that harvest one row may fetch (~1 minute); `efp court doj harvest` does the rest in one go
+ag_harvest_pages_per_row = 5      # pages of a state AG release index one row may fetch; `efp court ag harvest` does the rest
+ag_harvest_max_pages = 1500       # cap on the pages (or months) one state's index harvest walks in total
+ag_max_candidates = 20            # election-related releases read per row
 pacer_queue = "queues/pacer.csv"  # federal dockets whose documents are not in RECAP; a relative path is under paths.data_dir (it names row ids and case numbers)
 
 [rate_limits]
@@ -74,6 +77,7 @@ default_rps = 0.5
 "api.gdeltproject.org" = 0.16     # 80% of one request per 5 seconds (0.2/s)
 "api.open.fec.gov" = 0.22         # 80% of 1,000 requests per hour (0.278/s)
 "ballotpedia.org" = 0.2           # low rate, read only
+"oag.ca.gov" = 0.08               # 80% of the published Crawl-delay of 10 seconds (0.1/s)
 retry_attempts = 3
 retry_backoff_seconds = 5
 

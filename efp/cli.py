@@ -23,6 +23,7 @@ import typer
 
 from efp import audit, linkreport, runner
 from efp import capture as capture_mod
+from efp import coverage as coverage_view
 from efp import db as database
 from efp import manifest as manifest_mod
 from efp import modules as module_chain
@@ -320,12 +321,28 @@ def status(
     links: bool = typer.Option(
         False, "--links", help="Link survival and the source-domain table instead."
     ),
+    coverage: bool = typer.Option(
+        False, "--coverage", help="The state AG coverage matrix instead (see --write)."
+    ),
+    write: bool = typer.Option(
+        False, "--write", help="With --coverage: write docs/coverage_matrix.md as well."
+    ),
 ) -> None:
     """Stage x status counts, gate reasons, attempts and errors, and the frozen sample."""
     app_state: AppState = ctx.obj
     config = _need_config(app_state)
     _check_stage(config, stage)
     conn = _open_db(app_state)
+    if coverage:
+        try:
+            text = coverage_view.render_md(coverage_view.build(conn, config))
+        finally:
+            conn.close()
+        typer.echo(text)
+        root = repo_root()
+        if write and root is not None:
+            (root / "docs" / "coverage_matrix.md").write_text(text, encoding="utf-8")
+        return
     if links:
         try:
             typer.echo(linkreport.render_md(linkreport.build(conn, config), title=False))
@@ -474,6 +491,140 @@ def court_bulk_status(ctx: typer.Context) -> None:
 
 doj_app = typer.Typer(help="The DOJ press-release index.", no_args_is_help=True)
 court_app.add_typer(doj_app, name="doj")
+ag_app = typer.Typer(help="The state AG press-release harvester.", no_args_is_help=True)
+court_app.add_typer(ag_app, name="ag")
+
+
+@ag_app.command("verify")
+def court_ag_verify(ctx: typer.Context) -> None:
+    """Record every state AG adapter in state_adapters and probe the automated ones.
+
+    An automated adapter whose first listing page cannot be fetched and parsed is recorded as
+    broken; one the site refuses is recorded as manual, each with the reason."""
+    from efp.court.adapters.ag import adapters as ag_adapters
+    from efp.court.adapters.ag import sync as ag_sync
+    from efp.court.adapters.ag.base import SiteBlocked
+
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        ag_sync.seed(conn)
+        run_ctx = runner.make_context(config, conn)
+        for name, cls in ag_adapters().items():
+            if cls.mode != "automated":
+                typer.echo(f"{name}  manual   {cls.reason}")
+                continue
+            adapter = cls(run_ctx)
+            try:
+                found = adapter.probe()
+                if found and all(r.date for r in found):
+                    ag_sync.write(
+                        conn,
+                        name,
+                        mode="automated",
+                        portal=cls.portal,
+                        adapter_module=cls.__module__,
+                        reason=None,
+                    )
+                    typer.echo(f"{name}  ok       {len(found)} releases on the first page")
+                else:
+                    ag_sync.mark(
+                        conn, name, "broken", "the first listing page parsed to no dated release"
+                    )
+                    typer.echo(
+                        f"{name}  BROKEN   the first listing page parsed to no dated release"
+                    )
+            except SiteBlocked as exc:
+                ag_sync.mark(conn, name, "manual", str(exc)[:200])
+                typer.echo(f"{name}  manual   {exc}")
+            except capture_mod.CaptureError as exc:
+                ag_sync.mark(conn, name, "broken", str(exc)[:200])
+                typer.echo(f"{name}  BROKEN   {exc}")
+            finally:
+                adapter.close()
+    finally:
+        conn.close()
+
+
+@ag_app.command("harvest")
+def court_ag_harvest(
+    ctx: typer.Context,
+    state_code: str | None = typer.Option(
+        None, "--state", help="One state (default: all automated)."
+    ),
+    until_year: int | None = typer.Option(
+        None,
+        "--until-year",
+        help="Walk back past this year (default: the state's earliest row, less the window).",
+    ),
+) -> None:
+    """Walk each automated state's release archive into its local index (resumable)."""
+    from efp.court.adapters.ag import adapters as ag_adapters
+    from efp.court.doj import normalize_state
+
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        run_ctx = runner.make_context(config, conn)
+        earliest: dict[str, int] = {}
+        for raw, year in conn.execute(
+            "SELECT state, min(year) FROM rows WHERE in_scope = 1 GROUP BY state"
+        ):
+            code = normalize_state(raw)
+            if code and year is not None:
+                earliest[code] = min(earliest.get(code, year), year)
+        for name, cls in ag_adapters().items():
+            if cls.mode != "automated" or (state_code and name != state_code.upper()):
+                continue
+            target = until_year or (earliest.get(name, 2000) - config.court.doj_year_slack)
+            adapter = cls(run_ctx)
+            try:
+                pages = adapter.harvest(target, None, max_pages=config.court.ag_harvest_max_pages)
+                reached = adapter.index.progress()[1]
+                done = "covers" if adapter.covered(target) else "does not yet cover"
+                typer.echo(
+                    f"{name}: {pages} pages, {adapter.index.count():,} releases, "
+                    f"oldest {reached or 'none'}; {done} {target}"
+                )
+            except capture_mod.CaptureError as exc:
+                typer.echo(f"{name}: stopped: {exc}", err=True)
+            finally:
+                adapter.close()
+    finally:
+        conn.close()
+
+
+@ag_app.command("record")
+def court_ag_record(
+    ctx: typer.Context,
+    state_code: str = typer.Argument(
+        ..., help="The state to record a cassette for (for example TX)."
+    ),
+) -> None:
+    """Record tests/cassettes/ag/<state>: a trimmed listing page and one unrelated release."""
+    from efp.court.adapters.ag import adapters as ag_adapters
+    from efp.court.adapters.ag.record import record as ag_record
+
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    cls = ag_adapters().get(state_code.upper())
+    root = repo_root()
+    if cls is None or root is None:
+        typer.echo(f"no adapter for {state_code}, or the repository root was not found", err=True)
+        raise typer.Exit(1)
+    conn = _open_db(state, migrate=True)
+    try:
+        meta = ag_record(
+            runner.make_context(config, conn), cls, root / "tests" / "cassettes" / "ag"
+        )
+        typer.echo(f"recorded {meta['state']}: {meta['release_title'][:70]}")
+    except capture_mod.CaptureError as exc:
+        typer.echo(f"could not record {state_code}: {exc}", err=True)
+        raise typer.Exit(1) from None
+    finally:
+        conn.close()
 
 
 @doj_app.command("harvest")

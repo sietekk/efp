@@ -32,6 +32,11 @@ HOSTS = (
     "storage.courtlistener.com",
     "bulk.example.test",
     "example.test",
+    "www.texasattorneygeneral.gov",
+    "oag.ca.gov",
+    "www.ohioattorneygeneral.gov",
+    "illinoisattorneygeneral.gov",
+    "web.archive.org",
 )
 COURT_CHAIN = (
     'modules = ["court.doj", "court.pin_reports", "court.state_ag", "court.courtlistener_bulk", '
