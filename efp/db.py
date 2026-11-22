@@ -18,6 +18,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -144,9 +145,32 @@ def _check_location(config: Config) -> None:
         )
 
 
+def _enable_wal(conn: sqlite3.Connection, busy_timeout_ms: int) -> None:
+    """Put the database in WAL mode, tolerating other connections doing the same.
+
+    WAL is stored in the file, so once any connection has switched it later ones only read it.
+    The switch itself needs a lock that SQLite refuses at once with "database is locked" when
+    another connection is mid-switch (the busy timeout is not consulted), which is what happens
+    when several processes open a brand-new database together. Retry until the timeout instead.
+    """
+    deadline = time.monotonic() + busy_timeout_ms / 1000
+    delay = 0.005
+    while True:
+        if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal":
+            return
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.1)
+
+
 def _configure(conn: sqlite3.Connection, busy_timeout_ms: int) -> None:
     conn.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
-    conn.execute("PRAGMA journal_mode = WAL")
+    _enable_wal(conn, busy_timeout_ms)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA recursive_triggers = ON")
     conn.setconfig(sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True)
@@ -251,7 +275,8 @@ def connect(config: Config, *, migrate: bool = True, create: bool = True) -> sql
     if create:
         parent = db_path.parent
         if not parent.exists():
-            parent.mkdir(parents=True, mode=0o700)
+            # exist_ok: another process may create the directory between the check and here
+            parent.mkdir(parents=True, mode=0o700, exist_ok=True)
             os.chmod(parent, 0o700)
         created = not db_path.exists()
         conn = sqlite3.connect(db_path, timeout=timeout)

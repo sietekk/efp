@@ -220,6 +220,10 @@ def _sample_action(prepared: Prepared, config: Config, *, write: bool) -> str:
         try:
             sampling.write_sample(prepared.sample, path)
         except (sampling.SampleError, OSError) as exc:
+            # Two ingests started together can both see the file missing; the loser's atomic
+            # create fails because the winner just wrote it. Identical content is not a problem.
+            if sampling.compare_with_file(prepared.sample, path) == "same":
+                return "verified"
             raise IngestError(
                 f"the sample file could not be written ({exc}). The rows ARE loaded; fix the "
                 "problem and run `efp ingest` again, which only writes the sample."

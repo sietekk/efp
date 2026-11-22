@@ -23,7 +23,8 @@ Changes the approved proposal made to the prompt (all operator-approved before c
 - **Config:** `runner.stale_after_minutes` in `config.toml`, `config.example.toml`, the test fixture and `efp/config.py`. `pyproject.toml`: `S608` is ignored for `efp/runner.py` and `efp/status.py` only (SQL built from fixed fragments with bound values).
 - Docs: `RUNBOOK.md` (detached runs, recovery, flags), `migrations/README.md`.
 - Tests: `tests/test_modules.py`, `tests/test_runner.py`, `tests/test_status.py`, helpers `tests/runnerhelpers.py` and `tests/runner_worker.py` (a real second process); existing tests adjusted for `run` no longer being a stub, the new status layout and migration 0005.
-- Results: `uv run pytest -m "not live"`: 503 passed, 1 failed (`test_two_ingests_at_once_load_once_and_the_other_is_a_no_op`, see decision 7: it is flaky on a clean `main`, not caused by this build; it passed in two other full runs). `ruff check`, `ruff format --check` and `mypy efp`: clean. Coverage 95% overall (`runner.py` 93%).
+- Fix for a flaky test on `main` (added at the operator's request): `efp/db.py` and `efp/ingest/loader.py` (see "Failures by reason"), with `tests/test_concurrent_open.py`.
+- Results: `uv run pytest -m "not live"`: 510 passed. `ruff check`, `ruff format --check` and `mypy efp`: clean. Coverage 95% overall (`runner.py` 93%).
 
 ## What was run
 
@@ -40,7 +41,15 @@ Not applicable: this build makes no network calls and registers no modules. `efp
 
 ## Failures by reason
 
-None in the build's own runs. One pre-existing test flake: `tests/test_ingest_loader.py::test_two_ingests_at_once_load_once_and_the_other_is_a_no_op` fails with `sqlite3.OperationalError: database is locked` about two runs in three on a clean checkout of `main` (10 of 15 runs failed there), so it predates this build.
+None in the build's own runs. One pre-existing flaky test, now fixed: `tests/test_ingest_loader.py::test_two_ingests_at_once_load_once_and_the_other_is_a_no_op` failed on a clean `main` in 10 of 15 runs. It was three real races when several processes open a brand-new database together, not a bad test:
+
+| Reason | Where | Fix |
+| --- | --- | --- |
+| `database is locked` on `PRAGMA journal_mode = WAL` (SQLite refuses a concurrent WAL switch at once, without consulting the busy timeout) | `efp/db.py` `_configure` | `_enable_wal` reads the mode first and retries the switch with back-off until `busy_timeout` expires; other errors are not retried |
+| `FileExistsError` creating the data directory (check-then-create) | `efp/db.py` `connect` | `mkdir(..., exist_ok=True)` |
+| `sample_rows.json already exists` when the winning ingest and a no-op ingest both write the frozen sample | `efp/ingest/loader.py` `_sample_action` | a lost atomic create is re-compared with the file; an identical sample is `verified`, a different one still refuses |
+
+After the fixes the test passed 120 of 120 consecutive runs (it had failed 3 in 80 after the first two fixes alone). `tests/test_concurrent_open.py` has six deterministic tests, one or more per race; the directory and sample ones fail without the fixes.
 
 ## Gated sources encountered (not worked around)
 
@@ -65,7 +74,7 @@ None yet. `efp status` is the renderer later builds extend: stage × status matr
 4. **Gate reason names** the spec does not define: `court_not_done`, `identity_not_done`, `identity_unresolved`, `news_not_done`, `social_disabled`, `identity_not_confirmed`, `no_handle`, `extract_not_done`. A missing identity decision is treated as `unresolved`, never as a pass. `gate_news` blocks only `unresolved` or no decision, as the spec words it; say so if you want an allowlist (`confirmed` plus reviewed outcomes) instead.
 5. **`needs_review` or `failed` on a predecessor blocks** downstream stages, as in the spec's query. A row waiting in the identity review band therefore does not reach `news` until a decision is recorded. Say so if that should not hold the row.
 6. **Stage order.** `config.toml` lists `documents` before `news`; the prompt and spec list `news` first. The predecessor map is the authority, so the order only affects display. Left as is (build 03 decision 10).
-7. **Pre-existing flaky test** on `main` (above). Not touched; worth its own fix.
+7. **Flaky loader test fixed in this PR** (above). It touches `efp/db.py` and `efp/ingest/loader.py`, which are build 02 and 03 code; no behavior changes except that concurrent first-time opens no longer fail.
 8. **No generic stage wrapper in the runner.** `modules.run_stage` iterates a stage's chains for one row, but the runner does not call it: each component's `run(batch, ctx)` loops its rows and calls it. Left that way so components keep control of batching; say so if you want a `chain_component` adapter.
 9. **Small known edges:** module records carry `status: "error"` and a `chain` key beyond the prompt's `hit|miss|skipped`; `--recover` while another run of the same stage is alive causes double processing of its rows (documented in RUNBOOK); a row recovered after a crashed `--retry-failed` attempt sits `pending` with attempts at the limit; `--reset` cannot be combined with `--limit` (it raises); `efp review` still prints "not built yet (build 04)", which is stale and belongs to a later build.
 10. **`efp status` and the sample.** A missing or unreadable sample file simply omits the sample section.
