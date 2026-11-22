@@ -62,6 +62,8 @@ class Paths(_Section):
     bulk: Path
     manifests: Path
     bags: Path
+    cache: Path
+    warc: Path
     logs: Path
     exports: Path
     import_inbox: Path
@@ -123,6 +125,8 @@ class Capture(_Section):
     timeout_seconds: float = Field(gt=0)
     max_redirects: int = Field(ge=0)
     robots_cache_hours: float = Field(ge=0)
+    cache_expire_hours: float = Field(ge=0)
+    max_wait_seconds: float = Field(gt=0)
     spn_per_minute: int = Field(gt=0)
     tsa_urls: list[str]
 

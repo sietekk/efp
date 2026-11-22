@@ -45,6 +45,15 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EFP_CONFIG", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_secret_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The log-redaction registry is process-global; a value one test registers (even a short
+    one) must not rewrite the URLs another test stores."""
+    from efp import logging as efp_logging
+
+    monkeypatch.setattr(efp_logging, "_secret_values", set())
+
+
 @pytest.fixture
 def env_file(tmp_path: Path) -> Path:
     path = tmp_path / "secrets" / ".env"

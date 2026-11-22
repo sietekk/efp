@@ -19,17 +19,22 @@ from typing import NoReturn
 import typer
 
 from efp import audit, runner
+from efp import capture as capture_mod
 from efp import db as database
+from efp import manifest as manifest_mod
 from efp import modules as module_chain
+from efp import spn as spn_mod
 from efp import status as status_view
+from efp.builtin_modules import register_builtin
 from efp.config import Config, ConfigError, find_config, load_config
 from efp.dbcheck import run_db_checks
 from efp.export import roundtrip
 from efp.ingest import loader
 from efp.ingest import report as ingest_report
+from efp.livecheck import live_checks
 from efp.logging import register_secret_values, setup_logging
 from efp.secrets import SecretsError, load_secrets
-from efp.selftest import run_checks
+from efp.selftest import Check, run_checks
 from efp.version import git_sha, package_version
 
 app = typer.Typer(
@@ -42,6 +47,8 @@ identity_app = typer.Typer(help="Identity resolution tools.", no_args_is_help=Tr
 app.add_typer(identity_app, name="identity")
 db_app = typer.Typer(help="Database administration.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
+spn_app = typer.Typer(help="Save Page Now queue.", no_args_is_help=True)
+app.add_typer(spn_app, name="spn")
 
 
 def _no_audit(extra: Mapping[str, object] | None = None) -> int | None:
@@ -117,6 +124,7 @@ def main(
     config_sha256 = _file_sha256(find_config()) if config is not None else None
     state = AppState(config=config, config_error=config_error)
     ctx.obj = state
+    register_builtin()
 
     secret_values: list[str] = []
     if config is not None:
@@ -427,10 +435,131 @@ def export(
 
 @app.command()
 def manifest(
-    timestamp: bool = typer.Option(False, "--timestamp", help="Add an RFC 3161 token."),
+    ctx: typer.Context,
+    timestamp: bool = typer.Option(False, "--timestamp", help="Add RFC 3161 tokens (two TSAs)."),
+    verify: bool = typer.Option(False, "--verify", help="Re-check the stored tokens."),
+    bag: bool = typer.Option(False, "--bag", help="Build or update the BagIt bag and validate it."),
+    week: str | None = typer.Option(None, "--week", help="Limit to an ISO week, e.g. 2026-W47."),
+    manifest_id: int | None = typer.Option(
+        None, "--manifest", help="A manifest id for --timestamp / --verify (default: latest)."
+    ),
 ) -> None:
-    """Weekly hash manifest."""
-    _not_built("20")
+    """Weekly hash manifest, RFC 3161 timestamps, and the BagIt fixity bag."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        if verify:
+            target = manifest_id or manifest_mod.latest_manifest_id(conn)
+            if target is None:
+                typer.echo("no manifest to verify", err=True)
+                raise typer.Exit(1)
+            results = manifest_mod.verify_manifest(config, conn, target)
+            for item in results:
+                typer.echo(
+                    f"[{'ok    ' if item.ok else 'FAILED'}] {item.tsa_url}  {item.token.name}  "
+                    f"{item.gen_time or '-'}  {item.detail}"
+                )
+            if not all(item.ok for item in results):
+                raise typer.Exit(1)
+            return
+        if bag:
+            result = manifest_mod.build_bag(config)
+            typer.echo(
+                f"bag {'created' if result.created else 'updated'}: {result.path} "
+                f"({result.files:,} files): {result.detail}"
+            )
+            if not result.valid:
+                raise typer.Exit(1)
+            return
+        target = manifest_id
+        if target is None and not timestamp:
+            built = manifest_mod.build_manifest(config, conn, week=week)
+            if built is None:
+                typer.echo("nothing new to list: every capture is already in a manifest")
+                return
+            typer.echo(
+                f"manifest {built.path.name}: {built.entry_count:,} bodies, captures "
+                f"{built.first_capture_id}-{built.last_capture_id}, sha256 {built.sha256}"
+            )
+            return
+        if target is None:  # --timestamp with no id: build a new manifest if there is anything new
+            built = manifest_mod.build_manifest(config, conn, week=week)
+            target = built.manifest_id if built else manifest_mod.latest_manifest_id(conn)
+            if built:
+                typer.echo(
+                    f"manifest {built.path.name}: {built.entry_count:,} bodies, "
+                    f"sha256 {built.sha256}"
+                )
+        if target is None:
+            typer.echo("no manifest to timestamp", err=True)
+            raise typer.Exit(1)
+        if timestamp:
+            client = capture_mod.Capture(config, conn)
+            try:
+                outcome = manifest_mod.timestamp_manifest(
+                    config, conn, target, manifest_mod.CaptureTsa(client)
+                )
+            finally:
+                client.close()
+            for token in outcome.tokens:
+                typer.echo(f"token {token.path.name}  {token.tsa_url}  {token.gen_time}")
+            for message in outcome.errors:
+                typer.echo(f"warning: {message}", err=True)
+            if outcome.independent_tsas < 2:
+                typer.echo(
+                    f"warning: only {outcome.independent_tsas} TSA(s) answered; the policy is two",
+                    err=True,
+                )
+    except (manifest_mod.ManifestError, capture_mod.CaptureError, sqlite3.Error) as exc:
+        typer.echo(f"manifest failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    finally:
+        conn.close()
+
+
+@spn_app.command("drain")
+def spn_drain(
+    ctx: typer.Context,
+    limit: int | None = typer.Option(None, "--limit", min=1, help="At most N rows this pass."),
+) -> None:
+    """Submit queued pages to Save Page Now within its budget, and collect finished jobs."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        try:
+            secrets = load_secrets(config.paths.env_file)
+        except SecretsError:
+            secrets = None
+        client = capture_mod.Capture(config, conn)
+        try:
+            result = spn_mod.drain(client, conn, secrets, limit=limit)
+        finally:
+            client.close()
+        if result.blocked_reason:
+            typer.echo(result.blocked_reason)
+        typer.echo(
+            f"submitted {result.submitted}, archived {result.completed}, "
+            f"deferred {result.deferred}, failed {result.failed}, "
+            f"still running {result.pending_polls}"
+        )
+        for note in result.notes:
+            typer.echo(f"note: {note}")
+    finally:
+        conn.close()
+
+
+@spn_app.command("status")
+def spn_status(ctx: typer.Context) -> None:
+    """How many pages are queued, in flight, archived and failed."""
+    state: AppState = ctx.obj
+    conn = _open_db(state)
+    try:
+        counts = spn_mod.queue_counts(conn)
+    finally:
+        conn.close()
+    typer.echo(", ".join(f"{k} {v}" for k, v in counts.items()))
 
 
 @db_app.command("migrate")
@@ -453,12 +582,31 @@ def db_migrate(ctx: typer.Context) -> None:
         typer.echo("up to date: no unapplied migrations")
 
 
+_LIVE_COUNT = [0]
+
+
+def _live_checks(state: AppState) -> list[Check]:
+    """The network checks, recorded under stage 'selftest' in the real database."""
+    if state.config is None:
+        return []
+    conn = _open_db(state, migrate=True)
+    try:
+        found = live_checks(state.config, conn)
+    finally:
+        conn.close()
+    _LIVE_COUNT[0] = len(found)
+    return found
+
+
 @app.command()
 def selftest(
     ctx: typer.Context,
     strict: bool = typer.Option(False, "--strict", help="Exit 1 if any required item is missing."),
     db: bool = typer.Option(
         False, "--db", help="Check the database instead: migrations, triggers, bodies, keys."
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Also run the checks that use the real network (CDX, RFC 3161)."
     ),
 ) -> None:
     """Report versions, secrets present (names only), data directory, env file and extras."""
@@ -483,6 +631,10 @@ def selftest(
     for c in checks:
         mark = "ok     " if c.ok else ("MISSING" if c.required else "absent ")
         typer.echo(f"[{mark}] {c.name:<{width}}  {c.detail}")
+    if live:
+        checks += _live_checks(state)
+        for c in checks[-_LIVE_COUNT[0] :]:
+            typer.echo(f"[{'ok    ' if c.ok else 'FAILED'}] {c.name:<{width}}  {c.detail}")
     missing = [c for c in checks if not c.ok and c.required]
     if missing:
         typer.echo(

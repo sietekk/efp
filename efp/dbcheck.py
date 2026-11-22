@@ -42,6 +42,11 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "state_adapters",
     "audit_log",
     "source_workbook",
+    # capture layer (build 05)
+    "spn_queue",
+    "manifests",
+    "manifest_tokens",
+    "manifest_captures",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -69,6 +74,8 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_social_accounts_row",
     "idx_social_accounts_capture",
     "idx_gold_set_row",
+    "idx_spn_queue_status",
+    "idx_manifest_captures_capture",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (

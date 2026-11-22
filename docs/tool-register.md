@@ -96,6 +96,7 @@ Checked against the library's A-Z database list, September 2026. Contact for all
 | [Browsertrix Crawler](https://github.com/webrecorder/browsertrix-crawler) | 1.13.2, 2026-06-20 | **AGPL** | Active | Docker. WARC and WACZ output for JS-heavy pages |
 | [bagit-python](https://libraryofcongress.github.io/bagit-python/) | 1.9.0, 2025-06-13 | Public Domain | Active | RFC 8493 fixity manifests |
 | [rfc3161-client](https://github.com/trailofbits/rfc3161-client) | 1.0.9, 2026-09-14 | Apache-2.0 | Active | Trusted timestamps. The strongest answer to "prove you had this on that date" |
+| savepagenow | 1.3.1 | MIT | Not used | Named in the spec, but it calls `requests` directly, which would bypass the capture layer's budget, cache, WARC and secret stripping. Build 05 calls the SPN2 API through the capture layer instead. Verified from installed metadata |
 | [ro-crate-py](https://github.com/ResearchObject/ro-crate-py) | 0.15.1, 2026-07-10 | Apache-2.0 | Active | Research data packaging |
 | Perma.cc | — | Free for academic registrars | Active | For the URLs you actually cite, not all 5,000 |
 | OCCRP Aleph | — | MIT | **Sunset Dec 2025** | Do not build on it. `followthemoney` (4.11.0) survives and its Person schema is worth reusing |
@@ -134,7 +135,7 @@ Checked against the library's A-Z database list, September 2026. Contact for all
 
 ## Plumbing
 
-`requests` + [requests-cache](https://pypi.org/project/requests-cache/) 1.3.3 (SQLite-backed, and the cache DB is itself a provenance artifact) · [stamina](https://pypi.org/project/stamina/) 26.1.0 over tenacity · [pyrate-limiter](https://pypi.org/project/pyrate-limiter/) 4.5.0 with the SQLite backend so limits survive restarts · `sqlite-utils` 4.2.1 for admin · DuckDB attached read-only for analysis. Set a descriptive User-Agent naming the project with a contact address.
+`requests` + [requests-cache](https://pypi.org/project/requests-cache/) 1.3.3 (SQLite-backed, and the cache DB is itself a provenance artifact) · [stamina](https://pypi.org/project/stamina/) 26.1.0 over tenacity · [pyrate-limiter](https://pypi.org/project/pyrate-limiter/) 4.5.0 with the SQLite backend so limits survive restarts · `sqlite-utils` 4.2.1 for admin · DuckDB attached read-only for analysis · [filelock](https://pypi.org/project/filelock/) 4.2.12 (MIT) for pyrate-limiter's cross-process lock · test-only: [responses](https://pypi.org/project/responses/) 0.26.3 (Apache-2.0) and [vcrpy](https://pypi.org/project/vcrpy/) 9.4.2 (MIT), verified from installed metadata. Set a descriptive User-Agent naming the project with a contact address.
 
 ## Methodology citations worth having
 

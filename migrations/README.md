@@ -14,6 +14,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0003_triggers.sql` | Append-only enforcement |
 | `0004_source_workbook.sql` | `source_workbook`: the ingested workbook's hash, immutable |
 | `0005_case_stage_summary.sql` | `case_stage.summary_json`: the runner's per-row outcome summary (module chain outcomes) |
+| `0006_capture_support.sql` | Capture layer: `captures` may set `wayback_url` and `tsa_token_path` once from NULL (nothing else); `spn_queue`, `manifests`, `manifest_tokens`, `manifest_captures` |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 
@@ -22,7 +23,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | Table | Rule |
 | --- | --- |
 | `rows` | UPDATE and DELETE rejected. Written once by ingest. |
-| `captures` | UPDATE and DELETE rejected. Every retrieval, forever. |
+| `captures` | DELETE rejected. UPDATE rejected except two one-shot writes (migration 0006): `wayback_url` and `tsa_token_path` may go from NULL to a value, once, with every other column unchanged. Every retrieval, forever. |
 | `decisions` | UPDATE and DELETE rejected. A reversal is a new row. |
 | `audit_log` | DELETE rejected. UPDATE rejected except one completion write per row: `finished_at` and `exit_code` go from NULL to a value, every other column unchanged. A run that crashed leaves `finished_at` NULL. |
 | `case_stage` | The one mutable work table. |

@@ -1,0 +1,491 @@
+from __future__ import annotations
+
+import gzip
+import socket
+import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+import requests
+import responses
+import stamina
+
+from efp.capture import REDACTED, Capture, CaptureError, redact_headers, redact_url
+from efp.config import Config
+from efp.store import config_store_path
+from tests.capturehelpers import captures, headers_of, make_capture, warc_records
+from tests.dbhelpers import insert_row
+
+PAGE = b"<html><body>A public page.</body></html>"
+
+
+@pytest.fixture(autouse=True)
+def _fast_retries() -> Iterator[None]:
+    stamina.set_testing(True, attempts=4, cap=False)  # retry without waiting
+    yield
+    stamina.set_testing(False)
+
+
+@pytest.fixture
+def rsps() -> Iterator[responses.RequestsMock]:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
+        yield mock
+
+
+@pytest.fixture
+def cap(config: Config, conn: sqlite3.Connection) -> Iterator[Capture]:
+    insert_row(conn, 1)
+    conn.commit()
+    client = make_capture(config, conn)
+    yield client
+    client.close()
+
+
+def _robots_ok(rsps: responses.RequestsMock, host: str = "example.test") -> None:
+    rsps.get(f"https://{host}/robots.txt", body="User-agent: *\nDisallow: /private\n", status=200)
+
+
+# --- the fetch itself -----------------------------------------------------------------------
+
+
+def test_a_fetch_produces_a_captures_row_a_warc_pair_and_a_matching_body(
+    cap: Capture, config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/a", body=PAGE, content_type="text/html")
+    record = cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
+    assert record.ok and record.http_status == 200 and not record.from_cache
+    assert record.tool == "requests" and record.url_requested == "https://example.test/a"
+    assert cap.read_body(record) == PAGE  # hash-verified read
+    assert config_store_path(record.content_sha256, config).read_bytes() == PAGE
+    row = next(r for r in captures(conn) if r["url_requested"].endswith("/a"))
+    assert row["body_path"] == f"store/{record.content_sha256[:2]}/{record.content_sha256}"
+    assert row["retrieved_at"].endswith("+00:00") and row["content_type"] == "text/html"
+    pair = [r for r in warc_records(config) if r["uri"] == "https://example.test/a"]
+    assert [r["type"] for r in pair] == ["request", "response"]
+    response = pair[1]
+    assert response["payload"] == PAGE and response["payload_sha256"] == record.content_sha256
+    assert response["efp_sha256"] == record.content_sha256 and response["status"] == "200"
+    assert row["warc_path"].split("#")[0].endswith(".warc.gz")
+
+
+def test_the_project_user_agent_is_sent(
+    cap: Capture, config: Config, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/ua", body=PAGE)
+    cap.fetch("https://example.test/ua", row_id=1, stage="resolve_links")
+    sent = [c.request.headers["User-Agent"] for c in rsps.calls]
+    assert set(sent) == {config.project.user_agent}
+
+
+def test_a_redirect_records_both_urls_and_the_hop(
+    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get(
+        "https://example.test/old", status=301, headers={"Location": "https://example.test/new"}
+    )
+    rsps.get("https://example.test/new", body=PAGE)
+    record = cap.fetch("https://example.test/old", row_id=1, stage="resolve_links")
+    assert record.url_requested == "https://example.test/old"
+    assert record.url_final == "https://example.test/new"
+    final = next(r for r in captures(conn) if (r["url_final"] or "").endswith("/new"))
+    assert headers_of(final)["history"] == [{"url": "https://example.test/old", "status": 301}]
+    assert cap.adapter.network_requests == 3  # robots.txt, the redirect, the target
+
+
+def test_a_429_is_retried_and_retry_after_is_honored(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    insert_row(conn, 1)
+    sleeps: list[float] = []
+    cap = make_capture(config, conn, sleeps=sleeps)
+    _robots_ok(rsps)
+    rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "7"})
+    rsps.get("https://example.test/busy", body=PAGE)
+    record = cap.fetch("https://example.test/busy", row_id=1, stage="resolve_links")
+    assert record.http_status == 200 and cap.read_body(record) == PAGE
+    assert sleeps == [7.0]
+    assert len([c for c in rsps.calls if c.request.url.endswith("/busy")]) == 2
+    cap.close()
+
+
+def test_exhausted_retries_still_capture_the_last_response(
+    cap: Capture, rsps: responses.RequestsMock, config: Config
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/down", status=503, body=b"unavailable")
+    record = cap.fetch("https://example.test/down", row_id=1, stage="resolve_links")
+    assert record.http_status == 503 and not record.ok  # capture before judging
+    calls = [c for c in rsps.calls if c.request.url.endswith("/down")]
+    assert len(calls) == config.rate_limits.retry_attempts + 1
+
+
+def test_a_404_is_captured_not_judged(cap: Capture, rsps: responses.RequestsMock) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/gone", status=404, body=b"not found")
+    record = cap.fetch("https://example.test/gone", row_id=1, stage="resolve_links")
+    assert record.http_status == 404 and cap.read_body(record) == b"not found"
+
+
+def test_a_connection_error_is_a_capture_error_and_writes_no_row_for_the_page(
+    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/x", body=requests.ConnectionError("reset"))
+    with pytest.raises(CaptureError, match="ConnectionError"):
+        cap.fetch("https://example.test/x", row_id=1, stage="resolve_links")
+    assert [r["url_requested"] for r in captures(conn)] == ["https://example.test/robots.txt"]
+
+
+@pytest.mark.parametrize(
+    "url", ["ftp://example.test/x", "file:///etc/passwd", "not a url", "https:///x"]
+)
+def test_only_http_urls_are_fetchable(cap: Capture, url: str) -> None:
+    with pytest.raises(CaptureError, match="fetchable"):
+        cap.fetch(url, row_id=1, stage="resolve_links")
+
+
+# --- robots.txt -----------------------------------------------------------------------------
+
+
+def test_a_robots_disallow_is_a_row_with_no_status_and_no_request(
+    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    record = cap.fetch("https://example.test/private/doc", row_id=1, stage="resolve_links")
+    assert (record.http_status, record.tool) == (None, "robots_disallow")
+    assert b"Disallow: /private" in cap.read_body(record)  # the evidence is the rule itself
+    assert record.url_requested == "https://example.test/private/doc"
+    assert not [c for c in rsps.calls if "/private/doc" in c.request.url]  # never fetched
+    assert "robots_txt" in {r["tool"] for r in captures(conn)}
+
+
+def test_robots_is_fetched_once_per_domain_and_cached(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/a", body=PAGE)
+    rsps.get("https://example.test/b", body=PAGE + b"b")
+    cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
+    cap.fetch("https://example.test/b", row_id=1, stage="resolve_links")
+    assert len([c for c in rsps.calls if c.request.url.endswith("/robots.txt")]) == 1
+
+
+@pytest.mark.parametrize(
+    ("robots_status", "expect_fetch"), [(404, True), (410, True), (403, False), (500, False)]
+)
+def test_robots_status_decides_conservatively(
+    cap: Capture, rsps: responses.RequestsMock, robots_status: int, expect_fetch: bool
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=robots_status, body=b"")
+    rsps.get("https://example.test/a", body=PAGE)
+    record = cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
+    assert (record.tool != "robots_disallow") is expect_fetch
+
+
+def test_api_calls_skip_robots(cap: Capture, rsps: responses.RequestsMock) -> None:
+    rsps.get("https://example.test/api/q", json={"ok": True})
+    record = cap.fetch("https://example.test/api/q", row_id=None, stage="resolve_links", kind="api")
+    assert record.ok and not [c for c in rsps.calls if c.request.url.endswith("/robots.txt")]
+
+
+# --- the HTTP cache, dedup and store_bytes ----------------------------------------------------
+
+
+def test_a_cache_hit_still_records_a_row_but_not_a_second_warc_pair(
+    cap: Capture, conn: sqlite3.Connection, config: Config, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/c", body=PAGE, headers={"Cache-Control": "max-age=3600"})
+    first = cap.fetch("https://example.test/c", row_id=1, stage="resolve_links")
+    second = cap.fetch("https://example.test/c", row_id=1, stage="resolve_links")
+    assert (first.tool, second.tool) == ("requests", "requests-cache") and second.from_cache
+    assert second.warc_path == first.warc_path  # the evidentiary copy is the original record
+    assert len([c for c in rsps.calls if c.request.url.endswith("/c")]) == 1
+    rows = [r for r in captures(conn) if r["url_requested"].endswith("/c")]
+    assert len(rows) == 2 and rows[0]["content_sha256"] == rows[1]["content_sha256"]
+    pages = [r for r in warc_records(config) if r["uri"] == "https://example.test/c"]
+    assert [r["type"] for r in pages] == ["request", "response"]  # one pair, not two
+
+
+def test_the_same_body_twice_is_one_file_and_two_rows(
+    cap: Capture, conn: sqlite3.Connection, config: Config, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/one", body=PAGE)
+    rsps.get("https://example.test/two", body=PAGE)
+    a = cap.fetch("https://example.test/one", row_id=1, stage="resolve_links")
+    b = cap.fetch("https://example.test/two", row_id=1, stage="resolve_links")
+    assert a.content_sha256 == b.content_sha256 and a.capture_id != b.capture_id
+    shard = config_store_path(a.content_sha256, config).parent
+    assert [p.name for p in shard.iterdir() if p.name == a.content_sha256] == [a.content_sha256]
+    assert len([r for r in captures(conn) if r["content_sha256"] == a.content_sha256]) == 2
+
+
+def test_store_bytes_captures_a_body_that_arrived_another_way(
+    cap: Capture, conn: sqlite3.Connection
+) -> None:
+    record = cap.store_bytes(
+        b"%PDF-1.7 synthetic",
+        row_id=1,
+        stage="documents",
+        url_requested="file://saved.pdf",
+        tool="manual_import",
+        manual_source="westlaw",
+        content_type="application/pdf",
+    )
+    row = captures(conn)[-1]
+    assert (row["manual_source"], row["tool"], row["warc_path"]) == (
+        "westlaw",
+        "manual_import",
+        None,
+    )
+    assert cap.read_body(record) == b"%PDF-1.7 synthetic"
+
+
+# --- secrets ----------------------------------------------------------------------------------
+
+
+def test_secrets_never_reach_headers_urls_the_warc_or_the_http_cache(
+    cap: Capture, conn: sqlite3.Connection, config: Config, rsps: responses.RequestsMock
+) -> None:
+    secret = "tok-0123456789abcdef"  # pragma: allowlist secret (synthetic test value)
+    rsps.get("https://example.test/api/data", json={"ok": 1})
+    record = cap.fetch(
+        "https://example.test/api/data",
+        row_id=None,
+        stage="court",
+        kind="api",
+        headers={"Authorization": f"Bearer {secret}", "X-API-Key": secret},
+        params={"api_key": secret, "q": "ok"},
+    )
+    assert record.ok
+    row = captures(conn)[-1]
+    stored = " ".join(str(v) for v in dict(row).values())
+    assert secret not in stored and REDACTED in headers_of(row)["request"]["Authorization"]
+    assert "q=ok" in row["url_requested"] and f"api_key={REDACTED}" in row["url_requested"]
+    warcs = list(Path(config.paths.warc).rglob("*.warc.gz"))
+    assert warcs
+    for path in warcs:
+        with gzip.open(path, "rb") as handle:
+            assert secret.encode() not in handle.read(), "the WARC must hold no secret"
+    for path in Path(config.paths.cache).glob("http_cache*"):
+        assert secret.encode() not in path.read_bytes(), "the HTTP cache must hold no secret"
+    assert secret in rsps.calls[-1].request.headers["Authorization"]  # but it really was sent
+
+
+def test_redaction_helpers() -> None:
+    assert (
+        redact_url("https://x.test/a?api_key=S&k=v") == f"https://x.test/a?api_key={REDACTED}&k=v"
+    )
+    assert redact_url("https://x.test/a?key=S", api=True) == f"https://x.test/a?key={REDACTED}"
+    assert redact_url("https://x.test/a?key=S") == "https://x.test/a?key=S"  # a page, not an API
+    assert redact_headers({"Authorization": "Bearer S", "Accept": "x"}) == [
+        ("Authorization", REDACTED),
+        ("Accept", "x"),
+    ]
+
+
+# --- the Save Page Now queue ---------------------------------------------------------------
+
+
+def test_successful_pages_are_queued_once_and_apis_and_failures_are_not(
+    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/p", body=PAGE, headers={"Cache-Control": "max-age=3600"})
+    rsps.get("https://example.test/missing", status=404)
+    rsps.get("https://example.test/api/x", json={})
+    cap.fetch("https://example.test/p", row_id=1, stage="resolve_links")
+    cap.fetch("https://example.test/p", row_id=1, stage="resolve_links")  # cache hit
+    cap.fetch("https://example.test/missing", row_id=1, stage="resolve_links")
+    cap.fetch("https://example.test/api/x", row_id=None, stage="x", kind="api")
+    queued = conn.execute("SELECT url, status FROM spn_queue").fetchall()
+    assert queued == [("https://example.test/p", "pending")]
+
+
+def test_the_network_stays_blocked_in_this_module() -> None:
+    with socket.socket() as probe, pytest.raises(RuntimeError, match="network access is blocked"):
+        probe.connect(("example.com", 80))
+
+
+# --- review follow-ups: redirects, robots with parameters, secrets in other paths --------------
+
+
+def test_a_redirect_into_a_disallowed_path_is_blocked_before_it_is_requested(
+    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get(
+        "https://example.test/open",
+        status=302,
+        headers={"Location": "https://example.test/private/x"},
+    )
+    rsps.get("https://example.test/private/x", body=PAGE)
+    record = cap.fetch("https://example.test/open", row_id=1, stage="resolve_links")
+    assert (record.http_status, record.tool) == (None, "robots_disallow")
+    assert record.url_requested == "https://example.test/open"
+    assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]
+    assert headers_of(captures(conn)[-1])["redirected_via"] == [
+        {"url": "https://example.test/open", "status": 302}
+    ]
+
+
+def test_each_redirect_hop_checks_its_own_hosts_robots_and_drops_credentials_across_hosts(
+    cap: Capture, config: Config, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    _robots_ok(rsps, "other.test")
+    rsps.get(
+        "https://example.test/go", status=301, headers={"Location": "https://other.test/landing"}
+    )
+    rsps.get("https://other.test/landing", body=PAGE)
+    record = cap.fetch(
+        "https://example.test/go",
+        row_id=1,
+        stage="resolve_links",
+        headers={"Authorization": "Bearer hop-secret-1"},
+    )
+    assert record.url_final == "https://other.test/landing" and record.ok
+    urls = [c.request.url for c in rsps.calls]
+    assert "https://other.test/robots.txt" in urls  # the second host's rules were read
+    landing = next(c for c in rsps.calls if c.request.url.endswith("/landing"))
+    assert "Authorization" not in landing.request.headers  # not carried to a different host
+    first = next(c for c in rsps.calls if c.request.url.endswith("/go"))
+    assert first.request.headers["Authorization"] == "Bearer hop-secret-1"
+
+
+def test_the_warc_holds_every_hop_so_the_original_url_replays(
+    cap: Capture, config: Config, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get(
+        "https://example.test/old", status=301, headers={"Location": "https://example.test/new"}
+    )
+    rsps.get("https://example.test/new", body=PAGE)
+    cap.fetch("https://example.test/old", row_id=1, stage="resolve_links")
+    seen = [(r["uri"], r["status"]) for r in warc_records(config) if r["type"] == "response"]
+    assert ("https://example.test/old", "301") in seen and (
+        "https://example.test/new",
+        "200",
+    ) in seen
+
+
+def test_a_redirect_loop_is_an_error(cap: Capture, rsps: responses.RequestsMock) -> None:
+    rsps.get("https://other.test/robots.txt", status=404)  # (example.test has a daily cap here)
+    rsps.get("https://other.test/a", status=302, headers={"Location": "https://other.test/b"})
+    rsps.get("https://other.test/b", status=302, headers={"Location": "https://other.test/a"})
+    with pytest.raises(CaptureError, match="too many redirects"):
+        cap.fetch("https://other.test/a", row_id=1, stage="resolve_links")
+
+
+def test_robots_rules_apply_to_the_query_string_parameters(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /search?q=\n")
+    rsps.get("https://example.test/search", body=PAGE)
+    record = cap.fetch(
+        "https://example.test/search", row_id=1, stage="resolve_links", params={"q": "x"}
+    )
+    assert record.tool == "robots_disallow"
+    assert not [
+        c for c in rsps.calls if "/search" in c.request.url and "robots" not in c.request.url
+    ]
+
+
+def test_a_429_on_robots_txt_does_not_open_the_whole_site(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=429)
+    rsps.get("https://example.test/a", body=PAGE)
+    assert (
+        cap.fetch("https://example.test/a", row_id=1, stage="resolve_links").tool
+        == "robots_disallow"
+    )
+
+
+def test_store_bytes_does_not_keep_credentials(cap: Capture, conn: sqlite3.Connection) -> None:
+    cap.store_bytes(
+        b"downloaded",
+        row_id=1,
+        stage="documents",
+        url_requested="https://example.test/f?token=abc123&key=k9&page=2",
+        tool="download",
+        headers={"Authorization": "Bearer abc123", "request": {"Cookie": "s=abc123"}, "n": 1},
+    )
+    row = captures(conn)[-1]
+    stored = " ".join(str(v) for v in dict(row).values())
+    assert "abc123" not in stored and "k9" not in stored and "page=2" in stored
+
+
+def test_an_error_message_carries_no_credential_even_one_nobody_registered(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get("https://example.test/api/x", body=requests.ConnectionError("reset for ?key=SEKRET77"))
+    with pytest.raises(CaptureError) as excinfo:
+        cap.fetch(
+            "https://example.test/api/x",
+            row_id=None,
+            stage="x",
+            kind="api",
+            params={"key": "SEKRET77"},
+        )
+    assert "SEKRET77" not in str(excinfo.value)
+
+
+def test_a_cookie_the_server_sets_is_not_kept_in_the_cache_or_the_row(
+    cap: Capture, config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _robots_ok(rsps)
+    rsps.get(
+        "https://example.test/login",
+        body=PAGE,
+        headers={"Set-Cookie": "session=COOKIEVALUE99; Path=/"},
+    )
+    cap.fetch("https://example.test/login", row_id=1, stage="resolve_links")
+    cap.session.close()
+    for path in Path(config.paths.cache).glob("http_cache*"):
+        assert b"COOKIEVALUE99" not in path.read_bytes()
+    assert "COOKIEVALUE99" not in " ".join(str(v) for c in captures(conn) for v in dict(c).values())
+
+
+def test_the_capture_methods_delegate_to_the_wayback_and_perma_modules(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get("https://web.archive.org/cdx/search/cdx", json=[["urlkey"]])
+    assert cap.cdx("http://example.test/") == []
+    result = cap.perma("https://example.test/cited")  # no secrets passed: a documented no-op
+    assert result.perma_url is None and "PERMA_API_KEY" in result.reason
+
+
+def test_every_capture_is_logged_without_credentials(
+    cap: Capture, rsps: responses.RequestsMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    _robots_ok(rsps)
+    rsps.get("https://example.test/p", body=PAGE)
+    with caplog.at_level("INFO", logger="efp.capture"):
+        cap.fetch("https://example.test/p?api_key=LOGSECRET1", row_id=1, stage="resolve_links")
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "captured https://example.test/p" in text and "LOGSECRET1" not in text
+
+
+def test_the_budget_is_taken_for_every_network_hop_on_its_own_domain(
+    cap: Capture, rsps: responses.RequestsMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taken: list[str] = []
+    real = cap.limiter.acquire
+    monkeypatch.setattr(
+        cap.limiter, "acquire", lambda domain, **kw: (taken.append(domain), real(domain, **kw))[1]
+    )
+    _robots_ok(rsps)
+    rsps.get("https://other.test/robots.txt", status=404)
+    rsps.get(
+        "https://example.test/go", status=301, headers={"Location": "https://other.test/there"}
+    )
+    rsps.get("https://other.test/there", body=PAGE)
+    cap.fetch("https://example.test/go", row_id=1, stage="resolve_links")
+    assert taken == ["example.test", "example.test", "other.test", "other.test"]
+    # robots.txt and the first hop on example.test, then robots.txt and the page on other.test
