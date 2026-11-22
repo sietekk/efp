@@ -22,6 +22,7 @@ stored. Nothing else in the codebase may import ``requests`` (a test enforces it
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -29,10 +30,12 @@ import sqlite3
 import threading
 import time
 import urllib.robotparser
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -199,12 +202,13 @@ class _PoliteAdapter(HTTPAdapter):
         super().__init__(*args, **kwargs)
         self._limiter = limiter
         self.network_requests = 0
+        self.max_wait: float | None = None  # set by Capture.wait_limit for one call
 
     def send(
         self, request: requests.PreparedRequest, *args: Any, **kwargs: Any
     ) -> requests.Response:
         host = urlsplit(request.url or "").hostname or ""
-        self._limiter.acquire(host)
+        self._limiter.acquire(host, max_wait=self.max_wait)
         self.network_requests += 1
         return super().send(request, *args, **kwargs)
 
@@ -388,6 +392,98 @@ class Capture:
         from efp import perma
 
         return perma.archive(self, url, secrets)
+
+    @contextmanager
+    def wait_limit(self, seconds: float) -> Iterator[None]:
+        """Within this block a fetch waits at most ``seconds`` for a domain budget, then raises
+        ``CaptureError``. For a daily quota (CourtListener's 125 a day), where waiting is no use."""
+        previous = self.adapter.max_wait
+        self.adapter.max_wait = seconds
+        try:
+            yield
+        finally:
+            self.adapter.max_wait = previous
+
+    def download(
+        self,
+        url: str,
+        dest: Path,
+        *,
+        stage: str,
+        row_id: int | None = None,
+        expected_size: int | None = None,
+    ) -> CaptureRecord:
+        """Stream a large file to ``dest`` (resumable), hashing as it goes.
+
+        Bulk datasets run to tens of gigabytes, so they are not copied into the WARC or the
+        content store. The call still takes the domain's budget and is recorded: the ``captures``
+        row's body is a small JSON manifest (URL, size, SHA-256, ETag, last-modified, path), which
+        is the provenance of the file the loader later reads.
+        """
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+            raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + ".part")
+        digest = hashlib.sha256()
+        have = 0
+        if part.exists():  # resume: re-hash what is there, ask for the rest
+            with part.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+                    have += len(chunk)
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        try:
+            with self.session.cache_disabled():
+                response = self.session.get(
+                    url,
+                    stream=True,
+                    headers=headers,
+                    timeout=self.config.capture.timeout_seconds,
+                    allow_redirects=False,  # fetched from the address that was listed
+                )
+        except (RateLimitTimeout, requests.RequestException) as exc:
+            raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
+        with response:
+            if response.status_code == 200 and have:  # the server ignored the range: start over
+                digest, have = hashlib.sha256(), 0
+                part.unlink()
+            elif response.status_code in _REDIRECT_STATUS:
+                raise CaptureError(
+                    f"{redact_url(url, api=True)}: redirected; not followed (no robots check on a "
+                    "new host): download the final address deliberately"
+                )
+            elif response.status_code not in (200, 206):
+                raise CaptureError(f"{redact_url(url, api=True)}: HTTP {response.status_code}")
+            with part.open("ab") as out:
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    out.write(chunk)
+                    digest.update(chunk)
+                    have += len(chunk)
+            etag = response.headers.get("ETag")
+            modified = response.headers.get("Last-Modified")
+        if expected_size is not None and have != expected_size:
+            raise CaptureError(f"{dest.name}: got {have} bytes, expected {expected_size}")
+        part.replace(dest)
+        manifest = {
+            "url": redact_url(url, api=True),
+            "path": str(dest),
+            "size": have,
+            "sha256": digest.hexdigest(),
+            "etag": etag,
+            "last_modified": modified,
+        }
+        return self.store_bytes(
+            json.dumps(manifest, sort_keys=True).encode(),
+            row_id=row_id,
+            stage=stage,
+            url_requested=url,
+            url_final=url,
+            http_status=response.status_code,
+            content_type="application/json",
+            tool="bulk_download",
+            tool_version=package_version(),
+            headers=manifest,
+        )
 
     def store_bytes(
         self,

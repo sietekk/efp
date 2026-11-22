@@ -131,3 +131,14 @@ def test_two_processes_share_one_budget(write_config: Callable[..., Path], tmp_p
     # jitter in when each process happens to write its timestamp.
     assert stamps[-1] - stamps[0] >= 1.5
     assert min(gaps) >= 0.04  # and never a true double burst
+
+
+def test_a_daily_cap_of_one_is_valid_and_allows_exactly_one_request(
+    write_config: Callable[..., Path],
+) -> None:
+    config = load_config(write_config({'"example.test" = 10': '"example.test" = 1'}))
+    limiter = DomainLimiter(config)
+    limiter.define("example.test", 1000.0)
+    limiter.acquire("example.test")
+    with pytest.raises(RateLimitTimeout):
+        limiter.acquire("example.test", max_wait=0.2)

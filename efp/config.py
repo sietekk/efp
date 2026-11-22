@@ -230,11 +230,40 @@ class LoggingCfg(_Section):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
+class CourtCfg(_Section):
+    """Court-record stage settings (build 07)."""
+
+    pin_report_urls: list[
+        str
+    ]  # Public Integrity Section annual reports; empty = module unavailable
+    recap_enabled: bool  # RECAP Fetch costs PACER fees: never on in the first pass
+    bulk_listing_url: str  # S3 listing of the CourtListener bulk-data folder
+    bulk_download_base: str  # a listed key is appended to this to download it
+    bulk_max_gb: float = Field(gt=0)  # refuse to download more than this without a larger value
+    bulk_index_file: str  # the local DuckDB index, inside paths.bulk
+    window_years_after: int = Field(
+        ge=0
+    )  # a docket may be filed up to this many years after the row's year
+    terminated_slack_years: int = Field(
+        ge=0
+    )  # ... and must not have ended earlier than this before it
+    top_candidates: int = Field(gt=0)  # dockets kept per row from the bulk index
+    doj_year_slack: int = Field(
+        ge=0
+    )  # a press release may be this many years either side of the row's year
+    doj_pagesize: int = Field(gt=0, le=50)
+    doj_harvest_max_pages: int = Field(
+        gt=0
+    )  # cap on the date-sorted harvest used when the title search is ignored
+    pacer_queue: str  # where dockets whose documents are not in RECAP are listed
+
+
 class Config(_Section):
     project: Project
     paths: Paths
     scope: Scope
     first_pass: FirstPass
+    court: CourtCfg
     rate_limits: RateLimits
     capture: Capture
     runner: Runner

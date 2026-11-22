@@ -56,8 +56,11 @@ def test_component_exposes_run_and_gate(name: str) -> None:
     assert callable(module.gate)
 
 
-# ingest and resolve_links are built; the rest are still stubs.
-@pytest.mark.parametrize("name", [c for c in COMPONENTS if c not in ("ingest", "resolve_links")])
+# ingest, resolve_links and court are built; the rest are still stubs.
+BUILT = ("ingest", "resolve_links", "court")
+
+
+@pytest.mark.parametrize("name", [c for c in COMPONENTS if c not in BUILT])
 def test_component_stubs_raise_not_implemented(name: str, write_config: object) -> None:
     module = importlib.import_module(f"efp.{name}")
     with pytest.raises(NotImplementedError, match=name):

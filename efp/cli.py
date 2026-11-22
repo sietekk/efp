@@ -16,6 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import NoReturn
 
+import duckdb
 import typer
 
 from efp import audit, linkreport, runner
@@ -27,6 +28,7 @@ from efp import spn as spn_mod
 from efp import status as status_view
 from efp.builtin_modules import register_builtin
 from efp.config import Config, ConfigError, find_config, load_config
+from efp.court import bulk as court_bulk
 from efp.dbcheck import run_db_checks
 from efp.export import roundtrip
 from efp.ingest import loader
@@ -51,6 +53,10 @@ spn_app = typer.Typer(help="Save Page Now queue.", no_args_is_help=True)
 app.add_typer(spn_app, name="spn")
 links_app = typer.Typer(help="Link survival and the source-domain table.", no_args_is_help=True)
 app.add_typer(links_app, name="links")
+court_app = typer.Typer(help="Court-record tools.", no_args_is_help=True)
+app.add_typer(court_app, name="court")
+bulk_app = typer.Typer(help="The CourtListener bulk-data index.", no_args_is_help=True)
+court_app.add_typer(bulk_app, name="bulk")
 
 
 def _no_audit(extra: Mapping[str, object] | None = None) -> int | None:
@@ -332,6 +338,119 @@ def status(
         status_view.render_json(report)
         if fmt is StatusFormat.json
         else status_view.render_md(report)
+    )
+
+
+@bulk_app.command("fetch")
+def court_bulk_fetch(
+    ctx: typer.Context,
+    yes: bool = typer.Option(False, "--yes", help="Download. Without it, only list what would be."),
+) -> None:
+    """List the newest CourtListener bulk files with their sizes; download them with --yes."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        run_ctx = runner.make_context(config, conn)
+        try:
+            chosen = court_bulk.latest_set(court_bulk.list_bulk_files(run_ctx))
+        except capture_mod.CaptureError as exc:
+            typer.echo(f"could not list the bulk files: {exc}", err=True)
+            raise typer.Exit(1) from None
+        if not chosen:
+            typer.echo("the listing names no bulk files; check court.bulk_listing_url", err=True)
+            raise typer.Exit(1)
+        for kind in court_bulk.KINDS:
+            item = chosen.get(kind)
+            if item:
+                typer.echo(f"{kind:<12} {item.date}  {item.size / 1e9:8.2f} GB  {item.key}")
+            else:
+                typer.echo(f"{kind:<12} (not in the listing)")
+        total = court_bulk.total_gb(chosen.values())
+        typer.echo(f"total {total:.1f} GB (limit court.bulk_max_gb = {config.court.bulk_max_gb})")
+        if not yes:
+            typer.echo("nothing downloaded; run again with --yes to download")
+            return
+        try:
+            done = court_bulk.fetch_files(run_ctx, chosen, max_gb=config.court.bulk_max_gb)
+        except capture_mod.CaptureError as exc:
+            typer.echo(f"download failed: {exc}", err=True)
+            raise typer.Exit(1) from None
+        for item, capture_id in done:
+            typer.echo(f"downloaded {item.key} (capture {capture_id})")
+        typer.echo("next: uv run efp court bulk load")
+    finally:
+        conn.close()
+
+
+@bulk_app.command("load")
+def court_bulk_load(ctx: typer.Context) -> None:
+    """Build the local DuckDB index from the downloaded bulk files."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        folder = config.paths.bulk / "courtlistener"
+        by_date: dict[str, dict[str, Path]] = {}
+        for path in sorted(folder.glob("*.csv*")) if folder.is_dir() else []:
+            match = court_bulk.FILE_NAME.search(path.name)
+            if match and not path.name.endswith(".part"):
+                by_date.setdefault(match["date"], {})[match["kind"]] = path
+        complete = [d for d, files in by_date.items() if all(k in files for k in court_bulk.KINDS)]
+        if not complete:
+            have = {d: sorted(f) for d, f in by_date.items()}
+            typer.echo(
+                f"no single dataset date has all of {', '.join(court_bulk.KINDS)} downloaded "
+                f"(found: {have or 'nothing'}); run efp court bulk fetch --yes",
+                err=True,
+            )
+            raise typer.Exit(1)
+        chosen_date = max(complete)  # one quarter: never a mix of dates
+        found = by_date[chosen_date]
+        dates = dict.fromkeys(found, chosen_date)
+        captures: dict[str, int] = {}
+        for kind, path in found.items():
+            row = conn.execute(
+                "SELECT capture_id FROM captures WHERE tool = 'bulk_download' "
+                "AND url_requested LIKE ? ORDER BY capture_id DESC LIMIT 1",
+                (f"%{path.name}",),
+            ).fetchone()
+            if row:
+                captures[kind] = int(row[0])
+        try:
+            result = court_bulk.load_index(
+                config,
+                found,
+                dataset_date=max(dates.values()),
+                manifest_captures=captures,
+                progress=lambda kind, n: typer.echo(f"  {kind}: {n:,} rows read"),
+            )
+        except court_bulk.BulkLayoutError as exc:
+            typer.echo(f"layout error: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except (OSError, ValueError, duckdb.Error) as exc:
+            typer.echo(f"load failed: {type(exc).__name__}: {exc}", err=True)
+            raise typer.Exit(1) from None
+        typer.echo(
+            f"index loaded (dataset {result.dataset_date}): {result.dockets:,} dockets, "
+            f"{result.courts:,} courts, {result.parties:,} parties, {result.links:,} links"
+        )
+    finally:
+        conn.close()
+
+
+@bulk_app.command("status")
+def court_bulk_status(ctx: typer.Context) -> None:
+    """The local index's dataset date and row counts."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    info = court_bulk.index_info(config)
+    if info is None:
+        typer.echo("the CourtListener bulk index is not loaded")
+        return
+    typer.echo(
+        f"dataset {info.dataset_date}, loaded {info.loaded_at}: {info.dockets:,} dockets, "
+        f"{info.courts:,} courts, {info.parties:,} parties"
     )
 
 

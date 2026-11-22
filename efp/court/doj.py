@@ -1,0 +1,447 @@
+"""DOJ press-release strategy: ``court.doj`` (spec section 4, strategy 1).
+
+The API (``justice.gov/api/v1/press_releases.json``, no key, under 4 requests a second) silently
+ignores its ``topic`` parameter, so topics are filtered here. Searching by title keyword is the
+primary path. Whether the server honours the keyword is *checked*, not assumed: if the titles that
+come back do not contain it, the parameter was ignored and the client falls back to harvesting the
+date-sorted feed once into a local index and searching that. Every page, either way, is a capture.
+
+A release is a located record only when it names the subject in full (given name or initial plus
+surname) near the top, mentions an election charge, and is dated within a year of the row's year.
+Whether it is the *same* person is for the identity stage; this strategy records what it matched on
+and marks a match ``weak`` when the state is not corroborated.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+
+from efp.capture import CaptureError
+from efp.court import identifiers as ident
+from efp.court.located import STAGE, CourtTask, Located, cap, store_text
+from efp.court.names import NameParts, match_name
+from efp.modules import Availability, ModuleResult, Outcome
+from efp.resolve_links import classify as page_classify
+from efp.resolve_links import text as page_text
+from efp.types import Context, Row
+
+API = "https://www.justice.gov/api/v1/press_releases.json"
+TITLE_PARAM = "parameters[title]"  # the title-keyword parameter (spec section 4)
+COVERAGE_FROM = 2013  # the API is substantive from about 2013
+ELECTION_TERMS = re.compile(
+    r"\b(voter|voting|vote|ballot|election|registration|absentee|polling)\w*", re.I
+)
+CASE_HEAD = 600  # a release names its subject in its title or opening
+MAX_MATCHES = 3
+MAX_TITLE_PAGES = 6  # pages of 50 per surname before giving up on an enormous result set
+STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
+    "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
+    "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia",
+    "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+    "PR": "Puerto Rico", "GU": "Guam", "VI": "Virgin Islands",
+}  # fmt: skip
+DISTRICT = re.compile(
+    r"\b(?:(Eastern|Western|Northern|Southern|Middle|Central)\s+)?District of "
+    r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)"
+)
+
+
+@dataclass(frozen=True)
+class Release:
+    uuid: str
+    title: str
+    url: str
+    date: datetime | None
+    body_html: str
+    listing_capture_id: int | None = None
+
+    @property
+    def text(self) -> str:
+        return page_classify.visible_text(self.body_html)
+
+
+def parse_date(value: Any) -> datetime | None:
+    """The API gives the date as a Unix timestamp string; accept ISO dates as well."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    try:
+        if text.isdigit():
+            return datetime.fromtimestamp(int(text), UTC)
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def parse_releases(payload: Any, capture_id: int | None) -> list[Release]:
+    results = (payload or {}).get("results") if isinstance(payload, dict) else None
+    out: list[Release] = []
+    for item in results or []:
+        if not isinstance(item, dict):
+            continue
+        body = item.get("body") or ""
+        out.append(
+            Release(
+                uuid=str(item.get("uuid") or item.get("url") or item.get("title") or ""),
+                title=str(item.get("title") or ""),
+                url=str(item.get("url") or ""),
+                date=parse_date(item.get("date")),
+                body_html=str(body),
+                listing_capture_id=capture_id,
+            )
+        )
+    return out
+
+
+def honors_title(releases: list[Release], keyword: str) -> bool:
+    """Did the server apply the title keyword? (It ignored ``topic``; do not assume ``title``.)"""
+    if not releases:
+        return True  # nothing came back: no evidence either way, and nothing to filter
+    hits = sum(1 for r in releases if keyword.lower() in r.title.lower())
+    return hits >= max(1, len(releases) // 2)
+
+
+class DojIndex:
+    """A local copy of releases seen so far, for filtering and for the harvest fallback."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(path)
+        self.conn.executescript(
+            "CREATE TABLE IF NOT EXISTS releases (uuid TEXT PRIMARY KEY, date TEXT, title TEXT, "
+            "url TEXT, body TEXT, capture_id INTEGER);"
+            "CREATE TABLE IF NOT EXISTS harvest (id INTEGER PRIMARY KEY CHECK (id = 1), "
+            "next_page INTEGER NOT NULL, oldest TEXT, done INTEGER NOT NULL DEFAULT 0);"
+        )
+
+    def add(self, releases: list[Release]) -> None:
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO releases (uuid, date, title, url, body, capture_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    r.uuid,
+                    r.date.isoformat() if r.date else None,
+                    r.title,
+                    r.url,
+                    r.body_html,
+                    r.listing_capture_id,
+                )
+                for r in releases
+            ],
+        )
+        self.conn.commit()
+
+    def between(self, first_year: int, last_year: int) -> list[Release]:
+        rows = self.conn.execute(
+            "SELECT uuid, title, url, date, body, capture_id FROM releases "
+            "WHERE date >= ? AND date < ? ORDER BY date",
+            (f"{first_year:04d}", f"{last_year + 1:04d}"),
+        ).fetchall()
+        return [
+            Release(u, t, url, datetime.fromisoformat(d) if d else None, b, c)
+            for u, t, url, d, b, c in rows
+        ]
+
+    def progress(self) -> tuple[int, str | None, bool]:
+        found = self.conn.execute(
+            "SELECT next_page, oldest, done FROM harvest WHERE id = 1"
+        ).fetchone()
+        return (0, None, False) if found is None else (int(found[0]), found[1], bool(found[2]))
+
+    def save_progress(self, next_page: int, oldest: str | None, done: bool) -> None:
+        updated = self.conn.execute(
+            "UPDATE harvest SET next_page = ?, oldest = ?, done = ? WHERE id = 1",
+            (next_page, oldest, int(done)),
+        ).rowcount
+        if not updated:
+            self.conn.execute(
+                "INSERT INTO harvest (id, next_page, oldest, done) VALUES (1, ?, ?, ?)",
+                (next_page, oldest, int(done)),
+            )
+        self.conn.commit()
+
+    def count(self) -> int:
+        return int(self.conn.execute("SELECT count(*) FROM releases").fetchone()[0])
+
+
+class DojClient:
+    def __init__(self, ctx: Context) -> None:
+        self.ctx = ctx
+        self.config = ctx.config
+        self.index = DojIndex(self.config.paths.bulk / "doj_releases.sqlite")
+        # whether the server honours the title keyword is a property of the server, not of a row:
+        # remembered on the capture client so it is probed once per run
+        self.title_search_works: bool | None = getattr(cap(ctx), "_doj_title_works", None)
+
+    def _page(self, params: dict[str, str], row_id: int | None) -> list[Release]:
+        record = cap(self.ctx).fetch(API, row_id=row_id, stage=STAGE, kind="api", params=params)
+        if not record.ok:
+            raise CaptureError(f"DOJ API answered HTTP {record.http_status}")
+        try:
+            payload = json.loads(cap(self.ctx).read_body(record))
+        except ValueError as exc:
+            raise CaptureError("DOJ API did not return JSON") from exc
+        releases = parse_releases(payload, record.capture_id)
+        self.index.add(releases)
+        return releases
+
+    def _title_ignored(self) -> bool:
+        return self.title_search_works is False
+
+    def search_title(self, keyword: str, row_id: int | None, first_year: int) -> list[Release]:
+        """Newest first, page by page, until the releases are older than ``first_year``."""
+        found: list[Release] = []
+        for page in range(MAX_TITLE_PAGES):
+            params = {
+                TITLE_PARAM: keyword,
+                "pagesize": str(self.config.court.doj_pagesize),
+                "sort": "date",
+                "direction": "DESC",
+                "page": str(page),
+            }
+            releases = self._page(params, row_id)
+            if page == 0:
+                self.title_search_works = honors_title(releases, keyword)
+                cap(self.ctx)._doj_title_works = self.title_search_works
+                if not self.title_search_works:
+                    return releases
+            found.extend(releases)
+            dated = [r.date.year for r in releases if r.date]
+            if len(releases) < self.config.court.doj_pagesize or (
+                dated and min(dated) < first_year
+            ):
+                break
+        return found
+
+    def harvest(self, until_year: int, row_id: int | None) -> int:
+        """Page the date-sorted feed (newest first) into the index back to ``until_year``."""
+        page, oldest, done = self.index.progress()
+        if done and oldest and int(oldest[:4]) <= until_year:
+            return 0
+        fetched = 0
+        while page < self.config.court.doj_harvest_max_pages:
+            params = {
+                "pagesize": str(self.config.court.doj_pagesize),
+                "sort": "date",
+                "direction": "DESC",
+                "page": str(page),
+            }
+            releases = self._page(params, row_id)
+            fetched += 1
+            page += 1
+            dated = [r.date for r in releases if r.date]
+            if dated:
+                oldest = min(dated).isoformat()
+            if not releases or (oldest and int(oldest[:4]) < until_year):
+                self.index.save_progress(page, oldest, True)
+                return fetched
+            self.index.save_progress(page, oldest, False)
+        return fetched
+
+    def candidates(
+        self, parts: NameParts, first_year: int, last_year: int, row_id: int | None
+    ) -> tuple[list[Release], str]:
+        """Releases that could name the subject, and how they were found."""
+        # the subject's surname and the surnames of any aliases ("aka")
+        keywords = list(dict.fromkeys(v.surname for v in parts.variants() if v.usable))
+        if self.title_search_works is not False:
+            found: list[Release] = []
+            for keyword in keywords:
+                found.extend(self.search_title(keyword, row_id, first_year))
+                if self._title_ignored():
+                    break
+            if self.title_search_works:
+                unique = {r.uuid: r for r in found}
+                in_window = [
+                    r for r in unique.values() if r.date and first_year <= r.date.year <= last_year
+                ]
+                return in_window, "title_search"
+        self.harvest(first_year, row_id)
+        return self.index.between(first_year, last_year), "harvest"
+
+
+@dataclass(frozen=True)
+class ReleaseMatch:
+    release: Release
+    full_name: bool
+    state_corroborated: bool
+    variant: str
+    span: str
+    district: str | None
+    initial_only: bool = False
+
+
+def match_release(
+    parts: NameParts, release: Release, *, row_year: int, row_state: str | None, slack: int
+) -> ReleaseMatch | None:
+    if release.date is None or abs(release.date.year - row_year) > slack:
+        return None
+    text = release.text
+    head = f"{release.title}\n{text[:CASE_HEAD]}"
+    named = match_name(parts, head)
+    if named is None or not named.full:
+        return None  # a surname alone is not enough to call a release the subject's
+    if not ELECTION_TERMS.search(f"{release.title}\n{text}"):
+        return None
+    corroborated = mentions_state(f"{release.title}\n{text}", row_state)
+    district = DISTRICT.search(f"{release.title}\n{text}")
+    return ReleaseMatch(
+        release, True, corroborated, named.variant, named.span,
+        district.group(0) if district else None, named.initial_only,
+    )  # fmt: skip
+
+
+def mentions_state(text: str, abbreviation: str | None) -> bool:
+    """Does the text place the case in this state? ("Virginia" is not "West Virginia"; a
+    Washington dateline is not the state.)"""
+    if not abbreviation:
+        return False
+    name = STATES.get(abbreviation.upper(), "")
+    if name and re.search(
+        rf"(?<!West )(?<!North )(?<!South )\b{re.escape(name)}\b(?!,? D\.?C)", text
+    ):
+        return True
+    return bool(re.search(rf",\s*{re.escape(abbreviation)}\b", text))
+
+
+def case_numbers(text: str) -> list[str]:
+    return [f.value for f in ident.extract_identifiers(text) if f.kind == "case_number"]
+
+
+def _release_text(ctx: Context, task: CourtTask, release: Release) -> tuple[str, int, int, str]:
+    """(text, page capture id, text capture id, tool): the release page if reachable, else the
+    body the API returned."""
+    try:
+        record = cap(ctx).fetch(release.url, row_id=task.row_id, stage=STAGE, kind="page")
+        if record.ok and record.tool != "robots_disallow":
+            extracted, _date = page_text.extract(cap(ctx).read_body(record), record.url_final)
+            if extracted:
+                text_id = store_text(
+                    ctx,
+                    task.row_id,
+                    parent_capture_id=record.capture_id,
+                    url=release.url,
+                    text=extracted,
+                    tool="trafilatura",
+                    version=page_text.TRAFILATURA_VERSION,
+                )
+                return extracted, record.capture_id, text_id, "page"
+    except CaptureError:
+        pass
+    text = release.text
+    parent = release.listing_capture_id or 0
+    text_id = store_text(
+        ctx,
+        task.row_id,
+        parent_capture_id=parent,
+        url=release.url,
+        text=text,
+        tool="doj_release_text",
+    )
+    return text, parent, text_id, "api_body"
+
+
+class CourtDoj:
+    name = "court.doj"
+    stage = STAGE
+
+    def available(self, ctx: Context) -> Availability:
+        return Availability.available()
+
+    def applies(self, row: Row, ctx: Context) -> bool | str:
+        task: CourtTask = row  # type: ignore[assignment]
+        cs = task.cs
+        if not cs.classification.federal_strategies_apply:
+            return "classified as a state case"
+        if not cs.parts.usable:
+            return "no usable name"
+        if (row.year or 0) + ctx.config.court.doj_year_slack < COVERAGE_FROM:
+            return f"DOJ coverage starts about {COVERAGE_FROM}; the PIN reports cover earlier years"
+        return True
+
+    def run(self, row: Row, ctx: Context) -> ModuleResult:
+        task: CourtTask = row  # type: ignore[assignment]
+        cs = task.cs
+        slack = ctx.config.court.doj_year_slack
+        year = row.year or 0
+        client = DojClient(ctx)
+        try:
+            releases, how = client.candidates(cs.parts, year - slack, year + slack, task.row_id)
+        except CaptureError as exc:
+            cs.notes.append(f"DOJ API: {exc}"[:200])
+            return ModuleResult(Outcome.miss)
+        matches = [
+            m
+            for r in releases
+            if (m := match_release(cs.parts, r, row_year=year, row_state=row.state, slack=slack))
+        ]
+        matches.sort(
+            key=lambda m: (
+                not m.state_corroborated,
+                abs((m.release.date or datetime.now(UTC)).year - year),
+            )
+        )
+        cs.flags["doj"] = {"found_by": how, "candidates": len(releases), "matched": len(matches)}
+        if not matches:
+            return ModuleResult(Outcome.miss, wrote={"candidates": len(releases)})
+        found_case = False
+        for match in matches[:MAX_MATCHES]:
+            try:
+                text, page_id, text_id, source = _release_text(ctx, task, match.release)
+            except CaptureError as exc:
+                cs.notes.append(f"DOJ release not captured: {exc}"[:200])
+                continue
+            numbers = [
+                f.value
+                for f in ident.extract_identifiers(text, cs.parts)
+                if f.kind == "case_number"
+            ]
+            several = len({v.lower() for v in case_numbers(text)}) > 1
+            district = match.district
+            host = urlsplit(match.release.url).hostname or ""
+            item = Located(
+                source_kind="doj_release",
+                jurisdiction="US",
+                court=district,
+                case_number=numbers[0] if numbers else None,
+                document_kind="press_release",
+                url=match.release.url,
+                strategy=self.name,
+                capture_id=page_id or match.release.listing_capture_id,
+                text=text,
+                text_capture_id=text_id,
+                basis={
+                    "name_variant": match.variant,
+                    "name_span": match.span,
+                    "state_corroborated": match.state_corroborated,
+                    "release_date": match.release.date.date().isoformat()
+                    if match.release.date
+                    else None,
+                    "text_from": source,
+                    "host": host,
+                },
+                weak=not match.state_corroborated or match.initial_only or several,
+            )
+            item.basis["initial_only"] = match.initial_only
+            item.basis["document_has_several_case_numbers"] = several
+            cs.located.append(item)
+            found_case = found_case or bool(numbers)
+        return ModuleResult(
+            Outcome.hit if found_case else Outcome.miss, wrote={"matched": len(matches)}
+        )

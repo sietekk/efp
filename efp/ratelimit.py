@@ -80,7 +80,12 @@ class _Buckets(BucketFactory):
                 budget = self._budget_for(item.name)
                 rates = [Rate(1, budget.interval_ms)]
                 if budget.daily_cap is not None:
-                    rates.append(Rate(budget.daily_cap, DAY_MS))
+                    if budget.daily_cap > 1:
+                        rates.append(Rate(budget.daily_cap, DAY_MS))
+                    else:
+                        # The library wants strictly increasing limits, and "1 a day" is stricter
+                        # than "1 every interval" anyway, so it replaces the interval rate.
+                        rates = [Rate(max(budget.daily_cap, 1), DAY_MS)]
                 bucket = self.create(
                     SQLiteBucket.init_from_file,  # type: ignore[arg-type]
                     rates,

@@ -74,6 +74,9 @@ class StatusReport:
     errors: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
     sample_size: int = 0
     sample_matrix: dict[str, dict[str, int]] = field(default_factory=dict)
+    court: dict[str, dict[str, int]] = field(
+        default_factory=dict
+    )  # federal/state/unknown -> status
 
 
 def _scoped(
@@ -131,6 +134,13 @@ def build_report(
         bucket = report.errors.setdefault(name, [])
         if len(bucket) < top_errors:
             bucket.append((message, count))
+    for kind, court_state, count in conn.execute(
+        "SELECT coalesce(json_extract(cs.summary_json, '$.classification.kind'), 'unclassified'), "
+        "coalesce(json_extract(cs.summary_json, '$.court_status'), 'unknown'), count(*) "
+        f"{join} WHERE {condition} AND cs.stage = 'court' AND cs.status = 'done' GROUP BY 1, 2",
+        params,
+    ):
+        report.court.setdefault(str(kind).strip('"'), {})[str(court_state).strip('"')] = count
     try:
         ids = load_sample_ids(config)
     except Exception:  # no sample file yet: the subset is simply absent
@@ -176,6 +186,18 @@ def render_md(report: StatusReport) -> str:
             out += [f"- {n:,} x {message}" for message, n in errors]
     else:
         out.append("No stage has been attempted yet.")
+    if report.court:
+        statuses = ("primary_record", "press_release_only", "gated_portal", "not_found")
+        out += ["", "### Court status (federal and state kept apart)", ""]
+        out += [
+            "| classification | " + " | ".join(statuses) + " |",
+            "|---|" + "---:|" * len(statuses),
+        ]
+        for kind in sorted(report.court):
+            counts = report.court[kind]
+            out.append(
+                f"| {kind} | " + " | ".join(f"{counts.get(s, 0):,}" for s in statuses) + " |"
+            )
     if report.sample_size:
         out += ["", f"### Frozen sample ({report.sample_size:,} rows in scope)", ""]
         out += _table(report.sample_matrix)

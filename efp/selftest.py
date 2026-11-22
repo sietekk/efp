@@ -138,6 +138,7 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
                 )
 
     checks.extend(capture_checks(config, present_secrets))
+    checks.extend(court_checks(config, present_secrets))
     for extra, module in EXTRAS.items():
         checks.append(
             Check(f"extra {extra}", _installed(module), f"marker module {module}", required=False)
@@ -249,6 +250,51 @@ def capture_checks(config: Config, present_secrets: list[str]) -> list[Check]:
             required=False,
         )
     )
+    return out
+
+
+def court_checks(config: Config, present_secrets: list[str]) -> list[Check]:
+    """The court stage's inputs: the bulk index (rows and the quarter it came from), the API
+    token, and the sources that are gated or not yet configured."""
+    from efp.court.bulk import index_info
+
+    info = index_info(config)
+    out = [
+        Check(
+            "courtlistener bulk index",
+            info is not None,
+            f"dataset {info.dataset_date} (loaded {info.loaded_at}): {info.dockets:,} dockets, "
+            f"{info.courts:,} courts, {info.parties:,} parties"
+            if info
+            else "not loaded: efp court bulk fetch --yes, then efp court bulk load",
+            required=False,
+        ),
+        Check(
+            "courtlistener api",
+            "COURTLISTENER_TOKEN" in present_secrets,
+            "token present; budget "
+            f"{config.rate_limits.daily_caps.get('www.courtlistener.com', '?')}/day"
+            if "COURTLISTENER_TOKEN" in present_secrets
+            else "COURTLISTENER_TOKEN absent: the bulk index is searched, the API is not",
+            required=False,
+        ),
+        Check(
+            "pin reports",
+            bool(config.court.pin_report_urls),
+            f"{len(config.court.pin_report_urls)} report URL(s) configured"
+            if config.court.pin_report_urls
+            else "court.pin_report_urls is empty: pre-2013 federal rows have no fallback",
+            required=False,
+        ),
+        Check(
+            "recap fetch",
+            False,
+            "off: PACER charges per page; the first pass never fetches from PACER"
+            if not config.court.recap_enabled
+            else "enabled by configuration",
+            required=False,
+        ),
+    ]
     return out
 
 
