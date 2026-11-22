@@ -1,6 +1,6 @@
 # Maintenance 01: Remove IRB
 
-Remove every IRB gate, setting, check and instruction from the repository, so nothing in code, configuration, prompts or operating documents refers to an IRB. The social stage (build 15) stays in the first pass; its handle-only rules are unchanged. This is mechanical: no plan-mode proposal needed. Branch: `maint/remove-irb`.
+No IRB determination is required for this project at this time. Remove every IRB gate, setting, check and instruction from the repository, so nothing in code, configuration, prompts or operating documents refers to an IRB. The social stage (build 15) stays in the first pass; its handle-only rules are unchanged. This is mechanical: no plan-mode proposal needed. Branch: `maint/remove-irb`.
 
 Start with `git grep -n -i "irb"` on `main` and work from that list; it is the acceptance test at the end.
 
