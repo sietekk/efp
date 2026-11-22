@@ -1100,3 +1100,46 @@ def test_a_weak_record_yields_no_person_level_identifiers_only_its_case_number(
     assert set(weak_counts) <= {"case_number"}
     state.located = [item(False)]
     assert {"age", "city"} & set(component._insert_identifiers(conn, 1, state))
+
+
+def test_a_weak_only_or_report_only_row_is_a_candidate_not_a_press_release_result() -> None:
+    from efp.court.located import Located
+
+    def item(kind: str, weak: bool) -> Located:
+        return Located(
+            source_kind=kind, jurisdiction="US", court=None, case_number=None,
+            document_kind="x", url=None, strategy="s", capture_id=None, weak=weak,
+        )  # fmt: skip
+
+    assert component.court_status([item("pin_report", True)]) == "candidate_only"
+    assert component.court_status([item("doj_release", True)]) == "candidate_only"
+    assert component.court_status([item("doj_release", False)]) == "press_release_only"
+    assert component.court_status([]) == "not_found"
+
+
+def test_top_candidates_does_not_hide_an_ambiguity_from_the_weak_rule(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    one = config.model_copy(update={"court": config.court.model_copy(update={"top_candidates": 1})})
+    write = write_bulk_files(one.paths.bulk / "courtlistener")
+    bulk.load_index(one, write, dataset_date="2026-09-30", manifest_captures={})
+    con = bulk.duckdb.connect(str(bulk.index_path(one)))
+    for n in (801, 802):  # two more dockets for the same name in the same court and years
+        con.execute(
+            f"INSERT INTO dockets VALUES ({n}, 'ctd', '3:14-cr-0{n}', 'United States v. Example', '2014-02-01', NULL, '{n}', '/d/{n}/')"
+        )
+        con.execute(f"INSERT INTO docket_parties VALUES ({n}, 9990)")
+    con.execute("INSERT INTO parties VALUES (9990, 'Alex Example')")
+    con.close()
+    hits = bulk.search_dockets(one, parse_name("Alex Example"), state="CT", year=2014)
+    assert len(hits) == 1  # truncated to top_candidates...
+    assert len(bulk.search_dockets_all(one, parse_name("Alex Example"), state="CT", year=2014)) > 1
+    add_court_row(conn, 1, details="U.S. District Court")
+    # ...but the module still sees the ambiguity
+    ctx, cap, registry = make_ctx(one, conn)
+    task_row = row_of(conn, 1)
+    result = component.process_row(task_row, ctx, registry)
+    cap.close()
+    docket = [i for i in result.summary_json["located"] if i["source_kind"] == "federal_docket"]  # type: ignore[union-attr]
+    assert docket and all(i["weak"] for i in docket)
+    assert result.summary_json["court_status"] == "candidate_only"

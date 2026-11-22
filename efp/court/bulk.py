@@ -500,7 +500,16 @@ class DocketHit:
 def search_dockets(
     config: Config, parts: NameParts, *, state: str | None, year: int
 ) -> list[DocketHit]:
-    """Dockets whose party or case name carries the subject's name, in the row's state and years."""
+    """The best ``top_candidates`` dockets of :func:`search_dockets_all`."""
+    return search_dockets_all(config, parts, state=state, year=year)[: config.court.top_candidates]
+
+
+def search_dockets_all(
+    config: Config, parts: NameParts, *, state: str | None, year: int
+) -> list[DocketHit]:
+    """Every docket whose party or case name carries the subject's name, in the row's state and
+    years, best first. (How many matched is itself evidence: several are not settled, so the
+    count must be taken before any truncation.)"""
     path = index_path(config)
     if not path.is_file() or not parts.usable or year <= 0:
         return []  # no year means no filing window: never build an invalid date from it
@@ -569,7 +578,7 @@ def search_dockets(
                 )
             )
     hits.sort(key=lambda h: (-h.score, h.date_filed or "", h.docket_number))
-    return hits[: cfg.top_candidates]
+    return hits
 
 
 class CourtBulk:
@@ -597,7 +606,9 @@ class CourtBulk:
         task: CourtTask = row  # type: ignore[assignment]
         cs = task.cs
         info = index_info(ctx.config)
-        hits = search_dockets(ctx.config, cs.parts, state=row.state, year=row.year or 0)
+        found = search_dockets_all(ctx.config, cs.parts, state=row.state, year=row.year or 0)
+        matched = len(found)  # before truncation: top_candidates must not hide an ambiguity
+        hits = found[: ctx.config.court.top_candidates]
         cs.flags["bulk"] = {
             "dataset_date": info.dataset_date if info else None,
             "candidates": len(hits),
@@ -636,13 +647,13 @@ class CourtBulk:
                         "matched_on": hit.matched_on,
                         "score": hit.score,
                         "state": hit.state,
-                        "candidates": len(hits),
+                        "candidates": matched,
                     },
                     # several dockets for one name, or a weaker kind of match, is not settled
                     weak=docket_is_weak(
                         row_state=normalize_state(row.state),
                         court_state=hit.state,
-                        candidates=len(hits),
+                        candidates=matched,
                         initial_only=hit.initial_only,
                         score=hit.score,
                         date_known=bool(hit.date_filed),

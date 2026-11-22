@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -333,9 +334,18 @@ class DojClient:
         return fetched
 
     def candidates(
-        self, parts: NameParts, first_year: int, last_year: int, row_id: int | None
+        self,
+        parts: NameParts,
+        first_year: int,
+        last_year: int,
+        row_id: int | None,
+        accept: Callable[[Release], bool] | None = None,
     ) -> tuple[list[Release], str]:
-        """Releases that could name the subject, and how they were found."""
+        """Releases that could name the subject, and how they were found.
+
+        The title search is the answer only when one of its releases survives ``accept`` (the
+        caller's name match): a title that carries the surname may belong to someone else, while
+        the subject is named only in a body, so otherwise the harvest is read as well."""
         # the subject's surname and the surnames of any aliases ("aka")
         keywords = list(dict.fromkeys(v.surname for v in parts.variants() if v.usable))
         capped = False
@@ -350,7 +360,12 @@ class DojClient:
             in_window = [
                 r for r in unique.values() if r.date and first_year <= r.date.year <= last_year
             ]
-            if self.title_search_works and not capped and in_window:
+            if (
+                self.title_search_works
+                and not capped
+                and in_window
+                and (accept is None or any(accept(r) for r in in_window))
+            ):
                 return in_window, "title_search"
             found = (
                 in_window if self.title_search_works else []
@@ -476,7 +491,16 @@ class CourtDoj:
         year = row.year or 0
         client = DojClient(ctx)
         try:
-            releases, how = client.candidates(cs.parts, year - slack, year + slack, task.row_id)
+            releases, how = client.candidates(
+                cs.parts,
+                year - slack,
+                year + slack,
+                task.row_id,
+                accept=lambda r: (
+                    match_release(cs.parts, r, row_year=year, row_state=row.state, slack=slack)
+                    is not None
+                ),
+            )
             covered = client.covered(year - slack)
             oldest = client.index.progress()[1]
         except CaptureError as exc:

@@ -94,7 +94,11 @@ def court_status(
         return "deferred_quota"
     if coverage_gap:
         return "deferred_coverage"  # the DOJ harvest did not reach the row's years
-    return "press_release_only" if located else "not_found"
+    if any(not item.weak for item in located):
+        return "press_release_only"  # a press release (or other record) that is not a candidate
+    # only weak records (a release whose state is not corroborated, a report paragraph): a
+    # candidate, not a finished press-release result
+    return "candidate_only" if located else "not_found"
 
 
 def _identity(conn: sqlite3.Connection, item: Located) -> str:

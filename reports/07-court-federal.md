@@ -183,6 +183,14 @@ A twelfth review round:
 
 Known, accepted: `identifiers` has no column linking a value to the record it came from, so identifiers already written from a record that a later run supersedes stay in the table. Because only non-weak records feed person-level identifiers, this needs a record to be confirmed and then no longer found; the identity build can discount by capture if it matters.
 
+A thirteenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| The DOJ title search was taken as the answer on any in-window title carrying the surname, although DOJ titles rarely name the defendant and the hit may be someone else | The title result is authoritative only if one of its releases survives the same name match the module applies; otherwise the harvest is read too (`title_search+harvest`), with the usual `deferred_coverage` if it does not reach the window |
+| A row whose only record was a weak report paragraph (or a weak release) was labelled the finished `press_release_only` | `press_release_only` needs a record that is not weak; weak-only or report-only rows are `candidate_only` |
+| The weak rule counted candidates after truncation to `top_candidates`, so `top_candidates = 1` made an ambiguous name look settled | `search_dockets_all` and `search_party_all` return every match; the modules count before truncating (the truncating wrappers remain for callers that want the best few) |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

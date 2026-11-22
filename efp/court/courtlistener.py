@@ -123,6 +123,14 @@ def _search(
 def search_party(
     ctx: Context, secret: str, parts: NameParts, *, state: str | None, year: int, row_id: int
 ) -> tuple[list[ApiDocket], int]:
+    """The best ``top_candidates`` of :func:`search_party_all`."""
+    kept, capture_id = search_party_all(ctx, secret, parts, state=state, year=year, row_id=row_id)
+    return kept, capture_id
+
+
+def search_party_all(
+    ctx: Context, secret: str, parts: NameParts, *, state: str | None, year: int, row_id: int
+) -> tuple[list[ApiDocket], int]:
     if year <= 0:
         raise CaptureError("the row has no year: the filing window cannot be built")
     state = normalize_state(state)
@@ -183,9 +191,11 @@ class CourtApi:
         if not secret:
             return ModuleResult(Outcome.miss)
         try:
-            dockets, capture_id = search_party(
+            everything, capture_id = search_party_all(
                 ctx, secret, cs.parts, state=row.state, year=row.year or 0, row_id=task.row_id
             )
+            matched = len(everything)  # before truncation: top_candidates must not hide ambiguity
+            dockets = everything[: ctx.config.court.top_candidates]
         except CaptureError as exc:
             quota = isinstance(exc, CaptureBudgetError)
             cs.flags["api_quota_exhausted"] = quota
@@ -227,7 +237,7 @@ class CourtApi:
                     weak=docket_is_weak(
                         row_state=normalize_state(row.state),
                         court_state=docket.court_state,
-                        candidates=len(dockets),
+                        candidates=matched,
                         initial_only=docket.initial_only,
                         date_known=bool(docket.date_filed),
                     ),

@@ -152,7 +152,13 @@ def test_no_matching_release_completes_as_not_found_never_failed(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     add_court_row(conn, 1)
-    rsps.get(API, json=doj_page(release("Alex Example sentenced for tax evasion", "tax return")))
+    rsps.get(
+        API,
+        json=doj_page(
+            release("Alex Example sentenced for tax evasion", "tax return"),
+            release("Old news", "x", date="2005-01-01", uuid="old"),  # the feed reaches the window
+        ),
+    )
     result = process(config, conn, 1)
     assert result.status == "done" and result.summary_json["court_status"] == "not_found"
     assert conn.execute("SELECT count(*) FROM court_records").fetchone()[0] == 0
@@ -388,7 +394,7 @@ def test_a_release_whose_state_is_not_corroborated_is_recorded_but_does_not_stop
     assert _modules(summary)["court.doj"] == "miss"  # a weak match never ends the search
     assert "court.courtlistener_bulk" in _modules(summary)  # so the later strategies still ran
     located = summary["located"][0]  # type: ignore[index]
-    assert located["weak"] is True and summary["court_status"] == "press_release_only"
+    assert located["weak"] is True and summary["court_status"] == "candidate_only"
     weak_row = conn.execute("SELECT weak, basis_json FROM court_records").fetchone()
     assert weak_row[0] == 1 and "state_corroborated" in weak_row[1]  # persisted for readers
 
@@ -528,3 +534,27 @@ def test_reaching_another_rows_window_is_not_coverage_of_an_earlier_year(
         client.close()
     finally:
         cap.close()
+
+
+def test_a_same_surname_title_hit_is_not_authoritative_when_the_subject_is_named_in_a_body(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    add_court_row(conn, 1)
+    _site(rsps)
+
+    def feed(request):  # type: ignore[no-untyped-def]
+        import json as _json
+
+        if "title" in request.url:  # the title search finds only someone else with the surname
+            page = doj_page(release("Pat Example sentenced for tax evasion", "tax", uuid="other"))
+        else:
+            page = doj_page(
+                release("Voter fraud case", TARGET_BODY, uuid="subject"),
+                release("Old news", "x", date="2005-01-01", uuid="old"),
+            )
+        return (200, {}, _json.dumps(page))
+
+    rsps.add_callback(responses.GET, API, callback=feed, content_type="application/json")
+    summary = process(config, conn, 1).summary_json
+    assert summary["flags"]["doj"]["found_by"] == "title_search+harvest"  # type: ignore[index]
+    assert summary["court_status"] == "press_release_only"  # the body-only release was found
