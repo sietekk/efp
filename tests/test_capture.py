@@ -520,6 +520,7 @@ def test_download_finalizes_a_complete_part_without_a_request(
 def test_download_drops_an_oversized_part_and_restarts(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abcdefgh")
     rsps.get("https://example.test/f.csv", body=b"abcdef")
@@ -530,6 +531,7 @@ def test_download_drops_an_oversized_part_and_restarts(
 def test_download_416_drops_the_stale_part_and_restarts_from_zero(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abc")  # shorter than the file, but not a prefix of it
     rsps.add(
@@ -541,15 +543,50 @@ def test_download_416_drops_the_stale_part_and_restarts_from_zero(
     rsps.get("https://example.test/f.csv", body=b"abcdef")
     cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
     assert dest.read_bytes() == b"abcdef" and not (tmp_path / "f.csv.part").exists()
-    assert [c.request.headers.get("Range") for c in rsps.calls] == ["bytes=3-", None]
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert [c.request.headers.get("Range") for c in gets] == ["bytes=3-", None]
 
 
 def test_download_wrong_size_does_not_leave_an_unresumable_part(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get("https://example.test/f.csv", body=b"abcdef")
     with pytest.raises(CaptureError, match="expected 9"):
         cap.download(
             "https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=9
         )
     assert not (tmp_path / "f.csv.part").exists()
+
+
+def test_download_retries_a_503_then_succeeds(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", status=503)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=6)
+    assert (tmp_path / "f.csv").read_bytes() == b"abcdef"
+    assert len([c for c in rsps.calls if c.request.url.endswith("f.csv")]) == 2
+
+
+def test_download_honors_robots_txt(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
+    with pytest.raises(CaptureError, match="robots"):
+        cap.download("https://example.test/bulk/f.csv", tmp_path / "f.csv", stage="bulk")
+    assert not (tmp_path / "f.csv.part").exists()
+    assert not [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+
+
+def test_wait_limit_is_per_thread(cap: Capture) -> None:
+    import threading
+
+    seen: list[float | None] = []
+    with cap.wait_limit(5):
+        worker = threading.Thread(target=lambda: seen.append(cap.adapter.max_wait))
+        worker.start()
+        worker.join()
+        assert cap.adapter.max_wait == 5
+    assert seen == [None] and cap.adapter.max_wait is None

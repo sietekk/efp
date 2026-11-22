@@ -353,12 +353,23 @@ def court_bulk_fetch(
     try:
         run_ctx = runner.make_context(config, conn)
         try:
-            chosen = court_bulk.latest_set(court_bulk.list_bulk_files(run_ctx))
+            listed = court_bulk.list_bulk_files(run_ctx)
+            chosen = court_bulk.latest_set(listed)
         except capture_mod.CaptureError as exc:
             typer.echo(f"could not list the bulk files: {exc}", err=True)
             raise typer.Exit(1) from None
         if not chosen:
-            typer.echo("the listing names no bulk files; check court.bulk_listing_url", err=True)
+            if listed:
+                have = sorted({f"{f.kind} {f.date}" for f in listed})
+                typer.echo(
+                    f"no single date has all of {', '.join(court_bulk.KINDS)}; listed: "
+                    f"{'; '.join(have)}",
+                    err=True,
+                )
+            else:
+                typer.echo(
+                    "the listing names no bulk files; check court.bulk_listing_url", err=True
+                )
             raise typer.Exit(1)
         for kind in court_bulk.KINDS:
             item = chosen.get(kind)

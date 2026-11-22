@@ -865,3 +865,66 @@ def test_the_first_of_several_confirmed_dockets_is_checked_and_the_rest_are_mark
     assert any("only the best candidate" in r for r in reasons)
     assert any("RECAP archive" in r for r in reasons)  # checked, and not there
     assert summary["pacer_queued"] == 2
+
+
+# --- review round 3: a record is identified by its document -----------------------------------------------
+
+
+def _docket_item(*, weak: bool, docket_id: int = 4242, strategy: str = "court.courtlistener_bulk"):  # type: ignore[no-untyped-def]
+    from efp.court.located import Located
+
+    return Located(
+        source_kind="federal_docket",
+        jurisdiction="US",
+        court="D. Conn.",
+        case_number="3:14-cr-00045",
+        document_kind="docket",
+        url="https://www.courtlistener.com/docket/4242/",
+        strategy=strategy,
+        capture_id=None,
+        basis={"weak_because": "two candidates"} if weak else {"score": 4},
+        weak=weak,
+        docket_id=docket_id,
+    )
+
+
+def test_a_docket_found_again_as_weak_updates_its_record_instead_of_staying_primary(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1)
+    first = component._upsert_record(conn, 1, _docket_item(weak=False))
+    second = component._upsert_record(conn, 1, _docket_item(weak=True))
+    assert first == second  # the same docket is the same record
+    weak, basis = conn.execute("SELECT weak, basis_json FROM court_records").fetchone()
+    assert weak == 1 and "two candidates" in basis
+    assert conn.execute("SELECT count(*) FROM court_records").fetchone()[0] == 1
+
+
+def test_a_different_docket_is_a_different_record(config: Config, conn: sqlite3.Connection) -> None:
+    add_court_row(conn, 1)
+    component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=1))
+    component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=2))
+    assert conn.execute("SELECT count(*) FROM court_records").fetchone()[0] == 2
+
+
+def test_a_record_the_strategy_no_longer_finds_is_marked_not_current_not_deleted(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1)
+    gone = component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=1))
+    kept = component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=2))
+    other = component._upsert_record(
+        conn, 1, _docket_item(weak=False, docket_id=3, strategy="court.courtlistener_api")
+    )
+    n = component._supersede(conn, 1, {"court.courtlistener_bulk"}, {kept})
+    states = dict(conn.execute("SELECT record_id, current FROM court_records").fetchall())
+    # only the strategy that ran this time and did not find it again is superseded
+    assert n == 1 and states == {gone: 0, kept: 1, other: 1}
+    again = component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=1))
+    assert (
+        again == gone
+        and conn.execute(
+            "SELECT current FROM court_records WHERE record_id = ?", (gone,)
+        ).fetchone()[0]
+        == 1
+    )  # found again: current again

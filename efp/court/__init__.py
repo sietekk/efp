@@ -89,35 +89,66 @@ def court_status(
     return "deferred_quota" if quota_exhausted else "not_found"
 
 
-def _insert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> None:
-    # The same document found again is the same record even though a re-fetch (or a cache hit)
-    # made a new capture row: compare what the captures contain, not their ids.
-    digest = ""
-    if item.capture_id is not None:
-        found_digest = conn.execute(
-            "SELECT content_sha256 FROM captures WHERE capture_id = ?", (item.capture_id,)
+def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
+    """Insert the record, or update it if this document was recorded before. Returns its id.
+
+    A docket is identified by its docket id (a search response changes from run to run; the
+    docket does not). Anything else is identified by what its capture contains, not by capture
+    ids, since a re-fetch or a cache hit makes a new capture row for the same page. When the same
+    document is found again its weak flag and evidence are brought up to date: a candidate that was
+    confirmed last quarter and is ambiguous now must not stay marked as confirmed."""
+    kind = item.document_kind or ""
+    if item.document_kind == "docket" and item.docket_id is not None:
+        found = conn.execute(
+            "SELECT record_id FROM court_records WHERE row_id = ? AND source_kind = ? "
+            "AND strategy = ? AND coalesce(document_kind, '') = ? AND docket_id = ? "
+            "ORDER BY record_id LIMIT 1",
+            (row_id, item.source_kind, item.strategy, kind, item.docket_id),
         ).fetchone()
-        digest = found_digest[0] if found_digest else ""
-    found = conn.execute(
-        "SELECT 1 FROM court_records cr LEFT JOIN captures c ON c.capture_id = cr.capture_id "
-        "WHERE cr.row_id = ? AND cr.source_kind = ? AND cr.strategy = ? "
-        "AND coalesce(cr.case_number, '') = ? AND coalesce(cr.document_kind, '') = ? "
-        "AND coalesce(c.content_sha256, '') = ? LIMIT 1",
-        (
-            row_id,
-            item.source_kind,
-            item.strategy,
-            item.case_number or "",
-            item.document_kind or "",
-            digest,
-        ),
-    ).fetchone()
+    else:
+        digest = ""
+        if item.capture_id is not None:
+            held = conn.execute(
+                "SELECT content_sha256 FROM captures WHERE capture_id = ?", (item.capture_id,)
+            ).fetchone()
+            digest = held[0] if held else ""
+        found = conn.execute(
+            "SELECT cr.record_id FROM court_records cr "
+            "LEFT JOIN captures c ON c.capture_id = cr.capture_id "
+            "WHERE cr.row_id = ? AND cr.source_kind = ? AND cr.strategy = ? "
+            "AND coalesce(cr.case_number, '') = ? AND coalesce(cr.document_kind, '') = ? "
+            "AND coalesce(cr.docket_id, -1) = ? AND coalesce(c.content_sha256, '') = ? "
+            "ORDER BY cr.record_id LIMIT 1",
+            (
+                row_id,
+                item.source_kind,
+                item.strategy,
+                item.case_number or "",
+                kind,
+                item.docket_id if item.docket_id is not None else -1,
+                digest,
+            ),
+        ).fetchone()
+    basis = json.dumps(item.basis, sort_keys=True, default=str)
     if found is not None:
-        return
-    conn.execute(
+        conn.execute(
+            "UPDATE court_records SET weak = ?, basis_json = ?, capture_id = ?, court = ?, "
+            "jurisdiction = ?, case_number = ?, current = 1 WHERE record_id = ?",
+            (
+                int(item.weak),
+                basis,
+                item.capture_id,
+                item.court,
+                item.jurisdiction,
+                item.case_number,
+                found[0],
+            ),
+        )
+        return int(found[0])
+    cursor = conn.execute(
         "INSERT INTO court_records (row_id, source_kind, jurisdiction, court, case_number, "
-        "document_kind, strategy, capture_id, found_at, weak, basis_json) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "document_kind, strategy, capture_id, found_at, weak, basis_json, docket_id, current) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
         (
             row_id,
             item.source_kind,
@@ -129,9 +160,29 @@ def _insert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> None
             item.capture_id,
             _now(),
             int(item.weak),
-            json.dumps(item.basis, sort_keys=True, default=str),
+            basis,
+            item.docket_id,
         ),
     )
+    return int(cursor.lastrowid or 0)
+
+
+def _supersede(conn: sqlite3.Connection, row_id: int, evaluated: set[str], seen: set[int]) -> int:
+    """Mark records no longer current: a strategy that ran this time and did not find them again.
+
+    A strategy that was skipped or failed this time says nothing about its earlier records, and a
+    filing (a PDF captured from the RECAP archive) is kept: its absence may only mean the archive
+    was not asked (quota, token)."""
+    if not evaluated:
+        return 0
+    marks = ",".join("?" * len(evaluated))
+    keep = f" AND record_id NOT IN ({','.join('?' * len(seen))})" if seen else ""
+    cursor = conn.execute(
+        "UPDATE court_records SET current = 0 WHERE row_id = ? AND current = 1 "  # noqa: S608
+        f"AND strategy IN ({marks}) AND coalesce(document_kind, '') != 'filing'{keep}",
+        [row_id, *sorted(evaluated), *sorted(seen)],
+    )
+    return int(cursor.rowcount)
 
 
 def _insert_identifiers(conn: sqlite3.Connection, row_id: int, state: CaseState) -> dict[str, int]:
@@ -220,8 +271,9 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         }
     queued = append_queue(ctx.config, _queue_items(task, recap))
 
-    for item in state.located:
-        _insert_record(conn, row.row_id, item)
+    seen = {_upsert_record(conn, row.row_id, item) for item in state.located}
+    evaluated = {m["name"] for m in run.records if m["status"] in ("hit", "miss")}
+    superseded = _supersede(conn, row.row_id, evaluated, seen)
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     quota_hit = bool(state.flags.get("api_quota_exhausted"))
@@ -246,6 +298,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
             for i in state.located
         ],
         "identifiers": identifiers,
+        "superseded_records": superseded,
         "recap": {str(k): v for k, v in recap.items()},
         "pacer_queued": queued,
         "notes": state.notes[:10],

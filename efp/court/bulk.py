@@ -137,12 +137,13 @@ def list_bulk_files(ctx: Context) -> list[BulkFile]:
 
 
 def latest_set(files: Iterable[BulkFile]) -> dict[str, BulkFile]:
-    """The newest file of each kind we load."""
-    best: dict[str, BulkFile] = {}
+    """The newest single date that has every kind we load (the loader accepts one complete date,
+    so the kinds are never mixed across dates). Empty when no date is complete."""
+    by_date: dict[str, dict[str, BulkFile]] = {}
     for item in files:
-        if item.kind not in best or item.date > best[item.kind].date:
-            best[item.kind] = item
-    return best
+        by_date.setdefault(item.date, {})[item.kind] = item
+    complete = [d for d, kinds in by_date.items() if all(k in kinds for k in KINDS)]
+    return by_date[max(complete)] if complete else {}
 
 
 def total_gb(files: Iterable[BulkFile]) -> float:

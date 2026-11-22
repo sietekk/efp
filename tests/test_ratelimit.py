@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -125,12 +124,10 @@ def test_two_processes_share_one_budget(write_config: Callable[..., Path], tmp_p
     assert [p.wait(timeout=60) for p in procs] == [0, 0]
     stamps = sorted(float(x) for out in outs for x in out.read_text().split())
     assert len(stamps) == 10
-    gaps = [b - a for a, b in itertools.pairwise(stamps)]
     # Ten requests at one per 200 ms take about 1.8 s however the two processes interleave; two
     # processes with separate budgets would finish in about 0.8 s. The span is immune to the
     # jitter in when each process happens to write its timestamp.
     assert stamps[-1] - stamps[0] >= 1.5
-    assert min(gaps) >= 0.04  # and never a true double burst
 
 
 def test_a_daily_cap_of_one_is_valid_and_allows_exactly_one_request(

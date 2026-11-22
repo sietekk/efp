@@ -61,15 +61,20 @@ def test_the_listing_is_parsed_and_the_newest_file_of_each_kind_chosen() -> None
             ("bulk-data/dockets-2026-06-30.csv.bz2", 10),
             ("bulk-data/dockets-2026-09-30.csv.bz2", 20_000_000_000),
             ("bulk-data/courts-2026-09-30.csv.bz2", 5_000),
+            ("bulk-data/parties-2026-09-30.csv.bz2", 7),
+            ("bulk-data/party-types-2026-09-30.csv.bz2", 7),
+            ("bulk-data/dockets-2026-12-31.csv.bz2", 30_000_000_000),  # newest, but no full set
             ("bulk-data/opinions-2026-09-30.csv.bz2", 99),  # not a kind we load
             ("bulk-data/readme.txt", 1),
         ]
     )
     files, token = bulk.parse_listing(xml)
-    assert token is None and {f.kind for f in files} == {"dockets", "courts"}
-    best = bulk.latest_set(files)
-    assert best["dockets"].date == "2026-09-30" and best["dockets"].size == 20_000_000_000
-    assert bulk.total_gb(best.values()) == pytest.approx(20.000005)
+    assert token is None and {f.kind for f in files} == set(bulk.KINDS)
+    best = bulk.latest_set(files)  # the 12-31 dockets file has no full set: one date, all four
+    assert {f.date for f in best.values()} == {"2026-09-30"}
+    assert best["dockets"].size == 20_000_000_000
+    assert bulk.total_gb(best.values()) == pytest.approx(20.000014)
+    assert bulk.latest_set([f for f in files if f.kind != "parties"]) == {}  # no complete date
 
 
 def test_a_truncated_listing_gives_its_continuation_token() -> None:
@@ -287,6 +292,7 @@ def test_the_bulk_module_is_unavailable_until_the_index_is_loaded(
 def test_a_download_streams_to_disk_hashes_it_and_records_a_manifest_not_the_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     payload = b"id,name\n" + b"x" * 5000
     url = "https://bulk.example.test/bulk-data/parties-2026-09-30.csv"
@@ -315,6 +321,7 @@ def test_a_download_streams_to_disk_hashes_it_and_records_a_manifest_not_the_fil
 def test_an_interrupted_download_resumes_from_the_part_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     payload = bytes(range(256)) * 40
     url = "https://bulk.example.test/bulk-data/courts-2026-09-30.csv"
@@ -330,12 +337,13 @@ def test_an_interrupted_download_resumes_from_the_part_file(
     cap.download(url, dest, stage="bulk", expected_size=len(payload))
     cap.close()
     assert dest.read_bytes() == payload
-    assert rsps.calls[0].request.headers["Range"] == "bytes=3000-"
+    assert rsps.calls[-1].request.headers["Range"] == "bytes=3000-"
 
 
 def test_a_wrong_size_is_an_error_and_leaves_the_part_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     url = "https://bulk.example.test/bulk-data/courts-2026-09-30.csv"
     rsps.get(url, body=b"short")

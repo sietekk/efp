@@ -77,6 +77,7 @@ def test_fetch_refuses_over_the_size_limit_even_with_yes(
 def test_fetch_with_yes_downloads_each_file_and_load_builds_the_index(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     staged = write_bulk_files(tmp_path / "staged", compress=False)
     _listing(rsps, {kind: path.stat().st_size for kind, path in staged.items()})
     for kind, path in staged.items():

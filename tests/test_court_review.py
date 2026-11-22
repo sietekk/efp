@@ -266,6 +266,7 @@ def test_like_wildcards_in_a_name_are_not_wildcards(config: Config, tmp_path: Pa
 def test_a_file_already_downloaded_and_recorded_is_not_fetched_again(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     ctx, cap, _ = make_ctx(config, conn)
     payload = b"id,name\n1,x\n"
     item = bulk.BulkFile(
@@ -282,6 +283,7 @@ def test_a_file_already_downloaded_and_recorded_is_not_fetched_again(
 def test_a_download_that_redirects_is_refused_not_followed(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
+    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     rsps.get(
         "https://bulk.example.test/f.csv",

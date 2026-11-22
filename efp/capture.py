@@ -211,7 +211,15 @@ class _PoliteAdapter(HTTPAdapter):
         super().__init__(*args, **kwargs)
         self._limiter = limiter
         self.network_requests = 0
-        self.max_wait: float | None = None  # set by Capture.wait_limit for one call
+        self._local = threading.local()  # wait_limit is per thread: a parallel fetch keeps its own
+
+    @property
+    def max_wait(self) -> float | None:
+        return getattr(self._local, "max_wait", None)
+
+    @max_wait.setter
+    def max_wait(self, value: float | None) -> None:
+        self._local.max_wait = value
 
     def send(
         self, request: requests.PreparedRequest, *args: Any, **kwargs: Any
@@ -450,17 +458,11 @@ class Capture:
         if expected_size is not None and have == expected_size:
             status = 200  # a complete .part (killed before the rename): finalize without a request
         else:
-            try:
-                with self.session.cache_disabled():
-                    response = self.session.get(
-                        url,
-                        stream=True,
-                        headers=headers,
-                        timeout=self.config.capture.timeout_seconds,
-                        allow_redirects=False,  # fetched from the address that was listed
-                    )
-            except (RateLimitTimeout, requests.RequestException) as exc:
-                raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
+            if self.config.rate_limits.honor_robots_txt:
+                blocked = self._robots_block(url, "GET", row_id=row_id, stage=stage)
+                if blocked is not None:  # recorded as a robots_disallow capture, never bypassed
+                    raise CaptureError(f"{redact_url(url, api=True)}: disallowed by robots.txt")
+            response = self._open_download(url, headers)
             with response:
                 status = response.status_code
                 if status == 416 and have:  # asked for bytes past the end: the part is stale
@@ -517,6 +519,38 @@ class Capture:
             tool_version=package_version(),
             headers=manifest,
         )
+
+    def _open_download(self, url: str, headers: dict[str, str]) -> requests.Response:
+        """GET for a download, retried with a pause on 429/5xx like ``fetch`` (a download is the
+        same politeness: the domain budget is taken per attempt)."""
+        limits = self.config.rate_limits
+        attempts = limits.retry_attempts + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                with self.session.cache_disabled():
+                    response = self.session.get(
+                        url,
+                        stream=True,
+                        headers=headers,
+                        timeout=self.config.capture.timeout_seconds,
+                        allow_redirects=False,  # fetched from the address that was listed
+                    )
+            except RateLimitTimeout as exc:
+                raise CaptureBudgetError(str(exc)) from exc
+            except requests.RequestException as exc:
+                raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
+            if response.status_code not in _RETRY_STATUS or attempt == attempts:
+                return response
+            self._honor_retry_after(response)
+            if not response.headers.get("Retry-After", "").isdigit():
+                self._sleep(
+                    min(
+                        limits.retry_backoff_seconds * 2.0**attempt,
+                        self.config.capture.max_wait_seconds,
+                    )
+                )
+            response.close()
+        raise CaptureError("no response received")  # unreachable
 
     def store_bytes(
         self,
