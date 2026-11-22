@@ -708,3 +708,160 @@ def test_recheck_revisits_a_row_that_was_deferred_for_the_api_quota_and_only_tha
     )
     cap.close()
     assert (again.noop, again.claimed) == (1, 1)  # row 1 unchanged; row 2 is tried again
+
+
+# --- review round 2: errors, missing years, and the RECAP step's quota -----------------------------------
+
+
+class _Raises(Fake):
+    def run(self, row, ctx):  # type: ignore[no-untyped-def]
+        raise RuntimeError("the module failed")
+
+
+def test_a_module_that_raises_is_not_recorded_as_a_clean_not_found_and_is_retried(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1, details="U.S. District Court")
+    registry = Registry()
+    for name in [
+        "court.doj",
+        "court.pin_reports",
+        "court.state_ag",
+        "court.courtlistener_bulk",
+        "court.courtlistener_api",
+        "court.recap",
+        "court.state_docket",
+    ]:
+        registry.register(
+            _Raises(name, Outcome.miss, []) if name == "court.courtlistener_bulk" else _Silent(name)
+        )
+    ctx = make_context(config, conn)
+    result = component.process_row(row_of(conn, 1), ctx, registry)
+    summary = result.summary_json
+    assert summary["court_status"] == "deferred_error" and result.status == "done"
+    assert any("the module failed" in e for e in summary["errors"])  # type: ignore[union-attr]
+    assert result.input_hash and result.input_hash.endswith(":error")  # --recheck revisits it
+    assert result.input_hash != component.input_hash(row_of(conn, 1), ctx, registry)
+
+
+def test_an_error_after_something_was_found_keeps_the_finding_but_still_retries(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1)
+    registry = Registry()
+    calls: list[str] = []
+    names = [
+        "court.doj",
+        "court.pin_reports",
+        "court.state_ag",
+        "court.courtlistener_bulk",
+        "court.courtlistener_api",
+        "court.recap",
+        "court.state_docket",
+    ]
+    for name in names:
+        if name == "court.doj":
+            registry.register(Fake(name, Outcome.miss, calls, case=None))  # located, no case number
+        elif name == "court.pin_reports":
+            registry.register(_Raises(name, Outcome.miss, calls))
+        else:
+            registry.register(_Silent(name))
+    result = component.process_row(row_of(conn, 1), make_context(config, conn), registry)
+    assert result.summary_json["court_status"] == "press_release_only"
+    assert result.input_hash and result.input_hash.endswith(":error")
+
+
+def test_a_row_with_no_year_builds_no_invalid_dates_and_calls_nothing(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp.court.names import parse_name
+    from efp.types import Row
+
+    write = write_bulk_files(config.paths.bulk / "courtlistener")
+    bulk.load_index(config, write, dataset_date="2026-09-30", manifest_captures={})
+    add_court_row(conn, 1, details="U.S. District Court")
+    base = row_of(conn, 1)
+    yearless = Row(row_id=1, year=None, state=base.state, source=base.source)
+    ctx, cap, registry = make_ctx(config, conn)
+    result = component.process_row(yearless, ctx, registry)
+    cap.close()
+    reasons = {m["name"]: m["reason"] for m in result.summary_json["modules"]}  # type: ignore[index, union-attr]
+    for name in ("court.doj", "court.courtlistener_bulk", "court.courtlistener_api"):
+        assert "no year" in reasons[name], name
+    assert result.summary_json["court_status"] == "not_found" and not result.summary_json["errors"]
+    assert not [c for c in rsps.calls if "courtlistener.com/api" in c.request.url]  # no quota spent
+    assert bulk.search_dockets(config, parse_name("Alex Example"), state="CT", year=0) == []
+    with pytest.raises(courtlistener.CaptureError, match="no year"):
+        courtlistener.search_party(
+            ctx, "t", parse_name("Alex Example"), state="CT", year=0, row_id=1
+        )
+
+
+def test_a_spent_budget_during_the_recap_check_is_not_hidden_or_queued_for_purchase(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write = write_bulk_files(config.paths.bulk / "courtlistener")
+    bulk.load_index(config, write, dataset_date="2026-09-30", manifest_captures={})
+    add_court_row(conn, 1, details="U.S. District Court")  # a confirmed docket in the bulk index
+    _quiet_doj(rsps)
+    real = courtlistener._search
+
+    def spent(ctx, secret, params, row_id):  # type: ignore[no-untyped-def]
+        if "docket_id" in params:
+            raise courtlistener.CaptureBudgetError("budget not available within 5 s")
+        return real(ctx, secret, params, row_id)
+
+    monkeypatch.setattr(courtlistener, "_search", spent)
+    result = process(config, conn, 1)
+    summary = result.summary_json
+    assert summary["court_status"] == "primary_record"  # the bulk docket is still the record
+    assert summary["flags"]["api_quota_exhausted"] is True  # type: ignore[index]
+    assert result.input_hash and ":quota" in result.input_hash and ":recap" in result.input_hash
+    assert summary["pacer_queued"] == 0 and not Path(config.court.pacer_queue).exists()
+    assert any("daily budget spent" in n for n in summary["notes"])  # type: ignore[union-attr]
+
+
+def test_a_missing_token_during_the_recap_check_is_transient_and_not_queued(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write = write_bulk_files(config.paths.bulk / "courtlistener")
+    bulk.load_index(config, write, dataset_date="2026-09-30", manifest_captures={})
+    add_court_row(conn, 1, details="U.S. District Court")
+    _quiet_doj(rsps)
+    monkeypatch.setattr(courtlistener, "token", lambda _ctx: None)
+    result = process(config, conn, 1)
+    assert result.input_hash and result.input_hash.endswith(":recap")
+    assert result.summary_json["pacer_queued"] == 0
+    assert not Path(config.court.pacer_queue).exists()
+
+
+def test_the_first_of_several_confirmed_dockets_is_checked_and_the_rest_are_marked_not_checked(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
+    _quiet_doj(rsps)
+    first = _docket(party=["Quinn Absent"], caseName="United States v. Absent")
+    second = _docket(
+        docket_id=4243,
+        docketNumber="3:14-cr-00099",
+        party=["Quinn Absent"],
+        caseName="United States v. Absent",
+    )
+    rsps.get(SEARCH, json={"results": [first, second]}, match=[_has_param("party_name")])
+    rsps.get(SEARCH, json={"results": []}, match=[_has_param("docket_id")])
+    rsps.get("https://www.courtlistener.com/robots.txt", status=404)
+    summary = process(config, conn, 1).summary_json
+    with Path(config.court.pacer_queue).open() as handle:
+        rows = list(csv.reader(handle))[1:]
+    assert len(rows) == 2
+    reasons = sorted(r[4] for r in rows)
+    assert any("only the best candidate" in r for r in reasons)
+    assert any("RECAP archive" in r for r in reasons)  # checked, and not there
+    assert summary["pacer_queued"] == 2

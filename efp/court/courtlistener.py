@@ -109,6 +109,8 @@ def _search(
 def search_party(
     ctx: Context, secret: str, parts: NameParts, *, state: str | None, year: int, row_id: int
 ) -> tuple[list[ApiDocket], int]:
+    if year <= 0:
+        raise CaptureError("the row has no year: the filing window cannot be built")
     state = normalize_state(state)
     params = {
         "type": "r",
@@ -154,6 +156,8 @@ class CourtApi:
             return "only rows classified federal may use the 100-a-day API budget"
         if not cs.parts.usable:
             return "no usable name"
+        if not row.year:
+            return "the row has no year: the filing window cannot be built"
         return True
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:
@@ -216,6 +220,11 @@ class RecapOutcome:
     checked: bool
     documents: int
     reason: str = ""
+    # Not looked up *for now* (no token, an API error, the daily budget spent): the docket's
+    # documents are unknown, not absent, so it must not be queued for purchase, and the row is
+    # retried by --recheck.
+    transient: bool = False
+    quota: bool = False  # the daily budget was the reason
 
 
 def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> RecapOutcome:
@@ -229,13 +238,21 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
             False, 0, "documents not checked: classification is not positively federal"
         )
     if not secret:
-        return RecapOutcome(False, 0, "documents not checked: COURTLISTENER_TOKEN not set")
+        return RecapOutcome(
+            False, 0, "documents not checked: COURTLISTENER_TOKEN not set", transient=True
+        )
     try:
         dockets, _ = _search(
             ctx, secret, {"type": "r", "docket_id": str(docket.docket_id)}, task.row_id
         )
     except CaptureError as exc:
-        return RecapOutcome(False, 0, f"documents not checked: {exc}"[:200])
+        return RecapOutcome(
+            False,
+            0,
+            f"documents not checked: {exc}"[:200],
+            transient=True,
+            quota=isinstance(exc, CaptureBudgetError),
+        )
     documents = [d for found in dockets for d in found.documents]
     taken = 0
     for doc in documents:

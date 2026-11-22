@@ -71,10 +71,12 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     )
 
 
-def court_status(located: list[Located], *, quota_exhausted: bool = False) -> str:
+def court_status(
+    located: list[Located], *, quota_exhausted: bool = False, errored: bool = False
+) -> str:
     """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
-    A row where nothing was found but the API quota ran out is ``deferred_quota``, not a
-    negative."""
+    A row where nothing was found but the API quota ran out is ``deferred_quota``, and one where
+    a module failed is ``deferred_error``: neither is a negative result."""
     dockets = [item for item in located if item.source_kind in DOCKET_KINDS]
     if any(not item.weak for item in dockets):
         return "primary_record"
@@ -82,6 +84,8 @@ def court_status(located: list[Located], *, quota_exhausted: bool = False) -> st
         return "candidate_only"
     if located:
         return "press_release_only"
+    if errored:
+        return "deferred_error"
     return "deferred_quota" if quota_exhausted else "not_found"
 
 
@@ -159,8 +163,8 @@ def _queue_items(task: CourtTask, recap: dict[int, dict[str, Any]]) -> list[Queu
         if item.source_kind != "federal_docket" or item.document_kind != "docket":
             continue
         got = recap.get(item.docket_id or -1, {})
-        if got.get("documents"):
-            continue
+        if got.get("documents") or got.get("transient") or got.get("skipped") or item.weak:
+            continue  # found, or not known (retried later), or not a confirmed docket
         reason = got.get("reason") or "documents not found in the RECAP archive"
         items.append(
             QueueItem(task.row_id, item.court or "", item.case_number or "", item.docket_id, reason)
@@ -184,14 +188,30 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     run = chain.run_chain(spec, task, ctx, registry)
 
     recap: dict[int, dict[str, Any]] = {}
-    dockets = [i for i in state.located if i.source_kind == "federal_docket" and i.docket_id]
+    found_dockets = [i for i in state.located if i.source_kind == "federal_docket" and i.docket_id]
+    # A weak candidate is not worth an API call and is never queued for purchase: the documents of
+    # a docket that may be someone else's are not documents we want to buy.
+    dockets = [i for i in found_dockets if not i.weak]
+    for weak in (i for i in found_dockets if i.weak):
+        recap[weak.docket_id or -1] = {
+            "checked": False,
+            "documents": 0,
+            "reason": "weak candidate: its documents are not looked up or queued",
+            "skipped": True,
+        }
+    recap_transient = False
     for docket in dockets[:1]:  # one docket per row: the best candidate
         outcome = courtlistener.capture_recap_documents(ctx, task, docket)
         recap[docket.docket_id or -1] = {
             "checked": outcome.checked,
             "documents": outcome.documents,
             "reason": outcome.reason,
+            "transient": outcome.transient,
         }
+        recap_transient = recap_transient or outcome.transient
+        if outcome.quota:  # the same flag the docket search sets, so the row is retried
+            state.flags["api_quota_exhausted"] = True
+            state.notes.append("CourtListener daily budget spent: re-run later with --recheck")
     for other in dockets[1:]:  # only the best candidate is looked up; say so for the rest
         recap[other.docket_id or -1] = {
             "checked": False,
@@ -205,7 +225,8 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     quota_hit = bool(state.flags.get("api_quota_exhausted"))
-    status = court_status(state.located, quota_exhausted=quota_hit)
+    errored = bool(run.errors)
+    status = court_status(state.located, quota_exhausted=quota_hit, errored=errored)
     summary: dict[str, Any] = {
         "court_status": status,
         "classification": {"kind": classification.kind, "basis": classification.basis[:6]},
@@ -228,6 +249,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         "recap": {str(k): v for k, v in recap.items()},
         "pacer_queued": queued,
         "notes": state.notes[:10],
+        "errors": run.errors[:10],  # a module that raised: the row is retried, not a negative
         "flags": state.flags,
         "modules": run.records,
     }
@@ -235,8 +257,11 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         row_id=row.row_id,
         stage=STAGE,
         status="done",
-        # a row the API could not be asked about must not look finished to ``--recheck``
-        input_hash=input_hash(row, ctx, registry) + (":quota" if quota_hit else ""),
+        # a row that could not be fully asked must not look finished to ``--recheck``
+        input_hash=input_hash(row, ctx, registry)
+        + (":quota" if quota_hit else "")
+        + (":error" if errored else "")
+        + (":recap" if recap_transient else ""),
         tool_version=TOOL_VERSION,
         summary_json=summary,
     )

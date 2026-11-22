@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -313,7 +312,7 @@ def test_load_uses_one_complete_quarter_never_a_mix(
 # --- the queue ----------------------------------------------------------------------------------------------
 
 
-def test_dockets_beyond_the_first_are_queued_as_not_checked_not_as_missing_from_recap(
+def test_weak_candidates_are_neither_looked_up_in_recap_nor_queued_for_purchase(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     paths = write_bulk_files(config.paths.bulk / "courtlistener")
@@ -328,13 +327,15 @@ def test_dockets_beyond_the_first_are_queued_as_not_checked_not_as_missing_from_
     add_court_row(conn, 1, details="U.S. District Court")
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=doj_page())
     rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
-    process(config, conn, 1)
-    with Path(config.court.pacer_queue).open() as handle:
-        rows = list(csv.reader(handle))[1:]
-    reasons = sorted(r[4] for r in rows)
-    assert len(rows) == 2
-    assert any("only the best candidate" in r for r in reasons)
-    assert any("RECAP" in r and "only the best" not in r for r in reasons)
+    summary = process(config, conn, 1).summary_json
+    assert summary["court_status"] == "candidate_only"  # two dockets for one name: not settled
+    assert not [
+        c
+        for c in rsps.calls
+        if "courtlistener.com/api/rest/v4/search" in c.request.url and "docket_id" in c.request.url
+    ]  # no API call spent on a candidate's documents
+    assert all(v.get("skipped") for v in summary["recap"].values())  # type: ignore[union-attr]
+    assert summary["pacer_queued"] == 0 and not Path(config.court.pacer_queue).exists()
 
 
 def test_the_queue_lives_under_the_data_directory_unless_a_path_is_given(config: Config) -> None:

@@ -408,7 +408,9 @@ class CourtDoj:
             return "classified as a state case"
         if not cs.parts.usable:
             return "no usable name"
-        if (row.year or 0) + ctx.config.court.doj_year_slack < COVERAGE_FROM:
+        if not row.year:
+            return "the row has no year: the release window cannot be built"
+        if row.year + ctx.config.court.doj_year_slack < COVERAGE_FROM:
             return f"DOJ coverage starts about {COVERAGE_FROM}; the PIN reports cover earlier years"
         return True
 

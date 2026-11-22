@@ -193,6 +193,7 @@ def render_md(report: StatusReport) -> str:
             "press_release_only",
             "gated_portal",
             "deferred_quota",
+            "deferred_error",
             "not_found",
         )
         out += ["", "### Court status (federal and state kept apart)", ""]

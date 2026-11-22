@@ -458,8 +458,8 @@ def search_dockets(
 ) -> list[DocketHit]:
     """Dockets whose party or case name carries the subject's name, in the row's state and years."""
     path = index_path(config)
-    if not path.is_file() or not parts.usable:
-        return []
+    if not path.is_file() or not parts.usable or year <= 0:
+        return []  # no year means no filing window: never build an invalid date from it
     state = normalize_state(state)  # junk is unknown: a filter on "N/A" would match nothing
     cfg = config.court
     surname = parts.surname.lower()
@@ -541,7 +541,11 @@ class CourtBulk:
         task: CourtTask = row  # type: ignore[assignment]
         if not task.cs.classification.federal_strategies_apply:
             return "classified as a state case"
-        return True if task.cs.parts.usable else "no usable name"
+        if not task.cs.parts.usable:
+            return "no usable name"
+        if not row.year:
+            return "the row has no year: the filing window cannot be built"
+        return True
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task: CourtTask = row  # type: ignore[assignment]
