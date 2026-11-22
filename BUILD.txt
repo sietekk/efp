@@ -1,7 +1,7 @@
 EFP BUILD INSTRUCTIONS (copy/paste, in order)
-Repo folder: ~/Documents/UNH/Fall 2026 Research/dev/efp
+Repo folder: ~/dev/efp   (keep it outside iCloud-synced folders: Desktop and Documents; see README)
 Reasons and background: RUNBOOK.md. Prompt order and models: build/README.md.
-Environment: uv manages Python 3.12 and the virtualenv (.venv in the repo); nothing else to install for Python.
+Environment: uv manages Python 3.12 and the virtualenv (.venv in the repo, or UV_PROJECT_ENVIRONMENT; see README); nothing else to install for Python.
 Shell: bash. Every command below is bash; macOS Terminal reads ~/.bash_profile for login shells.
 
 ==================================================================
@@ -26,7 +26,7 @@ claude            # then type /login, then /exit
 1. TURN THE KIT FOLDER INTO THE REPOSITORY
 ==================================================================
 
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+cd ~/dev/efp
 git init -b main
 git add -A
 git commit -m "Kit: plan, spec, build prompts, CLAUDE.md"
@@ -96,7 +96,7 @@ git push
 6. FIRST BUILD
 ==================================================================
 
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+cd ~/dev/efp
 git checkout main && git pull
 claude --permission-mode plan
 
@@ -108,7 +108,7 @@ claude --permission-mode plan
 7. EVERY LATER BUILD
 ==================================================================
 
-cd ~/Documents/UNH/Fall\ 2026\ Research/dev/efp
+cd ~/dev/efp
 git checkout main && git pull
 uv sync
 

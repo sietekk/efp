@@ -31,8 +31,14 @@ The `social` and `extraction` extras cannot be installed together, nor can `ocr-
 `archive-docker`; their upstream pins conflict (see `reports/01-scaffold.md`). Install one at a
 time with `uv sync --extra <name>`.
 
-On macOS, if `uv run efp` fails with `ModuleNotFoundError: No module named 'efp'` while
-`uv run pytest` passes, the editable-install `.pth` files in `.venv` have the `hidden` flag and
-Python skips them. Clear it with `chflags nohidden .venv/lib/python3.12/site-packages/*.pth`.
+**Keep the checkout out of iCloud-synced folders** (macOS Desktop and Documents). In a synced
+folder, files inside dot-folders such as `.venv` get the `hidden` flag, Python then skips the
+editable-install `.pth` files (`uv run efp` fails with `No module named 'efp'` while `uv run pytest`
+still passes), and iCloud leaves `README 2.md`-style conflict copies. This project lives at
+`~/dev/efp`. If a checkout must live in a synced folder, put the virtual environment elsewhere:
+
+```bash
+export UV_PROJECT_ENVIRONMENT="$HOME/venvs/efp"   # add to ~/.bashrc
+```
 
 Every shell snippet, hook and script in this repository is bash (`#!/usr/bin/env bash`).
