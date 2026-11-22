@@ -78,6 +78,8 @@ honor_robots_txt = true
 retry_attempts = 3
 retry_backoff_seconds = 5
 
+# A per-day request cap for a domain, on top of its per-second rate. 0 switches the domain off:
+# no request is made, and rows that need it are deferred (not failed) until the cap is raised.
 [rate_limits.daily_caps]
 "www.courtlistener.com" = 100     # 80% of the 125/day default quota
 

@@ -116,7 +116,7 @@ A sixth review round:
 | Issue | Fix |
 | --- | --- |
 | The bulk search had no lower filing-date bound when `date_terminated` was NULL, so a 2003 docket matched a 2020 row (the API path already used `year - 8`) | Both paths use one constant, `LOOKBACK_YEARS` (`efp.court.located`); bulk adds `date_filed >= year - 8`. A docket with no filing date is kept but weak (`docket_is_weak(date_known=...)`, applied in the API path too) |
-| A daily cap of 0 was read as "1 a day" | The config rejects a cap below 1; the limiter raises on one and uses the replacement rate only for exactly 1 |
+| A daily cap of 0 was read as "1 a day" | Settled (see "The daily cap of 0" below): 0 means "switched off", the limiter never reads it as 1 |
 | A connection broken mid-stream in `Capture.download` escaped as a raw exception | It is caught: the download resumes from the `.part` file with a Range request, up to `rate_limits.retry_attempts` times with backoff, then ends as a `CaptureError` ("run the download again to resume") with the part kept |
 
 A seventh review round:
@@ -128,7 +128,7 @@ A seventh review round:
 
 Low-confidence review notes, handled:
 
-- **Daily cap 0 now fails to load** (`rate_limits.daily_caps.<host>` must be at least 1). Intentional; `config.toml` has no zero caps, and the PR description says so.
+- **Daily cap 0** is valid and means "switched off" (see "The daily cap of 0" below); there is no contract change for operator configs.
 - **Resume validator:** a resumed download keeps the ETag it started under beside the `.part` file and sends `If-Range`; if the file was replaced the server answers 200 in full and the download restarts instead of stitching two files. A weak ETag, or a part begun before this change, resumes as before.
 - **Coverage gap and supersede:** `court.doj` is not counted as evaluated when the harvest did not reach the window, so an earlier DOJ record stays current.
 - **Known, accepted:** `_upsert_record` overwrites a record's `capture_id` with the latest capture of the same document; the earlier capture remains in `captures` but the record no longer points to it.
@@ -161,7 +161,6 @@ Minor review items, handled:
 - **Harvest coverage:** the index's `done` flag now means only "the feed ran out of pages". Reaching another row's window is not coverage of an earlier one: `covered()` is "exhausted, or the oldest year reached is before the row's first year".
 - **PIN reports read once:** each URL is marked indexed even when it yields no entries (a scanned PDF) or cannot be read (a corrupt or encrypted one, noted on the row), so it is not re-fetched and re-parsed for every pre-2013 row, and a bad PDF no longer turns every such row into `deferred_error`.
 - **Download reuse** checks the file's size and SHA-256 against the manifest the download recorded, so a same-sized foreign or corrupt file (or one with no listed size) is fetched again, not indexed as a trusted quarter.
-- **Contract change for operator-local configs:** `rate_limits.daily_caps.<host>` of 0 no longer loads (decision 1 of the PR description); change any local zero to at least 1.
 - **For later builds:** nothing reads `court_records.current` yet. Whichever build reads the table (identity, export) must filter on `current = 1`, or superseded candidates will look live.
 
 An eleventh review round:
@@ -195,6 +194,10 @@ Two last review notes, handled:
 
 - **`current` and `weak` are now enforced for readers.** Migration 0010 adds two views: `court_records_current` (`current = 1`) and `court_records_confirmed` (`current = 1 AND weak = 0`). Builds 08 and later read these, never the table, or they would treat superseded rows and candidates as findings. (Nothing in `efp/` reads `court_records` yet.)
 - **The 429 memory is typed and run-scoped.** `Capture.mark_throttled` / `is_throttled` / `clear_throttles` replace the dynamic attribute, and `run_stage` clears the memory at the start of every run, so a long-lived process that reuses one client is not deferred by an old 429.
+
+### The daily cap of 0 (settled)
+
+The value had flipped meaning during this build: accepted by the config and silently read by the limiter as "1 a day", then rejected by the config. It now has one meaning everywhere: **`rate_limits.daily_caps.<host> = 0` switches that domain off.** The config accepts 0 (it rejects only a negative number), `DomainLimiter.acquire` refuses a 0-cap domain at once (no waiting, no bucket, no request) with the same error as a spent budget, and a row that needs the domain is deferred (`deferred_quota` for CourtListener), not failed, and picked up by `--recheck` once the cap is raised. `config.example.toml` documents it; tests cover the config, the limiter and a capture fetch. Nothing changes for an operator config that already used 0.
 
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 

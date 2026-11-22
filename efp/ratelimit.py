@@ -80,8 +80,8 @@ class _Buckets(BucketFactory):
                 budget = self._budget_for(item.name)
                 rates = [Rate(1, budget.interval_ms)]
                 if budget.daily_cap is not None:
-                    if budget.daily_cap < 1:  # config rejects it; never read 0 as "1 a day"
-                        raise ValueError(f"daily cap for {item.name} must be at least 1")
+                    if budget.daily_cap < 1:  # acquire() refuses a 0 cap before a bucket exists
+                        raise ValueError(f"daily cap for {item.name} is {budget.daily_cap}")
                     if budget.daily_cap > 1:
                         rates.append(Rate(budget.daily_cap, DAY_MS))
                     else:
@@ -123,6 +123,13 @@ class DomainLimiter:
 
     def acquire(self, domain: str, *, max_wait: float | None = None) -> float:
         """Block until the domain's budget allows a request. Returns seconds waited."""
+        if self.budget(domain.lower()).daily_cap == 0:
+            # A daily cap of 0 is "switched off": no request, and no waiting for a budget that can
+            # never free up. Callers see the same error as for a spent budget, so the row is
+            # deferred (not failed) and a later run with the cap raised picks it up.
+            raise RateLimitTimeout(
+                f"{domain}: requests are switched off (rate_limits.daily_caps is 0)"
+            )
         wait = self._config.capture.max_wait_seconds if max_wait is None else max_wait
         # Create the bucket first: the library timestamps the request before it looks the bucket
         # up, so a slow first-use (opening SQLite, taking the file lock) would otherwise make the

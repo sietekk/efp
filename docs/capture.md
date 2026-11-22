@@ -14,7 +14,7 @@ library (`tests/test_capture_surface.py` scans for it). This page says what is s
    the robots check; they are still budgeted, cached, logged and recorded.
 2. **Budget.** `efp.ratelimit.DomainLimiter`: one SQLite bucket per domain under `paths.cache`
    (file-locked, so every `efp` process shares it and a restart does not reset it). A budget of
-   `rps` is one request every `1/rps` seconds, never a burst. `rate_limits.daily_caps` adds a per-day
+   `rps` is one request every `1/rps` seconds, never a burst. `rate_limits.daily_caps` (0 = switched off: no request is made) adds a per-day
    limit. The budget is taken immediately before each *network* hop: a cache hit costs nothing and a
    redirect to another domain uses that domain's budget. A fetch that cannot get its budget within
    `capture.max_wait_seconds` raises `CaptureError`.

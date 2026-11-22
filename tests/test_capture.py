@@ -11,7 +11,14 @@ import requests
 import responses
 import stamina
 
-from efp.capture import REDACTED, Capture, CaptureError, redact_headers, redact_url
+from efp.capture import (
+    REDACTED,
+    Capture,
+    CaptureBudgetError,
+    CaptureError,
+    redact_headers,
+    redact_url,
+)
 from efp.config import Config
 from efp.store import config_store_path
 from tests.capturehelpers import captures, headers_of, make_capture, warc_records
@@ -666,3 +673,24 @@ def test_a_robots_blocked_download_is_recorded_under_the_blocked_url(
         "SELECT url_requested, tool FROM captures WHERE tool = 'robots_disallow'"
     ).fetchone()
     assert row == (url, "robots_disallow")  # the provenance row names the file, not the verb
+
+
+def test_a_domain_with_a_daily_cap_of_zero_is_a_budget_error_and_nothing_is_sent(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    off = config.model_copy(
+        update={
+            "rate_limits": type(config.rate_limits).model_validate(
+                {**config.rate_limits.model_dump(), "daily_caps": {"example.test": 0}}
+            )
+        }
+    )
+    insert_row(conn, 1)
+    conn.commit()
+    capture = make_capture(off, conn)
+    try:
+        with pytest.raises(CaptureBudgetError, match="switched off"):
+            capture.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
+        assert not rsps.calls
+    finally:
+        capture.close()
