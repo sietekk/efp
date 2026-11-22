@@ -973,3 +973,32 @@ def test_a_spent_budget_or_an_outage_does_not_retire_earlier_api_dockets(
     rsps.get(SEARCH, status=503)  # an outage: the module errored, so it was not evaluated either
     process(config, conn, 1)
     assert conn.execute("SELECT current FROM court_records").fetchone()[0] == 1
+
+
+def test_a_press_release_is_the_same_record_whatever_page_or_listing_it_was_read_from(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.court.located import Located
+
+    add_court_row(conn, 1)
+
+    def release(uuid: str, url: str) -> Located:
+        return Located(
+            source_kind="doj_release",
+            jurisdiction="US",
+            court=None,
+            case_number="3:13-cr-00045",
+            document_kind="press_release",
+            url=url,
+            strategy="court.doj",
+            capture_id=None,  # the page or the listing: it differs on every fetch
+            basis={"release_uuid": uuid},
+            weak=False,
+        )
+
+    first = component._upsert_record(conn, 1, release("u-1", "https://www.justice.gov/pr/a"))
+    again = component._upsert_record(conn, 1, release("u-1", "https://www.justice.gov/pr/a?x=1"))
+    other = component._upsert_record(conn, 1, release("u-2", "https://www.justice.gov/pr/b"))
+    assert first == again and other != first
+    assert component._supersede(conn, 1, {"court.doj"}, {again, other}) == 0  # nothing flipped
+    assert conn.execute("SELECT count(*) FROM court_records WHERE current = 1").fetchone()[0] == 2

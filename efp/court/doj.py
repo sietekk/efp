@@ -486,6 +486,7 @@ class CourtDoj:
                 text=text,
                 text_capture_id=text_id,
                 basis={
+                    "release_uuid": match.release.uuid,  # the stable identity of the record
                     "name_variant": match.variant,
                     "name_span": match.span,
                     "state_corroborated": match.state_corroborated,

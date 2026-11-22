@@ -224,8 +224,9 @@ def map_columns(kind: str, header: list[str]) -> dict[str, str]:
     return mapping
 
 
-def read_rows(path: Path, kind: str) -> Iterator[dict[str, str]]:
-    """Rows of a bulk CSV keyed by canonical column name."""
+def read_rows(path: Path, kind: str, short: list[int] | None = None) -> Iterator[dict[str, str]]:
+    """Rows of a bulk CSV keyed by canonical column name. A row shorter than the header is
+    skipped and counted in ``short[0]`` (a truncated or malformed file must not look complete)."""
     csv.field_size_limit(1 << 27)
     with _open(path) as handle:
         reader = csv.reader(handle)
@@ -236,6 +237,8 @@ def read_rows(path: Path, kind: str) -> Iterator[dict[str, str]]:
         position = {name: header.index(actual) for name, actual in mapping.items()}
         for row in reader:
             if len(row) < len(header):
+                if short is not None:
+                    short[0] += 1
                 continue
             yield {name: row[i] for name, i in position.items()}
 
@@ -259,7 +262,7 @@ def _date(value: str) -> str | None:
 
 @dataclass
 class LoadResult:
-    bad_rows: int = 0  # rows skipped because an id was not a number
+    bad_rows: int = 0  # rows skipped: an id that was not a number, or fewer fields than the header
     dockets: int = 0
     courts: int = 0
     parties: int = 0
@@ -301,7 +304,8 @@ def load_index(
         federal: set[str] = set()
         have_jurisdiction = False
         batch: list[tuple[Any, ...]] = []
-        for row in read_rows(paths["courts"], "courts"):
+        short = [0]  # short rows across the four files
+        for row in read_rows(paths["courts"], "courts", short):
             result.rows_seen["courts"] = result.rows_seen.get("courts", 0) + 1
             jurisdiction = row.get("jurisdiction", "")
             have_jurisdiction = have_jurisdiction or "jurisdiction" in row
@@ -314,16 +318,27 @@ def load_index(
                 (row["id"], row["full_name"], row.get("short_name", ""), jurisdiction,
                  state_of_court(row["full_name"]))
             )  # fmt: skip
+        if not federal:
+            raise BulkLayoutError(
+                "no court in the courts file passed the federal filter"
+                + (
+                    " (it has a jurisdiction column, but none of its codes is one of "
+                    f"{sorted(_FEDERAL_JURISDICTIONS)}): the layout is not what the loader expects"
+                    if have_jurisdiction
+                    else " (the file has no rows)"
+                )
+                + "; refusing to load every court's dockets"
+            )
         con.executemany("INSERT INTO courts VALUES (?, ?, ?, ?, ?)", batch)
         result.courts = len(batch)
 
         kept: set[int] = set()
         batch = []
-        for row in read_rows(paths["dockets"], "dockets"):
+        for row in read_rows(paths["dockets"], "dockets", short):
             result.rows_seen["dockets"] = result.rows_seen.get("dockets", 0) + 1
             if progress and result.rows_seen["dockets"] % 1_000_000 == 0:
                 progress("dockets", result.rows_seen["dockets"])
-            if federal and row["court_id"] not in federal:
+            if row["court_id"] not in federal:
                 continue
             if not looks_criminal(row["docket_number"], row["case_name"]):
                 continue
@@ -350,7 +365,7 @@ def load_index(
 
         wanted_parties: set[int] = set()
         links: list[tuple[int, int]] = []
-        for row in read_rows(paths["party-types"], "party-types"):
+        for row in read_rows(paths["party-types"], "party-types", short):
             result.rows_seen["party-types"] = result.rows_seen.get("party-types", 0) + 1
             try:
                 docket_id, party_id = int(row["docket_id"]), int(row["party_id"])
@@ -369,7 +384,7 @@ def load_index(
 
         batch = []
         seen: set[int] = set()
-        for row in read_rows(paths["parties"], "parties"):
+        for row in read_rows(paths["parties"], "parties", short):
             result.rows_seen["parties"] = result.rows_seen.get("parties", 0) + 1
             try:
                 party_id = int(row["id"])
@@ -384,6 +399,7 @@ def load_index(
         if batch:
             con.executemany("INSERT INTO parties VALUES (?, ?)", batch)
         result.parties = len(seen)
+        result.bad_rows += short[0]
         con.execute("CREATE INDEX idx_dockets_court ON dockets(court_id)")
         meta = {
             "dataset_date": dataset_date,

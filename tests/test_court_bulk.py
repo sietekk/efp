@@ -491,3 +491,25 @@ def test_an_old_docket_with_no_termination_date_is_not_in_a_later_rows_window(
         initial_only=False,
         date_known=bool(unknown.date_filed),
     )
+
+
+def test_a_courts_file_whose_jurisdiction_codes_match_nothing_stops_the_load(
+    config: Config, tmp_path: Path
+) -> None:
+    paths = write_bulk_files(tmp_path / "odd", compress=False)
+    lines = paths["courts"].read_text().splitlines()
+    odd = [lines[0]] + [",".join([*line.split(",")[:-1], "ZZ"]) for line in lines[1:]]
+    paths["courts"].write_text("\n".join(odd) + "\n")  # every code is one the loader never saw
+    with pytest.raises(bulk.BulkLayoutError, match="federal filter"):
+        bulk.load_index(config, paths, dataset_date="x", manifest_captures={})
+    assert not bulk.index_path(config).exists()  # and no index of every court's dockets
+
+
+def test_short_rows_are_counted_not_silently_dropped(config: Config, tmp_path: Path) -> None:
+    paths = write_bulk_files(tmp_path / "short", compress=False)
+    with paths["dockets"].open("a") as handle:
+        handle.write("999999,ctd\\n".replace("\\n", "\n"))  # truncated: two fields, not eight
+    result = bulk.load_index(config, paths, dataset_date="x", manifest_captures={})
+    assert result.bad_rows == 1
+    info = bulk.index_info(config)
+    assert info is not None

@@ -95,15 +95,35 @@ def court_status(
     return "deferred_quota" if quota_exhausted else "not_found"
 
 
+def _identity(conn: sqlite3.Connection, item: Located) -> str:
+    """What makes a non-docket record the same record on a later run.
+
+    The release's own id when the module gives one (a page's markup, and above all a listing
+    response, changes between fetches); otherwise the content hash of the extracted text, then of
+    the capture (a PDF is content-addressed and stable)."""
+    release = item.basis.get("release_uuid")
+    if release:
+        return f"uuid:{release}"
+    for label, capture_id in (("text", item.text_capture_id), ("capture", item.capture_id)):
+        if capture_id is not None:
+            held = conn.execute(
+                "SELECT content_sha256 FROM captures WHERE capture_id = ?", (capture_id,)
+            ).fetchone()
+            if held:
+                return f"{label}:{held[0]}"
+    return f"url:{item.url or ''}:{item.case_number or ''}"
+
+
 def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
     """Insert the record, or update it if this document was recorded before. Returns its id.
 
     A docket is identified by its docket id (a search response changes from run to run; the
-    docket does not). Anything else is identified by what its capture contains, not by capture
-    ids, since a re-fetch or a cache hit makes a new capture row for the same page. When the same
-    document is found again its weak flag and evidence are brought up to date: a candidate that was
-    confirmed last quarter and is ambiguous now must not stay marked as confirmed."""
+    docket does not), anything else by :func:`_identity`, kept in ``basis_json``. When the same
+    document is found again its weak flag, evidence and capture are brought up to date: a
+    candidate that was confirmed last quarter and is ambiguous now must not stay marked as
+    confirmed."""
     kind = item.document_kind or ""
+    basis_dict = dict(item.basis)
     if item.document_kind == "docket" and item.docket_id is not None:
         found = conn.execute(
             "SELECT record_id FROM court_records WHERE row_id = ? AND source_kind = ? "
@@ -112,30 +132,15 @@ def _upsert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> int:
             (row_id, item.source_kind, item.strategy, kind, item.docket_id),
         ).fetchone()
     else:
-        digest = ""
-        if item.capture_id is not None:
-            held = conn.execute(
-                "SELECT content_sha256 FROM captures WHERE capture_id = ?", (item.capture_id,)
-            ).fetchone()
-            digest = held[0] if held else ""
+        key = _identity(conn, item)
+        basis_dict["identity"] = key
         found = conn.execute(
-            "SELECT cr.record_id FROM court_records cr "
-            "LEFT JOIN captures c ON c.capture_id = cr.capture_id "
-            "WHERE cr.row_id = ? AND cr.source_kind = ? AND cr.strategy = ? "
-            "AND coalesce(cr.case_number, '') = ? AND coalesce(cr.document_kind, '') = ? "
-            "AND coalesce(cr.docket_id, -1) = ? AND coalesce(c.content_sha256, '') = ? "
-            "ORDER BY cr.record_id LIMIT 1",
-            (
-                row_id,
-                item.source_kind,
-                item.strategy,
-                item.case_number or "",
-                kind,
-                item.docket_id if item.docket_id is not None else -1,
-                digest,
-            ),
+            "SELECT record_id FROM court_records WHERE row_id = ? AND source_kind = ? "
+            "AND strategy = ? AND coalesce(document_kind, '') = ? "
+            "AND json_extract(basis_json, '$.identity') = ? ORDER BY record_id LIMIT 1",
+            (row_id, item.source_kind, item.strategy, kind, key),
         ).fetchone()
-    basis = json.dumps(item.basis, sort_keys=True, default=str)
+    basis = json.dumps(basis_dict, sort_keys=True, default=str)
     if found is not None:
         conn.execute(
             "UPDATE court_records SET weak = ?, basis_json = ?, capture_id = ?, court = ?, "
