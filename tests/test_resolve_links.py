@@ -62,12 +62,6 @@ def env(config: Config, conn: sqlite3.Connection) -> Iterator[tuple[Config, sqli
     yield config, conn
 
 
-def _robots_open(rsps: responses.RequestsMock, *hosts: str) -> None:
-    for host in hosts:
-        rsps.get(f"https://{host}/robots.txt", status=404)
-        rsps.get(f"http://{host}/robots.txt", status=404)
-
-
 def _resolve(
     config: Config, conn: sqlite3.Connection, row_id: int
 ) -> tuple[sqlite3.Row, dict[str, object]]:
@@ -87,7 +81,6 @@ def test_a_live_page_is_live_and_its_text_is_captured_separately(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/story")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/story", body=LONG_HTML, content_type="text/html")
     link, summary = _resolve(config, conn, 1)
     assert (link["status"], link["expansion_method"]) == ("live", "live")
@@ -109,10 +102,8 @@ def test_a_shortener_redirect_chain_is_followed_live(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="herit.ag/abc123")
-    _robots_open(rsps, "herit.ag", "news.test")
     rsps.get("https://herit.ag/abc123", status=301, headers={"Location": "https://bit.ly/zz"})
     rsps.get("https://bit.ly/zz", status=302, headers={"Location": "https://news.test/story"})
-    rsps.get("https://bit.ly/robots.txt", status=404)
     rsps.get("https://news.test/story", body=LONG_HTML, content_type="text/html")
     link, _ = _resolve(config, conn, 1)
     assert link["url_raw"] == "herit.ag/abc123"
@@ -125,7 +116,6 @@ def test_a_dead_live_page_is_captured_as_evidence_but_does_not_make_the_link_liv
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/gone")
-    _robots_open(rsps, "news.test", "web.archive.org")
     rsps.get("https://news.test/gone", status=404, body=STUB_HTML)
     rsps.get("https://web.archive.org/cdx/search/cdx", json=[["urlkey"]])
     rsps.get("https://index.commoncrawl.org/collinfo.json", json=[])
@@ -144,7 +134,6 @@ def test_bitly_info_page_names_the_destination_when_live_fails(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="herit.ag/abc")
-    _robots_open(rsps, "herit.ag", "news.test")
     rsps.get("https://herit.ag/abc", body=requests.ConnectionError("reset"))
     rsps.get("http://herit.ag/abc", body=requests.ConnectionError("reset"))
     rsps.get(
@@ -162,7 +151,6 @@ def test_a_shortener_redirect_captured_only_by_the_archive_leads_to_the_archived
 ) -> None:
     config, conn = env
     add_row(conn, 1, year=2012, source="herit.ag/xyz")
-    _robots_open(rsps, "herit.ag", "news.test")
     rsps.get("https://herit.ag/xyz", status=404, body=STUB_HTML)  # the live shortener is gone
     rsps.get("https://herit.ag/xyz+", status=404)
     cdx_header = ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "length"]
@@ -220,7 +208,6 @@ def test_a_target_only_in_the_wayback_cdx_is_archived(
 ) -> None:
     config, conn = env
     add_row(conn, 1, year=2014, source="https://news.test/old-story")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/old-story", status=410, body=STUB_HTML)
     header = ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "length"]
     rsps.get(
@@ -251,7 +238,6 @@ def test_common_crawl_is_the_second_chance(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/cc-story")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/cc-story", status=404, body=STUB_HTML)
     rsps.get("https://web.archive.org/cdx/search/cdx", json=[["urlkey"]])  # Wayback has nothing
     rsps.get(
@@ -289,7 +275,6 @@ def test_nothing_anywhere_is_dead_for_a_plain_url_and_unresolved_for_a_shortener
     config, conn = env
     add_row(conn, 1, source="https://news.test/lost")
     add_row(conn, 2, source="herit.ag/lost")
-    _robots_open(rsps, "news.test", "herit.ag")
     rsps.get("https://news.test/lost", status=404, body=STUB_HTML)
     rsps.get("https://herit.ag/lost", status=404, body=STUB_HTML)
     rsps.get("https://herit.ag/lost+", status=404)
@@ -306,46 +291,12 @@ def test_nothing_anywhere_is_dead_for_a_plain_url_and_unresolved_for_a_shortener
     assert "never captured" in short["note"]
 
 
-def test_a_robots_disallow_is_unreachable_by_policy_and_the_wayback_copy_is_used(
-    env: tuple[Config, sqlite3.Connection], rsps: responses.RequestsMock
-) -> None:
-    config, conn = env
-    add_row(conn, 1, source="https://news.test/private/story")
-    rsps.get("https://news.test/robots.txt", body="User-agent: *\nDisallow: /private\n")
-    _robots_open(rsps, "web.archive.org")
-    header = ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "length"]
-    rsps.get(
-        "https://web.archive.org/cdx/search/cdx",
-        json=[
-            header,
-            [
-                "k",
-                "20120101000000",
-                "https://news.test/private/story",
-                "text/html",
-                "200",
-                "A",
-                "1",
-            ],
-        ],
-    )
-    rsps.get(
-        "https://web.archive.org/web/20120101000000id_/https://news.test/private/story",
-        body=LONG_HTML,
-        content_type="text/html",
-    )
-    link, _ = _resolve(config, conn, 1)
-    assert link["status"] == "archived" and "robots.txt disallows" in link["note"]
-    assert not [c for c in rsps.calls if c.request.url == "https://news.test/private/story"]
-
-
 def test_a_module_the_config_switches_off_is_skipped_with_its_reason(
     write_config: Callable[..., Path], rsps: responses.RequestsMock
 ) -> None:
     config = _config(write_config, **{"commoncrawl_enabled = true": "commoncrawl_enabled = false"})
     conn = connect(config)
     add_row(conn, 1, source="https://news.test/x")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/x", status=404, body=STUB_HTML)
     rsps.get("https://web.archive.org/cdx/search/cdx", json=[["urlkey"]])
     ctx, cap, registry = make_ctx(config, conn)
@@ -384,7 +335,6 @@ def test_every_url_in_a_cell_gets_its_own_link(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/a, https://news.test/b. https://news.test/a")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/a", body=LONG_HTML, content_type="text/html")
     rsps.get("https://news.test/b", body=LONG_HTML + "<!-- b -->", content_type="text/html")
     _resolve(config, conn, 1)
@@ -399,7 +349,6 @@ def test_a_second_run_fetches_nothing_and_a_reset_run_does_not_refetch_resolved_
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/story")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/story", body=LONG_HTML, content_type="text/html")
     ctx, cap, registry = make_ctx(config, conn)
     first = resolve_row(row_of(conn, 1), ctx, registry)
@@ -505,7 +454,6 @@ def test_a_dead_page_that_redirects_to_the_homepage_does_not_send_the_archive_to
 ) -> None:
     config, conn = env
     add_row(conn, 1, year=2012, source="https://news.test/old/story")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/old/story", status=301, headers={"Location": "https://news.test/"})
     rsps.get("https://news.test/", body=LONG_HTML, content_type="text/html")  # a real homepage
     rsps.get(
@@ -531,8 +479,6 @@ def test_a_shortener_that_lands_on_a_site_root_or_its_own_error_page_is_still_as
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="herit.ag/dead1")
-    _robots_open(rsps, "herit.ag", "other.test")
-    rsps.get("https://bitly.com/robots.txt", status=404)
     rsps.get("https://herit.ag/dead1", status=301, headers={"Location": landing})
     rsps.get(landing, body=LONG_HTML, content_type="text/html")
     rsps.get("https://herit.ag/dead1+", status=404)
@@ -549,7 +495,6 @@ def test_a_long_article_that_mentions_error_phrases_is_still_an_article(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/story")
-    _robots_open(rsps, "news.test")
     body = LONG_HTML.replace(
         "</article>",
         "<p>The account suspended notice and the line index of / appear in the filing. "
@@ -566,7 +511,6 @@ def test_a_short_real_page_is_live_and_an_error_page_with_a_200_is_not(
     config, conn = env
     add_row(conn, 1, source="https://news.test/short")
     add_row(conn, 2, source="https://news.test/missing")
-    _robots_open(rsps, "news.test", "web.archive.org")
     short = (
         "<html><head><title>Statement from the county</title></head><body><p>"
         + "The office issued a brief statement on the plea. " * 7
@@ -591,7 +535,6 @@ def test_an_archived_redirect_that_only_upgrades_http_to_https_is_not_an_expansi
 ) -> None:
     config, conn = env
     add_row(conn, 1, year=2012, source="herit.ag/xyz")
-    _robots_open(rsps, "herit.ag", "news.test")
     rsps.get("https://herit.ag/xyz", status=404, body=STUB_HTML)
     rsps.get("https://herit.ag/xyz+", status=404)
     rsps.get(
@@ -638,7 +581,6 @@ def test_the_archive_is_asked_near_the_rows_year_before_it_is_asked_for_everythi
 ) -> None:
     config, conn = env
     add_row(conn, 1, year=2011, source="https://news.test/old")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/old", status=404, body=STUB_HTML)
     rsps.get(
         "https://web.archive.org/cdx/search/cdx",
@@ -661,7 +603,6 @@ def test_a_bare_url_falls_back_to_http_when_https_fails(
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="www.news.com/story/2012/a.html")
-    _robots_open(rsps, "www.news.com")
     rsps.get("https://www.news.com/story/2012/a.html", body=requests.ConnectionError("tls"))
     rsps.get("http://www.news.com/story/2012/a.html", body=LONG_HTML, content_type="text/html")
     link, _ = _resolve(config, conn, 1)
@@ -675,7 +616,6 @@ def test_a_reset_run_reattempts_a_dead_link_and_finds_what_a_newly_enabled_sourc
 ) -> None:
     config, conn = env
     add_row(conn, 1, source="https://news.test/later")
-    _robots_open(rsps, "news.test")
     rsps.get("https://news.test/later", status=404, body=STUB_HTML)
     rsps.get("https://web.archive.org/cdx/search/cdx", json=_cdx_rows())
     rsps.get("https://index.commoncrawl.org/collinfo.json", json=[])
@@ -707,7 +647,6 @@ def test_every_link_has_a_capture_or_a_logged_reason(
     add_row(conn, 1, source="https://news.test/never")  # the connection fails outright
     add_row(conn, 2, source="https://news.test/gone")
     add_row(conn, 3, source="Heritage notes")
-    _robots_open(rsps, "news.test", "web.archive.org")
     rsps.get("https://news.test/never", body=requests.ConnectionError("refused"))
     rsps.get("https://news.test/gone", status=404, body=STUB_HTML)
     rsps.get(

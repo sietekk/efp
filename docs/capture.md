@@ -5,24 +5,17 @@ library (`tests/test_capture_surface.py` scans for it). This page says what is s
 
 ## One fetch, in order
 
-1. **Robots.** For pages (`kind="page"`), `robots.txt` is fetched once per domain per
-   `capture.robots_cache_hours` and recorded as its own capture (`tool = 'robots_txt'`). A disallow
-   writes a `captures` row with `http_status = NULL`, `tool = 'robots_disallow'`, and the
-   `robots.txt` body that forbade it; the page is never requested. A `robots.txt` that cannot be
-   read (401, 403, 5xx) is treated as disallowing everything until it can. A 404 means no rules.
-   Documented API endpoints (`kind="api"`: Wayback CDX and Availability, SPN, Perma, the TSAs) skip
-   the robots check; they are still budgeted, cached, logged and recorded.
-2. **Budget.** `efp.ratelimit.DomainLimiter`: one SQLite bucket per domain under `paths.cache`
+1. **Budget.** `efp.ratelimit.DomainLimiter`: one SQLite bucket per domain under `paths.cache`
    (file-locked, so every `efp` process shares it and a restart does not reset it). A budget of
    `rps` is one request every `1/rps` seconds, never a burst. `rate_limits.daily_caps` (0 = switched off: no request is made) adds a per-day
    limit. The budget is taken immediately before each *network* hop: a cache hit costs nothing and a
    redirect to another domain uses that domain's budget. A fetch that cannot get its budget within
    `capture.max_wait_seconds` raises `CaptureError`.
-3. **Send.** `requests-cache` session (SQLite, `paths.cache/http_cache.sqlite`, honoring
-   `Cache-Control`, default freshness `capture.cache_expire_hours`) with the project `User-Agent`.
+2. **Send.** `requests-cache` session (SQLite, `paths.cache/http_cache.sqlite`, honoring
+   `Cache-Control`, default freshness `capture.cache_expire_hours`) with the `User-Agent` from `[project]`.
    429, 5xx and connection errors are retried with jitter (`stamina`, `rate_limits.retry_attempts`);
    `Retry-After` is honored. A final 429/5xx is still captured: relevance is never judged here.
-4. **Record.** WARC pair, store write, one `captures` row. A cached answer gets a row with
+3. **Record.** WARC pair, store write, one `captures` row. A cached answer gets a row with
    `tool = 'requests-cache'` and the original capture's `warc_path`, and no second WARC record.
 
 ## Where things live

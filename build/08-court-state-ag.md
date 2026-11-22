@@ -21,7 +21,7 @@ Stay in plan mode until I approve. Propose the harvester framework (modeled on b
        snippet: str
    ```
 
-   `fetch` goes through `ctx.capture`. The framework handles robots.txt (via the capture layer), per-site rate budgets, pagination, retry, and a per-state cache of release indexes so a state's index is fetched once per run, not once per row. Every module declares how it searches: `search_form`, `archive_listing`, `rss`, `sitemap`, or `none`.
+   `fetch` goes through `ctx.capture`. The framework handles per-site rate budgets, pagination, retry, and a per-state cache of release indexes so a state's index is fetched once per run, not once per row. Every module declares how it searches: `search_form`, `archive_listing`, `rss`, `sitemap`, or `none`.
 2. **Ten state modules first, by row count:** MN (138 rows), TX (113), FL (89), NC (82), CA (70), WI (68), OH (63), KY (62), IN (59), IL (54). For each: the state attorney general's press-release index and, where the state prosecutes election cases locally, the district or county attorneys that appear in the domain table (Texas and California especially). A state whose AG site has no usable search or archive is recorded in `state_adapters` as `mode = 'manual'` with the reason, not worked around; where the live index is gone, the Wayback copy of the release index is the fallback.
 3. **Matching.** A release is a hit when it names the subject (surname and given name or a known alias, allowing the common press-release forms) and an election charge, within the year window. Hits are captured, written as `court_records` with `source_kind` `state_ag_release` or `da_release`, and run through the same identifier extraction as build 07.
 4. **Coverage matrix.** `state_adapters` rows for every state touched (`kind = 'ag'`, `portal`, `adapter_module`, `mode`, `reason`, `last_verified`), and `efp status --coverage` rendering `docs/coverage_matrix.md`: per state, AG module present and mode, rows in the state, rows with a located record by strategy. The remaining forty states are listed as `none` with their row counts so the order of future work is visible.
@@ -29,7 +29,7 @@ Stay in plan mode until I approve. Propose the harvester framework (modeled on b
 
 ## Tests
 
-- Framework: registry, cache, pagination and retry with cassettes; robots disallow yields a `manual` record with reason.
+- Framework: registry, cache, pagination and retry with cassettes; a site that blocks the fetch yields a `manual` record with reason.
 - Each state module against its cassette: index parsing, release parsing, date handling, the matching rule on synthetic names.
 - Coverage matrix rendering sums to the dataset's state counts.
 
@@ -41,6 +41,6 @@ Stay in plan mode until I approve. Propose the harvester framework (modeled on b
 
 ## Guardrails that bite here
 
-Public web, robots.txt honored, budgets per site (default 1 request per 2 seconds; many state sites have no published limit). No CAPTCHA solving. A site that blocks automated access or forbids it in its terms is `manual` with the reason, listed in the report as a gated source with its row count.
+Public web, budgets per site (default 1 request per 2 seconds; many state sites have no published limit). A site that blocks automated access or forbids it in its terms is `manual` with the reason, listed in the report as a gated source with its row count.
 
 Finish with `reports/08-court-state-ag.md` and a pull request. Do not merge.

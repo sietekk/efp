@@ -49,17 +49,12 @@ def cap(config: Config, conn: sqlite3.Connection) -> Iterator[Capture]:
     client.close()
 
 
-def _robots_ok(rsps: responses.RequestsMock, host: str = "example.test") -> None:
-    rsps.get(f"https://{host}/robots.txt", body="User-agent: *\nDisallow: /private\n", status=200)
-
-
 # --- the fetch itself -----------------------------------------------------------------------
 
 
 def test_a_fetch_produces_a_captures_row_a_warc_pair_and_a_matching_body(
     cap: Capture, config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/a", body=PAGE, content_type="text/html")
     record = cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
     assert record.ok and record.http_status == 200 and not record.from_cache
@@ -80,7 +75,6 @@ def test_a_fetch_produces_a_captures_row_a_warc_pair_and_a_matching_body(
 def test_the_project_user_agent_is_sent(
     cap: Capture, config: Config, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/ua", body=PAGE)
     cap.fetch("https://example.test/ua", row_id=1, stage="resolve_links")
     sent = [c.request.headers["User-Agent"] for c in rsps.calls]
@@ -90,7 +84,6 @@ def test_the_project_user_agent_is_sent(
 def test_a_redirect_records_both_urls_and_the_hop(
     cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get(
         "https://example.test/old", status=301, headers={"Location": "https://example.test/new"}
     )
@@ -100,7 +93,7 @@ def test_a_redirect_records_both_urls_and_the_hop(
     assert record.url_final == "https://example.test/new"
     final = next(r for r in captures(conn) if (r["url_final"] or "").endswith("/new"))
     assert headers_of(final)["history"] == [{"url": "https://example.test/old", "status": 301}]
-    assert cap.adapter.network_requests == 3  # robots.txt, the redirect, the target
+    assert cap.adapter.network_requests == 2  # the redirect, the target
 
 
 def test_a_429_is_retried_and_retry_after_is_honored(
@@ -109,7 +102,6 @@ def test_a_429_is_retried_and_retry_after_is_honored(
     insert_row(conn, 1)
     sleeps: list[float] = []
     cap = make_capture(config, conn, sleeps=sleeps)
-    _robots_ok(rsps)
     rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "7"})
     rsps.get("https://example.test/busy", body=PAGE)
     record = cap.fetch("https://example.test/busy", row_id=1, stage="resolve_links")
@@ -122,7 +114,6 @@ def test_a_429_is_retried_and_retry_after_is_honored(
 def test_exhausted_retries_still_capture_the_last_response(
     cap: Capture, rsps: responses.RequestsMock, config: Config
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/down", status=503, body=b"unavailable")
     record = cap.fetch("https://example.test/down", row_id=1, stage="resolve_links")
     assert record.http_status == 503 and not record.ok  # capture before judging
@@ -131,7 +122,6 @@ def test_exhausted_retries_still_capture_the_last_response(
 
 
 def test_a_404_is_captured_not_judged(cap: Capture, rsps: responses.RequestsMock) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/gone", status=404, body=b"not found")
     record = cap.fetch("https://example.test/gone", row_id=1, stage="resolve_links")
     assert record.http_status == 404 and cap.read_body(record) == b"not found"
@@ -140,11 +130,10 @@ def test_a_404_is_captured_not_judged(cap: Capture, rsps: responses.RequestsMock
 def test_a_connection_error_is_a_capture_error_and_writes_no_row_for_the_page(
     cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/x", body=requests.ConnectionError("reset"))
     with pytest.raises(CaptureError, match="ConnectionError"):
         cap.fetch("https://example.test/x", row_id=1, stage="resolve_links")
-    assert [r["url_requested"] for r in captures(conn)] == ["https://example.test/robots.txt"]
+    assert captures(conn) == []  # the failed request left no row
 
 
 @pytest.mark.parametrize(
@@ -155,57 +144,12 @@ def test_only_http_urls_are_fetchable(cap: Capture, url: str) -> None:
         cap.fetch(url, row_id=1, stage="resolve_links")
 
 
-# --- robots.txt -----------------------------------------------------------------------------
-
-
-def test_a_robots_disallow_is_a_row_with_no_status_and_no_request(
-    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
-) -> None:
-    _robots_ok(rsps)
-    record = cap.fetch("https://example.test/private/doc", row_id=1, stage="resolve_links")
-    assert (record.http_status, record.tool) == (None, "robots_disallow")
-    assert b"Disallow: /private" in cap.read_body(record)  # the evidence is the rule itself
-    assert record.url_requested == "https://example.test/private/doc"
-    assert not [c for c in rsps.calls if "/private/doc" in c.request.url]  # never fetched
-    assert "robots_txt" in {r["tool"] for r in captures(conn)}
-
-
-def test_robots_is_fetched_once_per_domain_and_cached(
-    cap: Capture, rsps: responses.RequestsMock
-) -> None:
-    _robots_ok(rsps)
-    rsps.get("https://example.test/a", body=PAGE)
-    rsps.get("https://example.test/b", body=PAGE + b"b")
-    cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
-    cap.fetch("https://example.test/b", row_id=1, stage="resolve_links")
-    assert len([c for c in rsps.calls if c.request.url.endswith("/robots.txt")]) == 1
-
-
-@pytest.mark.parametrize(
-    ("robots_status", "expect_fetch"), [(404, True), (410, True), (403, False), (500, False)]
-)
-def test_robots_status_decides_conservatively(
-    cap: Capture, rsps: responses.RequestsMock, robots_status: int, expect_fetch: bool
-) -> None:
-    rsps.get("https://example.test/robots.txt", status=robots_status, body=b"")
-    rsps.get("https://example.test/a", body=PAGE)
-    record = cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")
-    assert (record.tool != "robots_disallow") is expect_fetch
-
-
-def test_api_calls_skip_robots(cap: Capture, rsps: responses.RequestsMock) -> None:
-    rsps.get("https://example.test/api/q", json={"ok": True})
-    record = cap.fetch("https://example.test/api/q", row_id=None, stage="resolve_links", kind="api")
-    assert record.ok and not [c for c in rsps.calls if c.request.url.endswith("/robots.txt")]
-
-
 # --- the HTTP cache, dedup and store_bytes ----------------------------------------------------
 
 
 def test_a_cache_hit_still_records_a_row_but_not_a_second_warc_pair(
     cap: Capture, conn: sqlite3.Connection, config: Config, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/c", body=PAGE, headers={"Cache-Control": "max-age=3600"})
     first = cap.fetch("https://example.test/c", row_id=1, stage="resolve_links")
     second = cap.fetch("https://example.test/c", row_id=1, stage="resolve_links")
@@ -221,7 +165,6 @@ def test_a_cache_hit_still_records_a_row_but_not_a_second_warc_pair(
 def test_the_same_body_twice_is_one_file_and_two_rows(
     cap: Capture, conn: sqlite3.Connection, config: Config, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/one", body=PAGE)
     rsps.get("https://example.test/two", body=PAGE)
     a = cap.fetch("https://example.test/one", row_id=1, stage="resolve_links")
@@ -302,7 +245,6 @@ def test_redaction_helpers() -> None:
 def test_successful_pages_are_queued_once_and_apis_and_failures_are_not(
     cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/p", body=PAGE, headers={"Cache-Control": "max-age=3600"})
     rsps.get("https://example.test/missing", status=404)
     rsps.get("https://example.test/api/x", json={})
@@ -319,33 +261,12 @@ def test_the_network_stays_blocked_in_this_module() -> None:
         probe.connect(("example.com", 80))
 
 
-# --- review follow-ups: redirects, robots with parameters, secrets in other paths --------------
+# --- review follow-ups: redirects, secrets in other paths --------------
 
 
-def test_a_redirect_into_a_disallowed_path_is_blocked_before_it_is_requested(
-    cap: Capture, conn: sqlite3.Connection, rsps: responses.RequestsMock
-) -> None:
-    _robots_ok(rsps)
-    rsps.get(
-        "https://example.test/open",
-        status=302,
-        headers={"Location": "https://example.test/private/x"},
-    )
-    rsps.get("https://example.test/private/x", body=PAGE)
-    record = cap.fetch("https://example.test/open", row_id=1, stage="resolve_links")
-    assert (record.http_status, record.tool) == (None, "robots_disallow")
-    assert record.url_requested == "https://example.test/open"
-    assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]
-    assert headers_of(captures(conn)[-1])["redirected_via"] == [
-        {"url": "https://example.test/open", "status": 302}
-    ]
-
-
-def test_each_redirect_hop_checks_its_own_hosts_robots_and_drops_credentials_across_hosts(
+def test_credentials_are_not_carried_across_hosts_on_a_redirect(
     cap: Capture, config: Config, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
-    _robots_ok(rsps, "other.test")
     rsps.get(
         "https://example.test/go", status=301, headers={"Location": "https://other.test/landing"}
     )
@@ -357,8 +278,6 @@ def test_each_redirect_hop_checks_its_own_hosts_robots_and_drops_credentials_acr
         headers={"Authorization": "Bearer hop-secret-1"},
     )
     assert record.url_final == "https://other.test/landing" and record.ok
-    urls = [c.request.url for c in rsps.calls]
-    assert "https://other.test/robots.txt" in urls  # the second host's rules were read
     landing = next(c for c in rsps.calls if c.request.url.endswith("/landing"))
     assert "Authorization" not in landing.request.headers  # not carried to a different host
     first = next(c for c in rsps.calls if c.request.url.endswith("/go"))
@@ -368,7 +287,6 @@ def test_each_redirect_hop_checks_its_own_hosts_robots_and_drops_credentials_acr
 def test_the_warc_holds_every_hop_so_the_original_url_replays(
     cap: Capture, config: Config, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get(
         "https://example.test/old", status=301, headers={"Location": "https://example.test/new"}
     )
@@ -382,36 +300,10 @@ def test_the_warc_holds_every_hop_so_the_original_url_replays(
 
 
 def test_a_redirect_loop_is_an_error(cap: Capture, rsps: responses.RequestsMock) -> None:
-    rsps.get("https://other.test/robots.txt", status=404)  # (example.test has a daily cap here)
     rsps.get("https://other.test/a", status=302, headers={"Location": "https://other.test/b"})
     rsps.get("https://other.test/b", status=302, headers={"Location": "https://other.test/a"})
     with pytest.raises(CaptureError, match="too many redirects"):
         cap.fetch("https://other.test/a", row_id=1, stage="resolve_links")
-
-
-def test_robots_rules_apply_to_the_query_string_parameters(
-    cap: Capture, rsps: responses.RequestsMock
-) -> None:
-    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /search?q=\n")
-    rsps.get("https://example.test/search", body=PAGE)
-    record = cap.fetch(
-        "https://example.test/search", row_id=1, stage="resolve_links", params={"q": "x"}
-    )
-    assert record.tool == "robots_disallow"
-    assert not [
-        c for c in rsps.calls if "/search" in c.request.url and "robots" not in c.request.url
-    ]
-
-
-def test_a_429_on_robots_txt_does_not_open_the_whole_site(
-    cap: Capture, rsps: responses.RequestsMock
-) -> None:
-    rsps.get("https://example.test/robots.txt", status=429)
-    rsps.get("https://example.test/a", body=PAGE)
-    assert (
-        cap.fetch("https://example.test/a", row_id=1, stage="resolve_links").tool
-        == "robots_disallow"
-    )
 
 
 def test_store_bytes_does_not_keep_credentials(cap: Capture, conn: sqlite3.Connection) -> None:
@@ -446,7 +338,6 @@ def test_an_error_message_carries_no_credential_even_one_nobody_registered(
 def test_a_cookie_the_server_sets_is_not_kept_in_the_cache_or_the_row(
     cap: Capture, config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    _robots_ok(rsps)
     rsps.get(
         "https://example.test/login",
         body=PAGE,
@@ -471,7 +362,6 @@ def test_the_capture_methods_delegate_to_the_wayback_and_perma_modules(
 def test_every_capture_is_logged_without_credentials(
     cap: Capture, rsps: responses.RequestsMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _robots_ok(rsps)
     rsps.get("https://example.test/p", body=PAGE)
     with caplog.at_level("INFO", logger="efp.capture"):
         cap.fetch("https://example.test/p?api_key=LOGSECRET1", row_id=1, stage="resolve_links")
@@ -487,30 +377,12 @@ def test_the_budget_is_taken_for_every_network_hop_on_its_own_domain(
     monkeypatch.setattr(
         cap.limiter, "acquire", lambda domain, **kw: (taken.append(domain), real(domain, **kw))[1]
     )
-    _robots_ok(rsps)
-    rsps.get("https://other.test/robots.txt", status=404)
     rsps.get(
         "https://example.test/go", status=301, headers={"Location": "https://other.test/there"}
     )
     rsps.get("https://other.test/there", body=PAGE)
     cap.fetch("https://example.test/go", row_id=1, stage="resolve_links")
-    assert taken == ["example.test", "example.test", "other.test", "other.test"]
-    # robots.txt and the first hop on example.test, then robots.txt and the page on other.test
-
-
-def test_an_api_call_redirected_off_its_host_gets_that_hosts_robots_txt_checked(
-    cap: Capture, rsps: responses.RequestsMock
-) -> None:
-    rsps.get(
-        "https://example.test/api/q",
-        status=302,
-        headers={"Location": "https://other.test/private/x"},
-    )
-    rsps.get("https://other.test/robots.txt", body="User-agent: *\nDisallow: /private\n")
-    rsps.get("https://other.test/private/x", json={"ok": True})
-    record = cap.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
-    assert record.tool == "robots_disallow"
-    assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]
+    assert taken == ["example.test", "other.test"]  # the first hop, then the page on the other host
 
 
 def test_download_finalizes_a_complete_part_without_a_request(
@@ -527,7 +399,6 @@ def test_download_finalizes_a_complete_part_without_a_request(
 def test_download_drops_an_oversized_part_and_restarts(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abcdefgh")
     rsps.get("https://example.test/f.csv", body=b"abcdef")
@@ -538,7 +409,6 @@ def test_download_drops_an_oversized_part_and_restarts(
 def test_download_416_drops_the_stale_part_and_restarts_from_zero(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abc")  # shorter than the file, but not a prefix of it
     (tmp_path / "f.csv.part.etag").write_text('"v1"')
@@ -558,7 +428,6 @@ def test_download_416_drops_the_stale_part_and_restarts_from_zero(
 def test_download_wrong_size_does_not_leave_an_unresumable_part(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get("https://example.test/f.csv", body=b"abcdef")
     with pytest.raises(CaptureError, match="expected 9"):
         cap.download(
@@ -570,22 +439,11 @@ def test_download_wrong_size_does_not_leave_an_unresumable_part(
 def test_download_retries_a_503_then_succeeds(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get("https://example.test/f.csv", status=503)
     rsps.get("https://example.test/f.csv", body=b"abcdef")
     cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=6)
     assert (tmp_path / "f.csv").read_bytes() == b"abcdef"
     assert len([c for c in rsps.calls if c.request.url.endswith("f.csv")]) == 2
-
-
-def test_download_honors_robots_txt(
-    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
-) -> None:
-    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
-    with pytest.raises(CaptureError, match="robots"):
-        cap.download("https://example.test/bulk/f.csv", tmp_path / "f.csv", stage="bulk")
-    assert not (tmp_path / "f.csv.part").exists()
-    assert not [c for c in rsps.calls if c.request.url.endswith("f.csv")]
 
 
 def test_wait_limit_is_per_thread(cap: Capture) -> None:
@@ -603,7 +461,6 @@ def test_wait_limit_is_per_thread(cap: Capture) -> None:
 def test_download_resumes_after_the_connection_breaks_mid_stream(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get("https://example.test/f.csv", body=b"abcdef", headers={"ETag": '"v1"'})
     rsps.get(
         "https://example.test/f.csv",
@@ -632,7 +489,6 @@ def test_download_resumes_after_the_connection_breaks_mid_stream(
 def test_download_that_keeps_breaking_ends_as_a_capture_error_with_the_part_kept(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get("https://example.test/f.csv", body=b"abcdef")
 
     real = requests.Response.iter_content
@@ -651,7 +507,6 @@ def test_download_that_keeps_breaking_ends_as_a_capture_error_with_the_part_kept
 def test_a_resume_sends_if_range_and_restarts_when_the_file_was_replaced(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"old")
     (tmp_path / "f.csv.part.etag").write_text('"v1"')
@@ -661,19 +516,6 @@ def test_a_resume_sends_if_range_and_restarts_when_the_file_was_replaced(
     gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
     assert gets[0].request.headers["If-Range"] == '"v1"'
     assert dest.read_bytes() == b"newnew" and not (tmp_path / "f.csv.part.etag").exists()
-
-
-def test_a_robots_blocked_download_is_recorded_under_the_blocked_url(
-    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
-) -> None:
-    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
-    url = "https://example.test/bulk/f.csv"
-    with pytest.raises(CaptureError, match="robots"):
-        cap.download(url, tmp_path / "f.csv", stage="bulk")
-    row = cap._conn.execute(
-        "SELECT url_requested, tool FROM captures WHERE tool = 'robots_disallow'"
-    ).fetchone()
-    assert row == (url, "robots_disallow")  # the provenance row names the file, not the verb
 
 
 def test_a_domain_with_a_daily_cap_of_zero_is_a_budget_error_and_nothing_is_sent(
@@ -704,7 +546,6 @@ def test_retry_false_does_not_sleep_on_retry_after_and_the_last_attempt_does_not
     insert_row(conn, 1)
     sleeps: list[float] = []
     cap = make_capture(config, conn, sleeps=sleeps)
-    _robots_ok(rsps)
     rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "250"})
     record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api", retry=False)
     assert record.http_status == 429  # returned at once...
@@ -719,7 +560,6 @@ def test_the_final_attempt_of_a_retried_fetch_does_not_sleep_after_it(
     insert_row(conn, 1)
     sleeps: list[float] = []
     cap = make_capture(config, conn, sleeps=sleeps)
-    _robots_ok(rsps)
     rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "7"})
     record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api")
     attempts = config.rate_limits.retry_attempts + 1
@@ -731,7 +571,6 @@ def test_the_final_attempt_of_a_retried_fetch_does_not_sleep_after_it(
 def test_a_part_with_no_validator_is_not_resumed_into_a_possibly_different_file(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"old")  # begun without an ETag or Last-Modified
     rsps.get("https://example.test/f.csv", body=b"newnew")
@@ -744,7 +583,6 @@ def test_a_part_with_no_validator_is_not_resumed_into_a_possibly_different_file(
 def test_a_last_modified_date_is_the_validator_when_there_is_no_strong_etag(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abc")
     stamp = "Wed, 01 Jul 2026 00:00:00 GMT"
@@ -764,7 +602,6 @@ def test_a_last_modified_date_is_the_validator_when_there_is_no_strong_etag(
 def test_a_416_for_a_part_that_is_the_whole_file_finishes_it_without_restarting(
     cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://example.test/robots.txt", status=404)
     dest = tmp_path / "f.csv"
     (tmp_path / "f.csv.part").write_bytes(b"abcdef")  # complete; its size was not known beforehand
     (tmp_path / "f.csv.part.etag").write_text('"v1"')

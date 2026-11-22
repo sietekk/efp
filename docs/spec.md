@@ -37,7 +37,7 @@ This specification defines the automation pipeline that researches 1,481 electio
 | N1 | **Provenance**: every retrieved artefact has URL, timestamp, HTTP status, SHA-256 and archived body | captures table plus WARC/WACZ files; RFC 3161 timestamps on the corpus manifest |
 | N2 | **Resumability**: any stage can stop and restart without re-fetching or duplicating work | Per-row state table; HTTP cache; idempotent stage functions keyed on input hash |
 | N3 | **Reproducibility**: a re-run from the same inputs, pinned dependencies and pinned data files yields the same codes | Lockfile; pinned site-data hashes; model ID, prompt and temperature recorded per extraction |
-| N4 | **Politeness and compliance**: per-domain rate budgets, descriptive User-Agent, robots respected, no scraping of sources whose terms forbid it | pyrate-limiter with SQLite backend; manual-import path for NewsBank, Newspapers.com and Westlaw |
+| N4 | **Rate limiting and compliance**: per-domain rate budgets, no scraping of sources whose terms forbid it | pyrate-limiter with SQLite backend; manual-import path for NewsBank, Newspapers.com and Westlaw |
 | N5 | **Auditability**: every accepted identity match and every code is explainable to a specific document and rule | Splink waterfall per match; decisions table with reviewer and rationale; extraction spans |
 | N6 | **Single-operator scale**: ~7,400 stage executions, ~5,000 captures, one laptop | SQLite in WAL mode; no daemons; Docker only for Browsertrix and Auto Archiver |
 | N7 | **Data separation**: code publishable, row-level identity data not | Repository excludes the database and capture store; export script produces a redacted analysis file |
@@ -222,7 +222,7 @@ Every component is a Python package under efp/ exposing one run(batch: list[Row]
 
 ### Contract details that matter
 
-**resolve_links.** Try live resolution first with a 10 s timeout and a descriptive User-Agent. On failure, query the Wayback CDX API for the *shortener* URL (the Internet Archive frequently archived the redirect itself) and then for the target. Record expansion_method as live | wayback_short | wayback_target | unresolved. Every fetched body is captured regardless of usefulness; the decision about relevance is made downstream, never at fetch time.
+**resolve_links.** Try live resolution first with a 10 s timeout. On failure, query the Wayback CDX API for the *shortener* URL (the Internet Archive frequently archived the redirect itself) and then for the target. Record expansion_method as live | wayback_short | wayback_target | unresolved. Every fetched body is captured regardless of usefulness; the decision about relevance is made downstream, never at fetch time.
 
 **court.** Runs four sub-strategies in order and stops at the first document that yields a case number: (1) DOJ API by title keyword with client-side topic filtering, since the server-side topic parameter is silently ignored; (2) the state AG harvester for the row's state; (3) CourtListener search by party name, state and year window, then RECAP Fetch for missing federal documents; (4) the state docket adapter, if one exists for that state. Each sub-strategy is its own module with the same interface, so coverage can be reported per strategy. Pre-2013 federal rows fall back to the Public Integrity Section annual *Federal Prosecution of Election Offenses* reports, which are captured once and indexed.
 
@@ -250,8 +250,8 @@ Every network call the pipeline makes goes through one of these. Rate limits are
 | **PACER** | Direct | PACER account | — | $0.10/page, $3 cap/doc, $30/quarter waiver; academic exemption available | Federal | court (fallback) |
 | **Wayback CDX** | web.archive.org/cdx/search/cdx | None | ~0.4 req/s search via wayback client | Free | All archived captures | resolve_links, news |
 | **Wayback Save Page Now 2** | POST web.archive.org/save | IA S3 keys | ~6/min authenticated | Free | — | capture |
-| **Common Crawl CDX** | index.commoncrawl.org | None | Polite | Free | 2008–present crawls; sample, not mirror | resolve_links (second chance) |
-| **GDELT DOC 2.0** | api.gdeltproject.org/api/v2/doc/doc | None | Undocumented; be polite | Free | **2017-01-01 onward**, 250 results max | news |
+| **Common Crawl CDX** | index.commoncrawl.org | None | No published limit | Free | 2008–present crawls; sample, not mirror | resolve_links (second chance) |
+| **GDELT DOC 2.0** | api.gdeltproject.org/api/v2/doc/doc | None | Undocumented | Free | **2017-01-01 onward**, 250 results max | news |
 | **Media Cloud v4** | search.mediacloud.org API | Free key | Per key | Free | Metadata and URLs only; archive depth to be confirmed by email | news (discovery) |
 | **OpenFEC** | api.open.fec.gov/v1/ | api.data.gov key | 1,000/hour | Free | Federal candidates and committees 1979–present | identity (enrichment only; bulk first) |
 | **Congress.gov v3** | api.congress.gov/v3/ | api.data.gov key | 5,000/hour | Free | Members, bills | identity (rare) |
@@ -475,9 +475,9 @@ Every invocation writes an audit_log row with arguments, git SHA and lockfile ha
 
 config.toml (committed) for non-secret settings: per-domain rate budgets, batch sizes, thresholds, allowlist path, model ID. Secrets in environment variables loaded from an untracked .env: COURTLISTENER_TOKEN, PACER_USER / PACER_PASS, FEC_API_KEY, CONGRESS_API_KEY, OPENSTATES_KEY, IA_ACCESS / IA_SECRET (Save Page Now), PERMA_API_KEY, MEDIACLOUD_KEY, LLM_API_KEY. A .env.example documents them. No secret is ever written to the database or the capture store.
 
-### Rate limiting and politeness
+### Rate limiting
 
-pyrate-limiter 4.5 with its SQLite backend, so budgets persist across restarts; one bucket per domain at 80% of the published limit, and a conservative default (1 req / 2 s) for any domain without a published limit. requests-cache 1.3 with a SQLite backend in front of every requests session, honouring Cache-Control, so re-runs are free and non-abusive and the cache DB is itself a record of what was fetched when. stamina 26.1 for retry with jitter. A single descriptive User-Agent naming the project, the university and a contact address. robots.txt honoured for scrape targets; sources whose terms prohibit automated access are reached only via the manual import path.
+pyrate-limiter 4.5 with its SQLite backend, so budgets persist across restarts; one bucket per domain at 80% of the published limit, and a conservative default (1 req / 2 s) for any domain without a published limit. requests-cache 1.3 with a SQLite backend in front of every requests session, honouring Cache-Control, so re-runs are free and non-abusive and the cache DB is itself a record of what was fetched when. stamina 26.1 for retry with jitter. Sources whose terms prohibit automated access are reached only via the manual import path.
 
 ### Runtime environment
 

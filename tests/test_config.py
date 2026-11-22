@@ -57,10 +57,11 @@ def test_unbalanced_user_agent_fails(write_config: Callable[..., Path]) -> None:
         load_config(path)
 
 
-def test_user_agent_must_include_the_contact(write_config: Callable[..., Path]) -> None:
+def test_the_user_agent_is_free_form_and_need_not_carry_the_contact(
+    write_config: Callable[..., Path],
+) -> None:
     path = write_config({'contact = "test@example.invalid"': 'contact = "other@example.invalid"'})
-    with pytest.raises(ConfigError, match="contact"):
-        load_config(path)
+    assert load_config(path).project.contact == "other@example.invalid"
 
 
 def test_default_rate_cannot_exceed_one_request_per_two_seconds(

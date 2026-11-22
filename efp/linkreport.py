@@ -70,10 +70,6 @@ class LinksReport:
     row_status: dict[str, int]
     row_status_by_band: dict[str, dict[str, int]]
     link_status: dict[str, int]
-    rows_blocked: (
-        int  # dead or unresolved rows where robots.txt blocked a fetch (unreachable by policy)
-    )
-    links_blocked: int
     domains: list[DomainRow]
     shortener_links: dict[str, dict[str, int]]  # shortener host -> status counts
     total_links: int
@@ -106,18 +102,13 @@ def build(conn: sqlite3.Connection, config: Config) -> LinksReport:
     best: dict[int, str] = {}
     year_of: dict[int, int] = {}
     has_pending: set[int] = set()
-    blocked_rows: set[int] = set()
-    links_blocked = 0
     link_status = dict.fromkeys(ROW_STATUSES, 0)
     domains: dict[str, DomainRow] = {}
     shorteners: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(ROW_STATUSES, 0))
-    for row_id, url_raw, expanded, status, resolved_at, year, sha, note in rows:
+    for row_id, url_raw, expanded, status, resolved_at, year, sha, _note in rows:
         effective = status if resolved_at is not None else "pending"
         if effective == "pending":
             has_pending.add(row_id)
-        if effective in ("dead", "unresolved") and "unreachable by policy" in (note or ""):
-            blocked_rows.add(row_id)
-            links_blocked += 1
         link_status[effective] += 1
         year_of[row_id] = int(year)
         current = best.get(row_id)
@@ -158,8 +149,6 @@ def build(conn: sqlite3.Connection, config: Config) -> LinksReport:
         row_status=row_status,
         row_status_by_band=by_band,
         link_status=link_status,
-        rows_blocked=len({r for r in blocked_rows if best.get(r) in ("dead", "unresolved")}),
-        links_blocked=links_blocked,
         domains=ranked,
         shortener_links=dict(shorteners),
         total_links=sum(link_status.values()),
@@ -217,10 +206,6 @@ def render_survival(report: LinksReport) -> str:
         f"{report.pct(not_live, done)} (archived copy exists for "
         f"{report.pct(report.row_status['archived'], done)}); no copy found at all "
         f"{report.pct(gone, done)}. The spec expects 20-40% rot.",
-        "",
-        f"Of the rows with no copy found, {report.rows_blocked:,} had a page that robots.txt "
-        f"forbids fetching ({report.links_blocked:,} links, unreachable by policy): that is "
-        "policy, not rot.",
         "",
         f"Link level ({report.total_links:,} links): "
         + ", ".join(f"{s} {report.link_status[s]:,}" for s in ROW_STATUSES),

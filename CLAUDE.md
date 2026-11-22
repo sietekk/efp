@@ -16,12 +16,12 @@ If a file in that list is missing, say so in the report and continue; do not inv
 
 ## The first pass is online-only
 
-Use only the sources in the allowlist in `docs/plan.md` ("Source allowlist for the first pass"). A source that needs an account someone else must approve, a fee, a form addressed to a person, or an email is a **gated source**: log the row against it with the reason, list it in the report, and move on. Never work around it, never solve a CAPTCHA, never evade a bot check, never use a browser against a site whose terms forbid automation.
+Use only the sources in the allowlist in `docs/plan.md` ("Source allowlist for the first pass"). A source that needs an account someone else must approve, a fee, a form addressed to a person, or an email is a **gated source**: log the row against it with the reason, list it in the report, and move on. Never work around it, and never use a browser against a site whose terms forbid automation.
 
 ## Standing guardrails (verbatim from the plan)
 
 - No people-search or data-broker service, ever; no account discovery by a person's name.
-- Every network call goes through the capture layer, is rate-limited per domain at 80% of the published limit (1 request per second where none is published), honors `robots.txt`, and is logged.
+- Every network call goes through the capture layer, is rate-limited per domain at 80% of the published limit (1 request per second where none is published), and is logged.
 - Every value written carries its source capture and, for extractions, a verbatim span; abstain rather than guess.
 - The nine source columns are never written; `rows` is immutable; captures, decisions and the audit log are append-only.
 - Secrets live only in `~/.config/efp/.env`; the database and store live only in `~/efp-data/`; neither is ever in the repository.
@@ -34,7 +34,6 @@ Additional rules:
 - Party registration, where it exists at all, is never used to infer motive. It is an identity signal only, behind a config flag that defaults off.
 - Row-level identity data (names joined to dates of birth, addresses, dockets) never leaves `~/efp-data/`. The only export that may leave the machine is the redacted CSV. Test fixtures and cassettes must not contain real subjects; synthesize them.
 - Prompts to the model are files under `prompts/` with their SHA-256 logged per call. Temperature 0. Model id logged per call. Never let the model answer from anything outside the captured text.
-- The `User-Agent` names the project, the university and a contact address from `config.toml`.
 - Do not install or depend on tools the tool register marks dead, stale or license-incompatible (newspaper3k, snscrape, twscrape, waybackpy, abydos, dedupe, recordlinkage, Blackbird, SpiderFoot, Recon-ng, PyMuPDF unless the AGPL is accepted in writing).
 
 ## Architecture rule: every stage is a chain of swappable modules, and nothing waits

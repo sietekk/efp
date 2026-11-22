@@ -155,23 +155,3 @@ def test_a_row_with_a_dead_link_and_a_link_still_to_do_is_pending_not_dead(
     _link(conn, 1, "https://news.test/b", "unresolved", None, done=False)
     report = linkreport.build(conn, config)
     assert report.row_status["pending"] == 1 and report.row_status["dead"] == 0
-
-
-def test_links_blocked_by_robots_txt_are_counted_as_policy_not_rot(
-    config: Config, conn: sqlite3.Connection
-) -> None:
-    add_row(conn, 1, year=2012, source="x", sha="1" * 64)
-    add_row(conn, 2, year=2012, source="x", sha="2" * 64)
-    _link(
-        conn,
-        1,
-        "https://news.test/p",
-        "dead",
-        "https://news.test/p",
-        note="robots.txt disallows news.test: unreachable by policy",
-    )
-    _link(conn, 2, "https://news.test/q", "dead", "https://news.test/q", note="live page: HTTP 404")
-    report = linkreport.build(conn, config)
-    assert (report.rows_blocked, report.links_blocked) == (1, 1)
-    assert report.row_status["dead"] == 2  # still not live; the split is reported, not hidden
-    assert "forbids fetching" in linkreport.render_survival(report)

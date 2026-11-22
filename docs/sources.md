@@ -1,7 +1,7 @@
 # Sources the court stage reads (build 07)
 
 Every one of these is reached only through the capture layer (`efp/capture.py`): budgeted per
-domain, robots.txt honored for pages, every response a `captures` row. "Verified" below means the
+domain, every response a `captures` row. "Verified" below means the
 fact is stated in `docs/spec.md`, `docs/plan.md` or `docs/tool-register.md`. "Assumed" means this
 build had to pick a value that no project document states and could not check against the live
 service from the build environment; the first real run is the check, and the code fails loudly
@@ -10,7 +10,7 @@ or abstains rather than guess.
 | Source | Where | Auth | Budget | Used by | Status |
 | --- | --- | --- | --- | --- | --- |
 | DOJ press-release API v1 | `https://www.justice.gov/api/v1/press_releases.json` | none | 3 requests/s (published limit: under 4) | `court.doj` | endpoint and limit verified; the `parameters[title]` query parameter is **assumed** (spec: "by title keyword"). The client checks that the titles returned contain the keyword and, if not, falls back to harvesting the date-sorted feed (`sort=date&direction=DESC&page=N`, `pagesize=50`) into a local index and filtering there |
-| DOJ release pages | the `url` of each release, on `justice.gov` | none | 3 requests/s | `court.doj` | the page is captured for citation; if robots.txt forbids it the API's own body is kept instead |
+| DOJ release pages | the `url` of each release, on `justice.gov` | none | 3 requests/s | `court.doj` | the page is captured for citation; if the page cannot be fetched the API's own body is kept instead |
 | Public Integrity Section reports | *Federal Prosecution of Election Offenses*, all editions covering 2000-2012 | none | default 1 request per 2 s | `court.pin_reports` | **URLs not supplied.** No project document lists them; set `court.pin_report_urls` in `config.toml`. Reading the PDFs needs `pdfplumber` or `pypdf` (the `documents` extra) |
 | CourtListener bulk data | S3 folder listing at `court.bulk_listing_url`, files under `court.bulk_download_base` | none (public domain) | default 1 request per 2 s for the listing; one streaming GET per file | `court.courtlistener_bulk` | quarterly CSVs (spec section 5), "tens of gigabytes" (plan). The bucket address, the file names (`dockets-`, `courts-`, `parties-`, `party-types-` plus a date) and the CSV columns are **assumed**; the loader finds each column by name and stops with the list of columns it saw if one is missing |
 | CourtListener REST v4 | `https://www.courtlistener.com/api/rest/v4/search/` | `COURTLISTENER_TOKEN` (free account) | 100 a day (80% of the 125/day default), 0.8/s | `court.courtlistener_api`, the RECAP documents step | endpoint and quota verified; the search parameters (`type=r`, `party_name`, `docket_id`, `filed_after`, `filed_before`) and the result field names are **assumed** from the v4 search documentation and parsed defensively |

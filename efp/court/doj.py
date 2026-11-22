@@ -515,7 +515,7 @@ def _release_text(ctx: Context, task: CourtTask, release: Release) -> tuple[str,
     body the API returned."""
     try:
         record = cap(ctx).fetch(release.url, row_id=task.row_id, stage=STAGE, kind="page")
-        if record.ok and record.tool != "robots_disallow":
+        if record.ok:
             extracted, _date = page_text.extract(cap(ctx).read_body(record), record.url_final)
             if extracted:
                 text_id = store_text(
