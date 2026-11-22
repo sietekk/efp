@@ -23,8 +23,8 @@ Changes the approved plan made to the prompt (both operator-approved at planning
 - Reference data: `reference/docket_portals.csv` (the seed list: twenty states, 22 portals, unverified addresses) and `reference/docket_probe.csv` (the 2026-11-22 probe).
 - Config (documented in `config.example.toml`): `court.docket_terms_cleared`, `court.docket_assisted_limit`, `court.docket_browser_image`.
 - Docs: `docs/sources.md` (probe, assumptions), `queues/README.md`, `RUNBOOK.md`.
-- Tests: `tests/test_court_docket.py` (43 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
-- Results: `uv run pytest -m "not live"`: 981 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_court_docket.py` (46 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
+- Results: `uv run pytest -m "not live"`: 984 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
@@ -73,6 +73,9 @@ None in the build's own runs.
 | **Medium:** Browsertrix ran without the project User-Agent | `--userAgent` is the configured value; a timed-out crawl removes its container by name |
 | **Medium:** a docket's provenance pointed at the detail page, though its fields come from the search answer | The search answer's capture is the record's source and parent of the evidence text; the detail page is kept in `basis.detail_capture` |
 | Medium: an earlier court hit skips the docket module (the chain is `first_hit`, docket last) | By design (the chain stops at the first document with a case number); recorded as decision 10 |
+| Re-probing one state (`--state`) overwrote `portal_accounts.csv` with only that state | With `--state` the file is merged: that state's rows are replaced and every other state's kept |
+| `Capture.browser` ignored the capture store, used `:latest`, recorded efp's version, and read a WACZ of any size into memory | An earlier WACZ of the URL is reused (a new `captures` row says so; no Docker, no budget) unless `refresh`; the image must be pinned (a version or digest; `latest` is refused; the default is `1.13.2`); the resolved image id is recorded and `tool_version` is Browsertrix's tag; a WACZ over 250 MB is refused |
+| A county-portal-only state's row that names no probed county ended `not_found` (a recorded negative) | It is a coverage gap: `deferred_coverage` with `:coverage` on its hash, so it is revisited when a county is added, never recorded as searched-and-absent |
 | Low: the assisted query's `platform` held the probe's "wants"; record identity ignored the county; two different filing windows; shallow heuristics (any `$5` was a fee, a `javascript:` terms link); the cleared list was case-sensitive | The query uses the portal's platform; identity includes the court; both paths use `court.window_years_after`; the fee rule needs a per-search price, script and anchor links are skipped, the cleared list is upper-cased |
 | Low: gated versus assisted counted differently | `gated_portal` is set for every assisted or account/fee portal, and the gated list now lists every non-automated portal, so they agree |
 | Low: the queue files sit under the data directory, not `queues/` | Deliberate (they hold names; `pacer.csv` is the precedent); stated in `queues/README.md` |
