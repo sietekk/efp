@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -20,8 +20,12 @@ import typer
 
 from efp import audit
 from efp import db as database
+from efp import status as status_view
 from efp.config import Config, ConfigError, find_config, load_config
 from efp.dbcheck import run_db_checks
+from efp.export import roundtrip
+from efp.ingest import loader
+from efp.ingest import report as ingest_report
 from efp.logging import register_secret_values, setup_logging
 from efp.secrets import SecretsError, load_secrets
 from efp.selftest import run_checks
@@ -39,7 +43,7 @@ db_app = typer.Typer(help="Database administration.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 
 
-def _no_audit() -> int | None:
+def _no_audit(extra: Mapping[str, object] | None = None) -> int | None:
     return None
 
 
@@ -50,7 +54,8 @@ class AppState:
     audit_id: int | None = None
     # Writes this invocation's audit row. A command that creates the database calls it again
     # afterwards, so the invocation that makes the database is recorded too.
-    start_audit: Callable[[], int | None] = field(default=_no_audit)
+    # ``extra`` adds command-specific facts to args_json (ingest adds the workbook hash).
+    start_audit: Callable[[Mapping[str, object] | None], int | None] = field(default=_no_audit)
 
 
 class LicensedSource(StrEnum):
@@ -124,13 +129,20 @@ def main(
     if config is not None:
         audited = config
 
-        def _start() -> int | None:
+        def _start(extra: Mapping[str, object] | None = None) -> int | None:
             return audit.start(
-                audited, argv, started, config_sha256=config_sha256, secret_values=secret_values
+                audited,
+                argv,
+                started,
+                config_sha256=config_sha256,
+                secret_values=secret_values,
+                extra=extra,
             )
 
         state.start_audit = _start
-        state.audit_id = _start()
+        # ingest writes its row itself, once it knows the workbook hash, sheet and header row.
+        if ctx.invoked_subcommand != "ingest":
+            state.audit_id = _start()
 
     def _finish() -> None:
         if config is not None:
@@ -145,9 +157,50 @@ def _not_built(build: str) -> NoReturn:
 
 
 @app.command()
-def ingest(workbook: Path = typer.Argument(..., help="Heritage workbook (.xlsx).")) -> None:
-    """Load the workbook into the database."""
-    _not_built("03")
+def ingest(
+    ctx: typer.Context,
+    workbook: Path = typer.Argument(..., help="Heritage workbook (.xlsx)."),
+    check: bool = typer.Option(
+        False, "--check", help="Validate and report only: no database, no sample file, no writes."
+    ),
+) -> None:
+    """Load the workbook into the database once, immutably (F1)."""
+    state: AppState = ctx.obj
+    if state.config is None:
+        typer.echo(f"configuration error: {state.config_error}", err=True)
+        raise typer.Exit(1)
+    extra: dict[str, object] = {}
+    try:
+        prepared = loader.prepare(state.config, workbook)
+        extra.update(
+            workbook_sha256=prepared.sha256,
+            sheet=prepared.data.sheet_name,
+            header_row=prepared.data.header_row,
+        )
+        # Written before any database change, so a crash during the load leaves a trace. (On the
+        # very first ingest there is no database yet, so the row is written afterwards instead.)
+        if state.audit_id is None:
+            state.audit_id = state.start_audit(extra)
+        result = (
+            loader.check_only(state.config, workbook)
+            if check
+            else loader.ingest(state.config, prepared)
+        )
+        typer.echo(ingest_report.render(result))
+        for note in result.notes:
+            typer.echo(f"note: {note}", err=True)
+    except (
+        loader.IngestError,
+        sqlite3.Error,
+        database.MigrationError,
+        database.DatabaseError,
+        OSError,
+    ) as exc:
+        typer.echo(f"ingest failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    finally:
+        if state.audit_id is None:
+            state.audit_id = state.start_audit(extra)
 
 
 @app.command()
@@ -166,11 +219,33 @@ def run(
 
 @app.command()
 def status(
+    ctx: typer.Context,
     stage: str | None = typer.Option(None, "--stage", help="Limit to one stage."),
     state: str | None = typer.Option(None, "--state", help="Limit to one state."),
 ) -> None:
-    """Counts by stage and status."""
-    _not_built("19")
+    """Counts by stage and status over the study population."""
+    app_state: AppState = ctx.obj
+    if app_state.config is None:
+        typer.echo(f"configuration error: {app_state.config_error}", err=True)
+        raise typer.Exit(1)
+    if stage is not None and stage not in app_state.config.runner.stages:
+        typer.echo(
+            f"unknown stage {stage!r}; stages: {', '.join(app_state.config.runner.stages)}",
+            err=True,
+        )
+        raise typer.Exit(2)
+    try:
+        conn = database.connect(app_state.config, migrate=False, create=False)
+    except (database.DatabaseError, sqlite3.Error):
+        typer.echo("no database yet: run `efp ingest <workbook.xlsx>` first", err=True)
+        raise typer.Exit(1) from None
+    try:
+        population, matrix = status_view.status_matrix(
+            conn, app_state.config, stage=stage, state=state
+        )
+    finally:
+        conn.close()
+    typer.echo(status_view.render(app_state.config.scope.population, population, matrix))
 
 
 @app.command()
@@ -206,10 +281,58 @@ def audit_cmd(row_id: int = typer.Argument(..., help="Row id.")) -> None:
 
 @app.command()
 def export(
+    ctx: typer.Context,
     redacted: bool = typer.Option(False, "--redacted", help="Write the redacted CSV only."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="F1 only: round-trip the source columns and verify every row."
+    ),
+    workbook: Path | None = typer.Option(
+        None,
+        "--workbook",
+        help="With --dry-run: workbook to verify (default paths.source_workbook).",
+    ),
 ) -> None:
-    """Write the coded workbook (or the redacted CSV)."""
-    _not_built("19")
+    """Write the coded workbook (or the redacted CSV). `--dry-run` runs the F1 round trip."""
+    if not dry_run:
+        _not_built("19")
+    state: AppState = ctx.obj
+    if state.config is None:
+        typer.echo(f"configuration error: {state.config_error}", err=True)
+        raise typer.Exit(1)
+    path = workbook if workbook is not None else state.config.paths.source_workbook
+    try:
+        conn = database.connect(state.config, migrate=False, create=False)
+    except (database.DatabaseError, sqlite3.Error):
+        typer.echo("no database yet: run `efp ingest <workbook.xlsx>` first", err=True)
+        raise typer.Exit(1) from None
+    try:
+        outcome = roundtrip.verify_round_trip(state.config, conn, path)
+    except roundtrip.RoundTripError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    finally:
+        conn.close()
+    typer.echo("F1 round trip: PASS (only a temporary copy was written, and it was deleted)")
+    typer.echo(f"  rows verified against rows.row_sha256 : {outcome.rows_verified:,}")
+    typer.echo(f"  rows in the year window (in_scope)    : {outcome.rows_in_window:,}")
+    typer.echo(
+        f"  Source non-empty                      : {outcome.source_nonempty:,} of all rows, "
+        f"{outcome.source_nonempty_in_window:,} in the window"
+    )
+    typer.echo(
+        f"  Source containing an http(s) URL      : {outcome.source_with_url:,} of all rows, "
+        f"{outcome.source_with_url_in_window:,} in the window"
+    )
+    typer.echo(f"  Source cells carrying a hyperlink     : {outcome.source_hyperlinks:,}")
+    typer.echo(f"  data validations in the original      : {outcome.validations_original}")
+    typer.echo(f"  data validations in the openpyxl copy : {outcome.validations_copy}")
+    if outcome.validations_lost:
+        typer.echo(
+            "WARNING: openpyxl dropped a data validation (in the Heritage workbook, the "
+            "Ideological Motivation dropdown). Cell values are intact (F1 holds), but export "
+            "(build 19) cannot rely on openpyxl load/save alone to keep the dropdown.",
+            err=True,
+        )
 
 
 @app.command()
@@ -233,7 +356,7 @@ def db_migrate(ctx: typer.Context) -> None:
         typer.echo(f"migrate failed: {exc}", err=True)
         raise typer.Exit(1) from None
     if state.audit_id is None:
-        state.audit_id = state.start_audit()
+        state.audit_id = state.start_audit(None)
     if applied:
         typer.echo("applied: " + ", ".join(f"{m.id:04d}_{m.name}" for m in applied))
     else:

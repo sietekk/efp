@@ -13,7 +13,7 @@ from pathlib import Path
 from efp.audit import COMPLETE_SQL
 from tests.conftest import REPO
 
-PROTECTED = r"(rows|captures|decisions|audit_log)"
+PROTECTED = r"(rows|captures|decisions|audit_log|source_workbook)"
 
 # file (relative to efp/) -> why it may mention the statement
 PROBE_FILE = "dbcheck.py"  # selftest --db attempts these inside a transaction it always rolls back
@@ -74,6 +74,7 @@ def test_only_the_audit_completion_updates_a_protected_table() -> None:
 
 def test_only_ingest_inserts_into_rows() -> None:
     assert _hits(r"INSERT\s+(OR\s+\w+\s+)?INTO\s+rows\b", (PROBE_FILE, INGEST_DIR)) == []
+    assert _hits(r"INSERT\s+(OR\s+\w+\s+)?INTO\s+source_workbook\b", (PROBE_FILE, INGEST_DIR)) == []
 
 
 def test_nothing_uses_replace_semantics() -> None:

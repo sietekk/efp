@@ -23,6 +23,7 @@ year_from = 2000
 year_to = 2025
 sample_size = 50
 sample_seed = 1
+sample_file = "__SAMPLE__"
 
 [first_pass]
 online_only = true

@@ -67,6 +67,7 @@ def write_config(tmp_path: Path, data_dir: Path, env_file: Path) -> Callable[...
     def _write(replacements: dict[str, str] | None = None, append: str = "") -> Path:
         text = (FIXTURES / "config.valid.toml").read_text(encoding="utf-8")
         text = text.replace("__DATA__", str(data_dir)).replace("__ENV__", str(env_file))
+        text = text.replace("__SAMPLE__", str(tmp_path / "sample_rows.json"))
         for old, new in (replacements or {}).items():
             assert old in text, f"fixture text not found: {old!r}"
             text = text.replace(old, new)
@@ -97,6 +98,25 @@ def migrations_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     shutil.copytree(REPO / "migrations", target, ignore=shutil.ignore_patterns("*.md", ".*"))
     monkeypatch.setattr(database, "migrations_dir", lambda: target)
     return target
+
+
+@pytest.fixture
+def source_dir(tmp_path: Path) -> Path:
+    """Where a synthetic workbook and its MANIFEST.txt live (outside the data directory)."""
+    folder = tmp_path / "source"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def workbook(source_dir: Path) -> Path:
+    """The 20-row synthetic workbook with a matching MANIFEST.txt."""
+    from tests.fixtures.make_workbook import make_workbook, write_manifest
+
+    path = source_dir / "heritage-synthetic.xlsx"
+    make_workbook(path)
+    write_manifest(path)
+    return path
 
 
 # Every captured output and failure text from the whole suite, for the hygiene test to scan.

@@ -34,6 +34,7 @@ ALL_CHECKS = [
     "no orphan captures",
     "foreign keys hold",
     "rows.row_sha256 well-formed",
+    "rows.row_sha256 matches the source workbook",
     "sqlite quick_check",
 ]
 
@@ -189,7 +190,7 @@ def test_a_changed_migration_file_is_caught(
 def test_an_unapplied_migration_is_reported(
     conn: sqlite3.Connection, config: Config, migrations_copy: Path
 ) -> None:
-    (migrations_copy / "0004_new.sql").write_text(
+    (migrations_copy / "0005_new.sql").write_text(
         "CREATE TABLE later (x INTEGER);", encoding="utf-8"
     )
     check = _by_name(run_db_checks(config))["migrations match files"]
@@ -265,7 +266,7 @@ def test_cli_selftest_db_passes_on_a_fresh_database(
     assert result.exit_code == 0, result.output
     for name in ALL_CHECKS:
         assert name in result.output
-    assert "12 check(s) run, 0 failed" in result.output
+    assert "13 check(s) run, 0 failed" in result.output
 
 
 def test_cli_selftest_db_exits_1_when_the_database_is_missing(
@@ -301,3 +302,24 @@ def test_cli_db_migrate_refuses_a_database_inside_the_repo(
 
 def test_zero_hash_constant_is_a_valid_digest() -> None:
     assert len(ZERO) == 64
+
+
+def test_a_dropped_workbook_trigger_is_caught(conn: sqlite3.Connection, config: Config) -> None:
+    conn.execute("DROP TRIGGER source_workbook_no_delete")
+    conn.commit()
+    check = _by_name(run_db_checks(config))["triggers present"]
+    assert not check.ok and "source_workbook_no_delete" in check.detail
+
+
+def test_the_probe_works_on_a_database_that_already_has_a_workbook_record(
+    conn: sqlite3.Connection, config: Config
+) -> None:
+    conn.execute(
+        "INSERT INTO source_workbook (workbook_id, sha256, filename, sheet_name, header_row, "
+        "data_rows, year_from, year_to, ingested_at) VALUES (1, ?, 'w.xlsx', 'Cases', 4, 20, 2000, 2025, 't')",
+        (ZERO,),
+    )
+    conn.commit()
+    check = _by_name(run_db_checks(config))["append-only triggers fire"]
+    assert check.ok, check.detail
+    assert conn.execute("SELECT count(*) FROM source_workbook").fetchone() == (1,)

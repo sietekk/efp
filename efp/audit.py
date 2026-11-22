@@ -1,6 +1,11 @@
 """Audit-log hook: every CLI invocation leaves an ``audit_log`` row.
 
-``start()`` inserts the row when the invocation begins (so a crashed run still leaves a trace);
+``args_json`` is an object: ``{"argv": [...redacted...], "population": <the rule in force>}``
+plus anything a command adds (ingest adds the workbook hash, sheet and header row).
+
+``start()`` inserts the row when the invocation begins (so a crashed run still leaves a trace;
+``efp ingest`` writes its row once it has read the workbook, so the row can carry the hash, and
+before it changes the database);
 ``finish()`` fills ``finished_at`` and ``exit_code`` at exit. The table is append-only by
 trigger, which permits exactly that one completion write and nothing else (migration 0003).
 Arguments are redacted before they are stored. Both functions are silent no-ops when the
@@ -12,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 
 from efp.config import Config
@@ -64,6 +69,7 @@ def start(
     *,
     config_sha256: str | None = None,
     secret_values: Iterable[str] = (),
+    extra: Mapping[str, object] | None = None,
 ) -> int | None:
     """Insert the invocation's row; return its ``audit_id``, or None if nothing was written."""
     try:
@@ -77,7 +83,9 @@ def start(
                 (
                     started.isoformat(),
                     command_of(safe),
-                    json.dumps(safe),
+                    json.dumps(
+                        {"argv": safe, "population": config.scope.population, **(extra or {})}
+                    ),
                     git_sha(full=True),
                     lockfile_sha256(),
                     config_sha256,

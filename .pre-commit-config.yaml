@@ -16,7 +16,9 @@ repos:
         name: detect-secrets (secret scanner)
         entry: uv run detect-secrets-hook --baseline .secrets.baseline
         language: system
-        exclude: ^uv\.lock$
+        # uv.lock has package hashes; sample_rows.json is 50 public row hashes (ids and SHA-256
+        # only, by design), which the scanner reads as high-entropy hex.
+        exclude: ^(uv\.lock|tests/fixtures/sample_rows\.json)$
       - id: no-data-paths
         name: no data or secrets paths in code, tests, workflows
         entry: bash scripts/check-no-data-paths.sh

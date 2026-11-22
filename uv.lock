@@ -365,7 +365,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "tlds" },
     { name = "typing-extensions" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" } },
+    { name = "websockets" },
     { name = "zstandard" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6a/8a/451b6fda93d1e23a33406b9ffcb65b0288c208adb15dbcd6d6bb3ddbc246/atproto-0.0.75.tar.gz", hash = "sha256:73d297c620170c48cc3bb8c1ac2ab22073d1e8ac69ef3cb2828e1f5bc3a25573", size = 389230, upload-time = "2026-11-14T00:30:43.852Z" }
@@ -526,9 +526,9 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
 ]
 dependencies = [
-    { name = "soupsieve", version = "2.10", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social' or (extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction')" },
-    { name = "soupsieve", version = "4.1.3", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social') or (extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')" },
-    { name = "typing-extensions" },
+    { name = "soupsieve", version = "2.10", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-social' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback')" },
+    { name = "soupsieve", version = "4.1.3", source = { registry = "https://pypi.org/simple" }, marker = "(extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction') and extra != 'extra-3-efp-social' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "typing-extensions", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/43/65/318323f98dbee45d42dff61d8f047181bc6f2268a9068cfad035a46be5af/beautifulsoup4-4.15.0.tar.gz", hash = "sha256:288e3ca7d54b06f2ac191970bc275c1939cb46d450b255bf6718b04aa37ab4f7", size = 632571, upload-time = "2026-06-07T16:44:20.453Z" }
 wheels = [
@@ -695,7 +695,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -906,7 +906,7 @@ name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9d/af/182eb91b0df3fe75c4d9f26fe70684569566745f6ba7e5c9c73a862c5252/cryptography-50.0.2.tar.gz", hash = "sha256:7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5", size = 880623, upload-time = "2026-09-30T15:30:04.884Z" }
 wheels = [
@@ -978,13 +978,11 @@ name = "cuda-bindings"
 version = "13.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "cuda-pathfinder" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/a6/13d14600381bdbfe55dfc35564e4bf4a208f169ee9f6cbeb356564268aff/cuda_bindings-13.5.0-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:40eadfad6ae1554f8c1aa456620a85a49a275fc902f2c6dd93ee8c488b2c5e9f", size = 7354398, upload-time = "2026-11-05T12:06:03.542Z" },
     { url = "https://files.pythonhosted.org/packages/27/68/14bf44f386672b03fcc0799be8d18df3e1c45847ee23b95721f6022abbaf/cuda_bindings-13.5.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a46a8cc84112d769d0f57bf3ae3fedc115cf09348f14da85a1a8200968b6f262", size = 8378158, upload-time = "2026-11-05T12:06:05.253Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/ea/87bd4fa1e1e70d3895b4e46606902fa7974111a81002dbd0418b68fb5b74/cuda_bindings-13.5.0-cp312-cp312-win_amd64.whl", hash = "sha256:2e8d562f928fe0bb254b1ade02133f9f6bc5e395efd2f1fbdb8533d64bf16e1f", size = 8423332, upload-time = "2026-11-05T12:06:07.32Z" },
-    { url = "https://files.pythonhosted.org/packages/ca/b5/caabd4780b999bc7c8ae70c76eae6eed07ad966abfa7a0fb1e7af708e8b6/cuda_bindings-13.5.0-cp312-cp312-win_arm64.whl", hash = "sha256:64d9c337209736eadc807a36925f11528a4815fed9869df77f259bc9341bc1e1", size = 7302369, upload-time = "2026-11-05T12:06:09.65Z" },
 ]
 
 [[package]]
@@ -1005,40 +1003,40 @@ wheels = [
 
 [package.optional-dependencies]
 cublas = [
-    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cufile", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cuda-cupti", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cusolver = [
-    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-cusolver", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cusolver", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cusparse", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cusparse", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-nvtx", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 
 [[package]]
@@ -1046,8 +1044,8 @@ name = "curl-cffi"
 version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "certifi" },
-    { name = "cffi" },
+    { name = "certifi", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-social'" },
+    { name = "cffi", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-social'" },
     { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "rich", version = "15.0.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-social' or extra == 'extra-3-efp-archive-docker' and (extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback')" },
 ]
@@ -1168,8 +1166,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "lxml", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4b/67/4d923372d3e24e5b367fa65f52780c8bc696936fd98fbcaeeb9a6434d1c4/doclang-0.7.4.tar.gz", hash = "sha256:d7e02b1d905fed7ce90bcbd255f8e28e6d684c83215b160a98413e930beecc51", size = 31628, upload-time = "2026-10-29T15:17:41.33Z" }
 wheels = [
@@ -1227,61 +1224,47 @@ name = "docling"
 version = "2.87.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "sys_platform == 'win32'",
     "sys_platform == 'emscripten'",
     "sys_platform == 'darwin'",
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "accelerate", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "beautifulsoup4", version = "4.14.3", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "certifi", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "defusedxml", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, extra = ["chunking"], marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-ibm-models", version = "3.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-parse", version = "5.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "filetype", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "huggingface-hub", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "lxml", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "marko", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "accelerate", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "beautifulsoup4", version = "4.14.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "certifi", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "defusedxml", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, extra = ["chunking"], marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "docling-ibm-models", version = "3.15.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "docling-parse", version = "5.11.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "filetype", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "huggingface-hub", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "lxml", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "marko", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "ocrmac", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "openpyxl", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pandas", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pluggy", version = "1.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "polyfactory", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic-settings", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pylatexenc", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pypdfium2", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-docx", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-pptx", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rapidocr", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "requests", version = "2.33.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rtree", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "scipy", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torch", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torchvision", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "tqdm", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "openpyxl", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pandas", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pluggy", version = "1.6.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "polyfactory", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pydantic", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pydantic-settings", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pylatexenc", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pypdfium2", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "python-docx", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "python-pptx", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "rapidocr", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "requests", version = "2.33.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "rtree", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "scipy", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "torch", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "torchvision", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "tqdm", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/86/2a/7bc51254739401ac418fc3183a08acbc5f4c560ae301ca4a8b25df8d5ff5/docling-2.87.0.tar.gz", hash = "sha256:d1a0a0645c30771d99c8a97a11b55cef6bac8a2e6b415b57a73cf1abd8986166", size = 437870, upload-time = "2026-04-13T07:38:17.187Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/ea/b42d7e0c4af6c1d4cfc4719afe74341f3de320bd2c6c5282e56de3b67b78/docling-2.87.0-py3-none-any.whl", hash = "sha256:cce8df0d2280a6d382222ae312157b4f774ed6a694b66d771b0e703935fecc58", size = 458354, upload-time = "2026-04-13T07:38:15.471Z" },
-]
-
-[[package]]
-name = "docling"
-version = "2.130.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "docling-slim", version = "2.130.0", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/70/ff/9d68bae90e8ca663aa2e8b5ca9e25db50ad8bfd2a6852450b94de55be623/docling-2.130.0.tar.gz", hash = "sha256:f713849d7136511dff1079aeb7eed53bd68c20637c933a69728dbc8564340881", size = 9090, upload-time = "2026-09-22T15:38:15.518Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/16/35/422c785d51ddc42a4ba3aa07ac636dd8f593d794578d7017b533496307c3/docling-2.130.0-py3-none-any.whl", hash = "sha256:86f2052018a93c48810efecbd7a9ecb801dd407602c85c49a1006f252a7151ca", size = 5229, upload-time = "2026-09-22T15:38:13.986Z" },
 ]
 
 [[package]]
@@ -1322,7 +1305,7 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
 ]
 dependencies = [
-    { name = "docling-slim", version = "2.151.1", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "docling-slim", extra = ["standard"], marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/66/77/32709cc399b90a1939617c8416f3d9e3e30895c99e57add9d5248dc018f2/docling-2.151.1.tar.gz", hash = "sha256:6d4d0be8cc8559fd65a085b572bf58e52b9f93263d2da01e4672cbac337f6049", size = 9315, upload-time = "2026-11-19T15:30:14.871Z" }
 wheels = [
@@ -1351,8 +1334,7 @@ dependencies = [
     { name = "pydantic-settings", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "pyyaml", version = "6.0.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "tabulate", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "typing-extensions", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ed/eb/853a4bfe313dabcbcf0c9e86bb83498ca4d708674b7bc97b159333ae27fa/docling_core-2.96.0.tar.gz", hash = "sha256:6285b2a461a830a7b4da052fef5253a08a141be46ef8a1ce9b4b47b92323b700", size = 375865, upload-time = "2026-09-10T12:16:00.776Z" }
@@ -1447,25 +1429,26 @@ name = "docling-ibm-models"
 version = "3.15.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "sys_platform == 'win32'",
     "sys_platform == 'emscripten'",
     "sys_platform == 'darwin'",
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "accelerate", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "huggingface-hub", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "jsonlines", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "numpy", version = "2.1.3", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rtree", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "safetensors", extra = ["torch"], marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torch", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torchvision", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "tqdm", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "accelerate", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "huggingface-hub", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "jsonlines", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "numpy", version = "2.1.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pydantic", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "rtree", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "safetensors", extra = ["torch"], marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "torch", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "torchvision", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "tqdm", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "transformers", version = "5.8.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/86/17/6ff282d494a6d2f4299ca2edb2d4f353ff46f4512868284565ad77e0221e/docling_ibm_models-3.15.0.tar.gz", hash = "sha256:bea2c97a65657e6343877126c8c9a815599724edae6eda63df55e612276c2d3a", size = 105732, upload-time = "2026-08-28T07:04:10.307Z" }
 wheels = [
@@ -1494,7 +1477,6 @@ resolution-markers = [
     "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
@@ -1511,15 +1493,14 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
 ]
 dependencies = [
-    { name = "huggingface-hub", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "numpy", version = "2.1.3", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-archive-docker' and (extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "huggingface-hub", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "numpy", version = "2.1.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-ocr-fallback' or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "pillow", version = "13.0.0", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "safetensors", extra = ["torch"], marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "torch", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "torchvision", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "safetensors", extra = ["torch"], marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "torch", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "torchvision", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d6/12/e4bc8e9c5304187b7adfca37deabda3f1a27f3a7834dd7d4d15f5c00de97/docling_ibm_models-4.0.4.tar.gz", hash = "sha256:f10cbcd2986ab3f55ac87890bda04353c10d312074433f1c8885cc33b33c3c13", size = 77657, upload-time = "2026-10-21T11:34:14.258Z" }
 wheels = [
@@ -1531,15 +1512,17 @@ name = "docling-parse"
 version = "5.11.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "sys_platform == 'win32'",
     "sys_platform == 'emscripten'",
     "sys_platform == 'darwin'",
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "tabulate", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pydantic", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "pywin32", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "tabulate", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/19/65/bf70d3bc8dd4774ec46b586b292522d93caae33e599c07dc77aa8183572c/docling_parse-5.11.0.tar.gz", hash = "sha256:8bb50d8ce23b7f3c8817e73c54c6ee6f323e4153e9a2adfac4ac348176924832", size = 6664779, upload-time = "2026-05-08T11:58:45.841Z" }
 wheels = [
@@ -1547,28 +1530,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e8/50/c010c08378160510666b12505dac5412531c50ca0c6aa63e8e83813e3e28/docling_parse-5.11.0-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8d87c32304947a6b5dc5966b88e649c14a365e77e7b473c5412b679f1f220808", size = 9792154, upload-time = "2026-05-08T11:58:22.307Z" },
     { url = "https://files.pythonhosted.org/packages/22/69/3bef8634a67ff54cda5aacb295888678a08268daa9904c446c820a31d136/docling_parse-5.11.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1bf4b7647c7ba4cdafd0e08046af0c1e4fe5954330319b0cfd4eb7ebdd429d2f", size = 10172663, upload-time = "2026-05-08T11:58:24.215Z" },
     { url = "https://files.pythonhosted.org/packages/a2/03/a5e759201c3855dc8fa874c77e802e7906b69e0b2d7c301091cafdbbf49a/docling_parse-5.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:18a55b8ce81f7f03da0c47b511a344362ce74a1587e1e16543d064f1eaf66433", size = 10937199, upload-time = "2026-05-08T11:58:26.601Z" },
-]
-
-[[package]]
-name = "docling-parse"
-version = "7.21.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pywin32", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/d3/c0b03384b7735261662a5298837f5da49727ba0bf0d63baaeedc97236955/docling_parse-7.21.0.tar.gz", hash = "sha256:babbd8b43deb69706963ebc9b54283b458395a53519f68fd4bd0e7c5f793943b", size = 7035738, upload-time = "2026-09-22T09:53:15.861Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/01/ab0bc90129114dd2ed95878a04c8849ebb19c716616ee29cc4c4a97cd099/docling_parse-7.21.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:1545bebceee3af17b7c0b89c1c1de4c30e0803788fb9dd52303ef361cbce5bc4", size = 9878193, upload-time = "2026-09-22T09:52:41.233Z" },
-    { url = "https://files.pythonhosted.org/packages/b2/dd/6f99faf46f6be1e0a2378ab0b31296c192de916bed9e230b532c183f436f/docling_parse-7.21.0-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:fa30c2faa8e5ced8d979e46f39d9b006d22e9eaefad7d6a28cf5862bcae2d7fc", size = 10437224, upload-time = "2026-09-22T09:52:43.349Z" },
-    { url = "https://files.pythonhosted.org/packages/2e/63/1d1bae835bbef978dd6663e902b1c5883353fea2f57102807b7c4a0df9aa/docling_parse-7.21.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9b6b35b51571d8f6d7f36cb6220f3aaf3857c5b8c9dfcf613195d6e48012e70c", size = 10845287, upload-time = "2026-09-22T09:52:45.129Z" },
-    { url = "https://files.pythonhosted.org/packages/60/aa/fd18638654ed68d1de8a7c20fb59d004e1429ce485a2f0ad5ba7a829f24a/docling_parse-7.21.0-cp312-cp312-win_amd64.whl", hash = "sha256:1380c75534fd6d0f9c01e41e32417c72011c002dc4dd5b9e3072794ce8189b01", size = 11886263, upload-time = "2026-09-22T09:52:48.997Z" },
-    { url = "https://files.pythonhosted.org/packages/08/64/b90ea35ca149a01e346a7aa4b5a75df44c16896c8cd04f696c6725bea671/docling_parse-7.21.0-cp312-cp312-win_arm64.whl", hash = "sha256:22f682ce3b96fd8c51ee348efdd2be27acd70c20e2713dbff232bd7e10f7c755", size = 9160121, upload-time = "2026-09-22T09:52:51.667Z" },
 ]
 
 [[package]]
@@ -1625,96 +1586,8 @@ wheels = [
 
 [[package]]
 name = "docling-slim"
-version = "2.130.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "certifi", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "filetype", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "langcodes", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pluggy", version = "1.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pydantic-settings", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "requests", version = "2.33.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "tqdm", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/d5/4db4fd7e756d40db15b07ad072294548b0f508fb35fdd3496fa191223822/docling_slim-2.130.0.tar.gz", hash = "sha256:d45b467d322cd15f03fcc1e792bd4a52aa2dc075dfee229b13ae43a8603f82a6", size = 708768, upload-time = "2026-09-22T15:36:53.243Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/57/9e21add9ec842b314d4d193db8c4186354b872529ef3a17f8aeedbd0c515/docling_slim-2.130.0-py3-none-any.whl", hash = "sha256:913043ee069eb4f107d47ebfca8bdbfbfd7ec84160a7193b7260777e3adbea19", size = 876695, upload-time = "2026-09-22T15:36:51.06Z" },
-]
-
-[package.optional-dependencies]
-standard = [
-    { name = "accelerate", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "beautifulsoup4", version = "4.14.3", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "defusedxml", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-core", version = "2.96.0", source = { registry = "https://pypi.org/simple" }, extra = ["chunking"], marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-ibm-models", version = "4.0.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling-parse", version = "7.21.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "httpx", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "huggingface-hub", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "mail-parser", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "marko", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "numpy", version = "2.1.3", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "openpyxl", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "polyfactory", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pylatexenc", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pypdfium2", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-docx", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-dotenv", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-oxmsg", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "python-pptx", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rapidocr", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rtree", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "scipy", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torch", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "torchvision", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-]
-
-[[package]]
-name = "docling-slim"
 version = "2.151.1"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "platform_machine == 'x86_64' and sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "platform_machine != 'x86_64' and sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-]
 dependencies = [
     { name = "certifi", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "docling-core", version = "2.108.0", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
@@ -1763,7 +1636,7 @@ standard = [
     { name = "torch", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "torchvision", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "typer", version = "0.27.3", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "websockets", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 
 [[package]]
@@ -1824,6 +1697,7 @@ dependencies = [
     { name = "juriscraper" },
     { name = "mediacloud" },
     { name = "nameparser" },
+    { name = "openpyxl" },
     { name = "probablepeople" },
     { name = "pydantic" },
     { name = "pyrate-limiter" },
@@ -1839,8 +1713,7 @@ dependencies = [
     { name = "sqlite-utils" },
     { name = "stamina" },
     { name = "trafilatura" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "typer", version = "0.27.3", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "usaddress" },
     { name = "warcio" },
@@ -1852,8 +1725,7 @@ archive-docker = [
     { name = "auto-archiver" },
 ]
 documents = [
-    { name = "docling", version = "2.87.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "docling", version = "2.130.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "docling", version = "2.87.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "docling", version = "2.151.1", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "ocrmypdf", version = "17.13.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "ocrmypdf", version = "17.14.2", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
@@ -1891,6 +1763,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "responses" },
     { name = "ruff" },
+    { name = "types-openpyxl" },
     { name = "types-requests" },
     { name = "vcrpy" },
 ]
@@ -1917,6 +1790,7 @@ requires-dist = [
     { name = "nameparser", specifier = ">=2.3" },
     { name = "naminter", marker = "extra == 'social'", specifier = ">=1.0.9" },
     { name = "ocrmypdf", marker = "extra == 'documents'", specifier = ">=17" },
+    { name = "openpyxl", specifier = ">=3.1" },
     { name = "paddleocr", marker = "extra == 'ocr-fallback'", specifier = ">=3.7" },
     { name = "pdfplumber", marker = "extra == 'documents'", specifier = ">=0.11" },
     { name = "probablepeople", specifier = ">=0.5" },
@@ -1952,6 +1826,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "responses" },
     { name = "ruff" },
+    { name = "types-openpyxl", specifier = ">=3.1.5.20261017" },
     { name = "types-requests" },
     { name = "vcrpy" },
 ]
@@ -2222,11 +2097,11 @@ name = "google-api-core"
 version = "2.44.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-auth" },
-    { name = "googleapis-common-protos" },
-    { name = "opentelemetry-api" },
-    { name = "proto-plus" },
-    { name = "protobuf" },
+    { name = "google-auth", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
+    { name = "googleapis-common-protos", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
+    { name = "opentelemetry-api", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
+    { name = "proto-plus", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
+    { name = "protobuf", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
     { name = "requests", version = "2.33.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-extraction' and (extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social')" },
 ]
@@ -2257,7 +2132,7 @@ version = "2.63.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
-    { name = "pyasn1-modules" },
+    { name = "pyasn1-modules", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/04/0c/d09755ddb3fb67dcba41f35c04ba33377e5bcf73af6c022de33c3241532b/google_auth-2.63.0.tar.gz", hash = "sha256:f198b99dd49e81f96f54abce2c03d4dd28fb7e3c77702eb6ae1c5bf25435054c", size = 406302, upload-time = "2026-11-20T23:24:00.618Z" }
 wheels = [
@@ -2355,8 +2230,7 @@ dependencies = [
     { name = "sniffio" },
     { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" } },
     { name = "typing-extensions" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' or extra != 'extra-3-efp-archive-docker') and extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "websockets" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0f/15/ecebc770eb7edec0e588498d6b872aff6091ce1af1a9c503bd70b5a1ea7a/google_genai-3.6.1.tar.gz", hash = "sha256:dfd4120a15ba5aff6a3de8a85d76e1d5d0af65c70a54c459b1c5e76f503e46e7", size = 885277, upload-time = "2026-11-18T22:18:48.819Z" }
 wheels = [
@@ -2380,7 +2254,7 @@ name = "googleapis-common-protos"
 version = "1.76.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "protobuf" },
+    { name = "protobuf", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/62/b6/bc095b23a3e0d978e75c8c18cabe4c11f791837410670e4486f0d539bfba/googleapis_common_protos-1.76.0.tar.gz", hash = "sha256:71db0e44a1d4c2dd024ebad44ca67129cc1e2892e4861df466764749d5ef8642", size = 156250, upload-time = "2026-10-22T23:43:36.263Z" }
 wheels = [
@@ -2577,14 +2451,13 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
     { name = "fsspec" },
-    { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
     { name = "httpx" },
     { name = "packaging" },
     { name = "pyyaml", version = "6.0.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-ocr-fallback' or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "pyyaml", version = "6.0.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-ocr-fallback' or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "tqdm" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "typer", version = "0.27.3", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "typing-extensions" },
 ]
@@ -2752,8 +2625,7 @@ dependencies = [
     { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" } },
     { name = "tenacity", version = "9.1.4", source = { registry = "https://pypi.org/simple" } },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "typer", version = "0.27.3", source = { registry = "https://pypi.org/simple" }, marker = "(extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "urllib3" },
 ]
@@ -3549,7 +3421,7 @@ version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
-    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "librt", marker = "platform_python_implementation != 'PyPy'" },
     { name = "mypy-extensions" },
     { name = "pathspec" },
     { name = "typing-extensions" },
@@ -3740,12 +3612,11 @@ name = "nvidia-cublas"
 version = "13.4.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-nvrtc", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cuda-nvrtc" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/a0/5cd9d4b08a8320f7ca150ee0d66c97e98092922e338336cb4b62da7500c3/nvidia_cublas-13.4.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:4eb1472bf92b741e7cf24da7978dde251b58ddec2092d9f6a04f3623eb4e9a15", size = 513048232, upload-time = "2026-07-16T09:45:07.751Z" },
     { url = "https://files.pythonhosted.org/packages/e1/97/d483a41da34df5c88727c57319576967f6d7befba5028d70928d2999635e/nvidia_cublas-13.4.1.3-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:a5917cb642cfb07f4a0231ee16aec7e2e0357d8cb8b1b78a0c9c68dba3e6afc7", size = 404870805, upload-time = "2026-07-16T09:46:05.62Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/0f/8982a363ab246d22876f3eb8baccce81f0da6304d39f86d63b67389c5457/nvidia_cublas-13.4.1.3-py3-none-win_amd64.whl", hash = "sha256:7e7f780caf07bde7b36b0d25bdad29e8ccbacfc4b75066907bdb601af1e6d4aa", size = 388920654, upload-time = "2026-07-16T10:05:36.737Z" },
 ]
 
 [[package]]
@@ -3755,8 +3626,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/dc/9a056ef9bd05c55ddaed3afce160702e4ce8303b9ec1b38066044c18dcd2/nvidia_cuda_cccl-13.3.5.0.6-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:6f30b8076b3e69951c459c94ae190bde51924b320076ebaec376d36848b4c76e", size = 4113650, upload-time = "2026-11-04T23:21:46.803Z" },
     { url = "https://files.pythonhosted.org/packages/a7/7e/4aa67cca14e0558b5a151a692f5ffe609930cdfc20d16c7a584de68424d4/nvidia_cuda_cccl-13.3.5.0.6-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:d5230098fa2df5021e1a00c0c4eee41797671a91119d31e892463e5ccf3ee326", size = 4113651, upload-time = "2026-11-04T23:21:54.262Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/36/cda28cc973cc31c710d83256cc5b225922a04e3a361fa1a19c166206f805/nvidia_cuda_cccl-13.3.5.0.6-py3-none-win_amd64.whl", hash = "sha256:6e1f96b71d582171cebd9ae1d7ffbfc726e112a0a41aef77b9ead500aad7e0a2", size = 4113630, upload-time = "2026-11-04T23:34:33.947Z" },
-    { url = "https://files.pythonhosted.org/packages/05/97/d71b6887711e37f19fbb22b624f412fcf226188b194cc1df5c48d6c61f2d/nvidia_cuda_cccl-13.3.5.0.6-py3-none-win_arm64.whl", hash = "sha256:a729999ca75633c6e2c7f48804fa982e00d75e5416284d010fadf82646c1d854", size = 4120910, upload-time = "2026-11-04T23:39:29.265Z" },
 ]
 
 [[package]]
@@ -3766,7 +3635,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/ab/52414925ea803a5f86b994ae97d951e5943ed27a6f1da4a5c4ac09e308af/nvidia_cuda_cupti-13.2.86-py3-none-manylinux_2_25_aarch64.whl", hash = "sha256:d9a5c133f73fcb9013f3ada0da6fb54d4117618d81f3f5a0419417ea6ee829d4", size = 11760263, upload-time = "2026-07-16T09:35:34.643Z" },
     { url = "https://files.pythonhosted.org/packages/b4/76/a10d9fb5d9a0e46d5f95e5520bd1b2d8ad22a9c0a09d2f8c20c5ee842a96/nvidia_cuda_cupti-13.2.86-py3-none-manylinux_2_25_x86_64.whl", hash = "sha256:8fa29f15dd8336181f961764d9d95236fc6b931dd0c8fcf8cd70aab0c310b586", size = 11988600, upload-time = "2026-07-16T09:36:06.061Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/7a/7dadeb6faa141c07e608d9ed1dcb355c97b11b42f61106e41937e10da643/nvidia_cuda_cupti-13.2.86-py3-none-win_amd64.whl", hash = "sha256:10837e2910753a7726c0243aa113e2bd65c0edee6f6f3e097db1757a8eac2c9e", size = 8175943, upload-time = "2026-07-16T10:00:42.314Z" },
 ]
 
 [[package]]
@@ -3776,7 +3644,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/39/c58835ec8392a91b8d7bad83760eafc3085f64788b722ec2b44a27b3ca3e/nvidia_cuda_nvrtc-13.2.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:8111c5130e967b78222ea2124145f8efe9ce201b752b2579a2513100a53be1c5", size = 47018468, upload-time = "2026-07-16T09:40:35.085Z" },
     { url = "https://files.pythonhosted.org/packages/13/95/029e91026e1d378cba9fb2cdb62394bb15d06de7586bab73d76397df6b7f/nvidia_cuda_nvrtc-13.2.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1e5d7b411a2eb83f5c71c98d58133a763fc9fa86a4241ee320c5c4782d9ad1fd", size = 44755454, upload-time = "2026-07-16T09:39:59.909Z" },
-    { url = "https://files.pythonhosted.org/packages/dd/4e/2a19f2aa79ffc822c0d2be7c161fcac5a8b43aebd554c79ff982bb44071e/nvidia_cuda_nvrtc-13.2.86-py3-none-win_amd64.whl", hash = "sha256:bf070582c2d8b03f681cea8d34a9de900d808607deb813a826ecb3a585606f9a", size = 40818138, upload-time = "2026-07-16T10:02:27.876Z" },
 ]
 
 [[package]]
@@ -3786,7 +3653,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/89/d4/fa981071e3d9f29158ca16c69ee617831cd6df4dd47024149c16eec717f8/nvidia_cuda_runtime-13.2.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:37844957894bfdecf90243568d21a2cb251b66106915b71459a23c8e6ef2da69", size = 2341433, upload-time = "2026-07-16T09:33:00.116Z" },
     { url = "https://files.pythonhosted.org/packages/70/c6/8f8c5e893d183082ea78f973aebc7ebc845ee219d68bddac73b0f62490fe/nvidia_cuda_runtime-13.2.86-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:3498247680dfddce31bad102af7e3e26fc795342a3cac64722bb0fa95e7f60f0", size = 2323576, upload-time = "2026-07-16T09:33:28.652Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/7f/0849696e8ea074fd6c30864a235ab232683c71cb8e6a88186d48fc62120f/nvidia_cuda_runtime-13.2.86-py3-none-win_amd64.whl", hash = "sha256:b26f5dd86e67f0eb404ae679185e1c49fe546fa9a47b32dee31312f65ccfe764", size = 3154679, upload-time = "2026-07-16T10:00:09.778Z" },
 ]
 
 [[package]]
@@ -3794,12 +3660,11 @@ name = "nvidia-cudnn-cu13"
 version = "9.26.0.51"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cublas" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/1c/01e1dd3dec6ffe0baaff7e722b8946d867353d05a01301f128f1730fde0b/nvidia_cudnn_cu13-9.26.0.51-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:8e5b4f5eccff721416f70ecf4353172fc4d5cdd8ca869fe6f983a4a5b0147b20", size = 595329497, upload-time = "2026-09-10T16:45:39.945Z" },
     { url = "https://files.pythonhosted.org/packages/ac/1b/ea72dd62f26ce3e0a7870b85148b75a5987507629b712deebeb87f7cce9a/nvidia_cudnn_cu13-9.26.0.51-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:9c976d539786698c71d6bcdbe2053b7485fae062ff7e1215d2f2ff67b1a2149a", size = 519150073, upload-time = "2026-09-10T16:47:58.332Z" },
-    { url = "https://files.pythonhosted.org/packages/d6/1f/9c5d7ed254d7040192b4bb4eef669ba3ed66a3c4576c50f7d2385b255c8e/nvidia_cudnn_cu13-9.26.0.51-py3-none-win_amd64.whl", hash = "sha256:8e37a83d7dd7c2663afcae38b1c95c5e9e7c9754f313800da95ca81439fa37f9", size = 419603885, upload-time = "2026-09-10T16:51:07.436Z" },
 ]
 
 [[package]]
@@ -3807,12 +3672,11 @@ name = "nvidia-cufft"
 version = "12.2.0.57"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/8d/f650e6d527f9d22b5ded906c000eaebb037721c06d4ecd906df62f300979/nvidia_cufft-12.2.0.57-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1ed438568ae1088ba2c25789d10205d4104b8b140b7bd942e39a787947a0fb74", size = 218244742, upload-time = "2026-07-16T09:47:08.76Z" },
     { url = "https://files.pythonhosted.org/packages/41/28/868ed0c6ade5e6a75b25166b3cf191f4a2ff58ad618c1e40befb776c97c5/nvidia_cufft-12.2.0.57-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:34da27fadf3979b0b042c43823f0530be8408b86df31ee0108e1ca0b621d4ef6", size = 218258101, upload-time = "2026-07-16T09:47:50.978Z" },
-    { url = "https://files.pythonhosted.org/packages/b2/48/4a943a66093ec0e9e077bf584462d35d9feed297a76078a78582841985f2/nvidia_cufft-12.2.0.57-py3-none-win_amd64.whl", hash = "sha256:89b78b2b60d6ca1fb7dab7d1a4af135d69d586d18a216ca84e51db5901cd41d0", size = 217463602, upload-time = "2026-07-16T10:06:13.575Z" },
 ]
 
 [[package]]
@@ -3829,14 +3693,13 @@ name = "nvidia-cusolver"
 version = "12.2.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-cusparse", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
-    { name = "nvidia-nvjitlink", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cublas" },
+    { name = "nvidia-cusparse" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/df/9e6b603f1d64040ce3e076e9bce1b78e2d588d0aabc9783f351cecd861ab/nvidia_cusolver-12.2.0.11-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:8be097fca28de6be0990ab216ee9b804dd51077e1d1d83acf6c9850650bdc64d", size = 250383075, upload-time = "2026-07-16T09:50:16.355Z" },
     { url = "https://files.pythonhosted.org/packages/e4/a4/90f7ade9992190788658c3c285f196fdb9bcc3a5bb93a325c245121d22fd/nvidia_cusolver-12.2.0.11-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:fab5778f6769947389a1a6abc07e635576825a08c0ffc68c3ae7f1392c794b42", size = 227913465, upload-time = "2026-07-16T09:50:56.976Z" },
-    { url = "https://files.pythonhosted.org/packages/02/12/c5c52523ec7970b193837b79f4b892122c24dc5ee5a6b1fae26dae1a31ca/nvidia_cusolver-12.2.0.11-py3-none-win_amd64.whl", hash = "sha256:364511c9974ef1fcde2ca197caebfe0994ece2cb33bc27117eeb88b8cee5c46d", size = 217690140, upload-time = "2026-07-16T10:07:33.457Z" },
 ]
 
 [[package]]
@@ -3844,12 +3707,11 @@ name = "nvidia-cusparse"
 version = "12.7.10.12"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/35/abbd278fb6d039fcfb5175efa10a21007a11878bec59920d84854b47d766/nvidia_cusparse-12.7.10.12-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:597eff2cd83e3ab1d1e3a0dce9c9c879d77cf64ec2659bfdb5af6a5d02e7aaa9", size = 169043093, upload-time = "2026-07-16T09:51:37.058Z" },
     { url = "https://files.pythonhosted.org/packages/bc/46/3a9700cc13f30c9279af9a862363535c814fa27597199b21fd93cad66237/nvidia_cusparse-12.7.10.12-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:25907c75e4db1581685f06f61cc6cdecc04611765516a52373e0a18ebd69fa00", size = 150999307, upload-time = "2026-07-16T09:52:17.727Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/28/355676e73dd07d1a41cc33904a8b4fbb22b6fe97662e5ec47c535fe7e9e3/nvidia_cusparse-12.7.10.12-py3-none-win_amd64.whl", hash = "sha256:6b1e82056a0865c5b4f5da6adbebb15244e9a2b8aeea0838a9cf725e16523c53", size = 149276551, upload-time = "2026-07-16T10:08:16.871Z" },
 ]
 
 [[package]]
@@ -3859,7 +3721,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/e1/cdc1797eadf82d3a9a575a19b33fdc871a97edbec42c00b5b5e914f4aff4/nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4dca476c50bf4780d46cd0bfbd82e2bc10a08e4fef7950917ce8d7578d22a23f", size = 221051344, upload-time = "2025-09-05T18:49:51.289Z" },
     { url = "https://files.pythonhosted.org/packages/34/7d/2661f2fb3ac4302f3a246f5fc030213ac60c1fe0bce84f9783dbd831dbb7/nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:786ce87568c303fadb5afcc7102d454cd3040d75f6f8626f5db460d1871f4dd0", size = 170148586, upload-time = "2025-09-05T18:50:50.248Z" },
-    { url = "https://files.pythonhosted.org/packages/31/83/f3647ce26916c94a6ca4ff1810623e2c405cff2dea6e78d29516b2514df9/nvidia_cusparselt_cu13-0.8.1-py3-none-win_amd64.whl", hash = "sha256:dccbd362f91a7b9024d1f55ee9f548ac065027ff15d8c8b0db889ab3a8f31215", size = 156885108, upload-time = "2025-09-05T18:51:35.958Z" },
 ]
 
 [[package]]
@@ -3878,8 +3739,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/1f/2321702b8d60b4b4dd18b957f61612dbac9cb1c07e940cf6582106b7c8b8/nvidia_nvjitlink-13.5.37-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:280d7cb9649704145f074b8dbde500de04ce02d0872e066e20a83c17bcaa93eb", size = 46642491, upload-time = "2026-11-04T23:33:31.696Z" },
     { url = "https://files.pythonhosted.org/packages/24/15/dd228f798cd01d7aeaf19d872b2b20f9aeafc1a7d8b6bfaa878b30b8d6f7/nvidia_nvjitlink-13.5.37-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:893f6f9a55b2720ed94913b5ba3332e972da8c78dfa2863d0244403dbd528ffc", size = 45253761, upload-time = "2026-11-04T23:33:22.854Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/53/c43398492e8374880d5e01c23c4dac33ba0c3bd03515d6ecc574254c0967/nvidia_nvjitlink-13.5.37-py3-none-win_amd64.whl", hash = "sha256:4465d4e8f2212118220b580c82523c5654f93a62906bd51d29d79bdfc12376c1", size = 41467665, upload-time = "2026-11-04T23:38:44.689Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/4a/1ff9ab7d0c961a1b5539f8291c881bea82adbbf8ba40a9e81f9c9b3a8d5d/nvidia_nvjitlink-13.5.37-py3-none-win_arm64.whl", hash = "sha256:eb30348ae64c525180a280025dd12a089c3e2e1dc4e19cdd58f68c6edc622404", size = 38552904, upload-time = "2026-11-04T23:43:27.658Z" },
 ]
 
 [[package]]
@@ -3887,7 +3746,7 @@ name = "nvidia-nvshmem-cu13"
 version = "3.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-cccl", marker = "platform_machine != 'x86_64' and sys_platform == 'darwin' or sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' or sys_platform == 'darwin' and (extra != 'extra-3-efp-ocr-fallback' or extra != 'extra-3-efp-social') or extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "nvidia-cuda-cccl" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/11/1767ef120299972822a43aceffbc81ac813aad2089d817e36e4e12aa4c9c/nvidia_nvshmem_cu13-3.7.2-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:0e748308b9e0a8a8d81859353f3e6c98fbe85a85f652a915a2ba60149a0bd124", size = 135174619, upload-time = "2026-07-17T19:24:15.404Z" },
@@ -3901,7 +3760,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/ee/16bde09927e7ffacd50b117cd7d1dc764d145f03249fc41fdf6dfba3301f/nvidia_nvtx-13.2.86-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:968ce72baee2a01791c7d3254000eac81f24677b0b91c62d21b449a1f309c245", size = 153463, upload-time = "2026-07-16T09:41:23.242Z" },
     { url = "https://files.pythonhosted.org/packages/52/5f/74e2d29240de30a971d59ca20f4a3c4f2720cd49752809eeb4177d385c2c/nvidia_nvtx-13.2.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1c6ae1be92fba569dd271f7b9b3056f99f5642726dc6c53d1b93ae4110c398fb", size = 154292, upload-time = "2026-07-16T09:40:53.791Z" },
-    { url = "https://files.pythonhosted.org/packages/df/b3/00239b7a93d2f44dabce1c2b5579d275e83678d6699727ec43de427523ac/nvidia_nvtx-13.2.86-py3-none-win_amd64.whl", hash = "sha256:7f3f430a87bb1e2db3371832d21a5c1efcf77bef7cacfd772fd71649e121cd58", size = 142533, upload-time = "2026-07-16T10:03:02.777Z" },
 ]
 
 [[package]]
@@ -3934,9 +3792,9 @@ name = "ocrmac"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-vision", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "click", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-vision", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/07/3e15ab404f75875c5e48c47163300eb90b7409044d8711fc3aaf52503f2e/ocrmac-1.0.1.tar.gz", hash = "sha256:507fe5e4cbd67b2d03f6729a52bbc11f9d0b58241134eb958a5daafd4b9d93d9", size = 1454317, upload-time = "2026-01-08T16:44:26.412Z" }
 wheels = [
@@ -4125,7 +3983,7 @@ name = "opentelemetry-api"
 version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions" },
+    { name = "typing-extensions", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/19/14/cf3a6b6448849656e1e5f4e2101f3988dc6789724050096aba1bc5ccf592/opentelemetry_api-1.45.2.tar.gz", hash = "sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4", size = 73277, upload-time = "2026-10-29T17:29:37.888Z" }
 wheels = [
@@ -4752,7 +4610,7 @@ name = "proto-plus"
 version = "1.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "protobuf" },
+    { name = "protobuf", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/46/70/783e33ffbb4466cc154a94f79b869b92a451e2bd45605054e68ff68b7af6/proto_plus-1.29.0.tar.gz", hash = "sha256:cfb4e62ad7e13dd18f346cabbda00cab39930d36a05791fd81ddb074d6ee884f", size = 58592, upload-time = "2026-09-29T19:26:15.963Z" }
 wheels = [
@@ -4837,7 +4695,7 @@ name = "pyasn1-modules"
 version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyasn1" },
+    { name = "pyasn1", marker = "extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-extraction'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e9/e6/78ebbb10a8c8e4b61a59249394a4a594c1a7af95593dc933a349c8d00964/pyasn1_modules-0.4.2.tar.gz", hash = "sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6", size = 307892, upload-time = "2025-03-28T02:41:22.17Z" }
 wheels = [
@@ -5083,7 +4941,7 @@ name = "pyobjc-framework-cocoa"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-core", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction') or (sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/30/50/55a8779d35f1f86d795264cbd6fe62e35b2cf4fb8343fc888e99268c988a/pyobjc_framework_cocoa-13.0.tar.gz", hash = "sha256:bb7a23941fc8d7866578dbc84e56140efd343a1d28510f530dd1dbf80807daf4", size = 3135308, upload-time = "2026-10-30T10:46:03.982Z" }
 wheels = [
@@ -5095,8 +4953,8 @@ name = "pyobjc-framework-coreml"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-cocoa", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-core", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-cocoa", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/79/83/e2a2709d14a76bd61a2ded2484b99d75e9c2e2afc1fa684225ee9fadfe38/pyobjc_framework_coreml-13.0.tar.gz", hash = "sha256:c2a41fb9fb008646df7fbd71e6aeb2284a7c985cbddb30189a511560e06ebdcf", size = 48852, upload-time = "2026-10-30T10:46:17.223Z" }
 wheels = [
@@ -5108,8 +4966,8 @@ name = "pyobjc-framework-quartz"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-cocoa", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-core", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction') or (sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-cocoa", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction') or (sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/86/ffaa76ca28df5450cce14614c657b910bbd7bb737feaf47f74230c3b78d3/pyobjc_framework_quartz-13.0.tar.gz", hash = "sha256:b9a4942182efbbc7e18e6cb7f5a8faa166dc2fc5e33bece7c7b1355494274add", size = 3399243, upload-time = "2026-10-30T10:47:23.667Z" }
 wheels = [
@@ -5121,10 +4979,10 @@ name = "pyobjc-framework-vision"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-cocoa", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-coreml", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "pyobjc-framework-quartz", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-core", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-cocoa", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-coreml", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "pyobjc-framework-quartz", marker = "(sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/13/9f/f1f90a39966bb2e0b25176fe20d44572ac86f2fff1b724eed6c87a144ed3/pyobjc_framework_vision-13.0.tar.gz", hash = "sha256:e9197f267528bf345ccae3f949d4acf6330b69658b9b02dd03088e6e1f4395bb", size = 70656, upload-time = "2026-10-30T10:47:53.999Z" }
 wheels = [
@@ -5619,9 +5477,9 @@ name = "python-oxmsg"
 version = "0.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "olefile", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "typing-extensions", marker = "sys_platform == 'win32' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "click", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "olefile", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
+    { name = "typing-extensions", marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a2/4e/869f34faedbc968796d2c7e9837dede079c9cb9750917356b1f1eda926e9/python_oxmsg-0.0.2.tar.gz", hash = "sha256:a6aff4deb1b5975d44d49dab1d9384089ffeec819e19c6940bc7ffbc84775fad", size = 34713, upload-time = "2025-02-03T17:13:47.415Z" }
 wheels = [
@@ -5685,7 +5543,7 @@ name = "python-xlib"
 version = "0.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "six", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "six", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'darwin' and extra != 'extra-3-efp-extraction') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/86/f5/8c0653e5bb54e0cbdfe27bf32d41f27bc4e12faa8742778c17f2a71be2c0/python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32", size = 269068, upload-time = "2022-12-25T18:53:00.824Z" }
 wheels = [
@@ -6618,8 +6476,7 @@ dependencies = [
     { name = "typing-extensions", marker = "extra == 'extra-3-efp-extraction'" },
     { name = "urllib3", marker = "extra == 'extra-3-efp-extraction'" },
     { name = "websocket-client", marker = "extra == 'extra-3-efp-extraction'" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "websockets", marker = "extra == 'extra-3-efp-extraction'" },
     { name = "wheel", marker = "extra == 'extra-3-efp-extraction'" },
     { name = "wsproto", marker = "extra == 'extra-3-efp-extraction'" },
 ]
@@ -6694,7 +6551,7 @@ dependencies = [
     { name = "typing-extensions", marker = "extra == 'extra-3-efp-social'" },
     { name = "urllib3", marker = "extra == 'extra-3-efp-social'" },
     { name = "websocket-client", marker = "extra == 'extra-3-efp-social'" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-social'" },
+    { name = "websockets", marker = "extra == 'extra-3-efp-social'" },
     { name = "wheel", marker = "extra == 'extra-3-efp-social'" },
     { name = "wsproto", marker = "extra == 'extra-3-efp-social'" },
 ]
@@ -6768,7 +6625,7 @@ dependencies = [
     { name = "typing-extensions", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "urllib3", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "websocket-client", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "websockets", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "wheel", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "wsproto", marker = "(extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-social') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
 ]
@@ -6903,6 +6760,17 @@ resolution-markers = [
     "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
     "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
     "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/c3/1b817965ac12dc002d7c9cd7dfffdd7d4fbf9b45763ef2ffe7b86ee94670/soupsieve-2.10.tar.gz", hash = "sha256:49e9380d7d2905463583bafe285e818c7366a9ed7b3aee221c1ac79c905d8bc0", size = 124337, upload-time = "2026-09-24T02:36:35.048Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/87/5ed59e1d0290564e2027ed066c52b059892c4637741337fc0967183c8d4d/soupsieve-2.10-py3-none-any.whl", hash = "sha256:8596eb8967d744174820280fa62b4542a2e955bfaccca73ed8a13c6eb8e9b502", size = 38019, upload-time = "2026-09-24T02:36:33.709Z" },
+]
+
+[[package]]
+name = "soupsieve"
+version = "4.1.3"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
     "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
@@ -6916,20 +6784,12 @@ resolution-markers = [
     "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
     "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/71/c3/1b817965ac12dc002d7c9cd7dfffdd7d4fbf9b45763ef2ffe7b86ee94670/soupsieve-2.10.tar.gz", hash = "sha256:49e9380d7d2905463583bafe285e818c7366a9ed7b3aee221c1ac79c905d8bc0", size = 124337, upload-time = "2026-09-24T02:36:35.048Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/87/5ed59e1d0290564e2027ed066c52b059892c4637741337fc0967183c8d4d/soupsieve-2.10-py3-none-any.whl", hash = "sha256:8596eb8967d744174820280fa62b4542a2e955bfaccca73ed8a13c6eb8e9b502", size = 38019, upload-time = "2026-09-24T02:36:33.709Z" },
-]
-
-[[package]]
-name = "soupsieve"
-version = "4.1.3"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-    "sys_platform == 'emscripten'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
+    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
+    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
+    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/82/77/d59ca6aa338bdd8d880234d15b7c466cb176e44502899a9df81ba2e13cd0/soupsieve-4.1.3.tar.gz", hash = "sha256:13f70186c8f40bf8d0ff7bbab09a18fb149600b465269207b5e5b588f55fda08", size = 181564, upload-time = "2026-11-20T12:58:27.613Z" }
 wheels = [
@@ -7303,19 +7163,19 @@ name = "torch"
 version = "2.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-bindings", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "cuda-bindings", marker = "sys_platform == 'linux'" },
+    { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "sys_platform == 'linux'" },
     { name = "filelock" },
     { name = "fsspec" },
     { name = "jinja2" },
     { name = "networkx" },
-    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "nvidia-cusparselt-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-cusparselt-cu13", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux'" },
     { name = "setuptools" },
     { name = "sympy" },
-    { name = "triton", marker = "sys_platform == 'linux' or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "triton", marker = "sys_platform == 'linux'" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -7456,8 +7316,7 @@ dependencies = [
     { name = "safetensors", marker = "sys_platform != 'darwin' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "tokenizers", version = "0.23.3", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
     { name = "tqdm", marker = "sys_platform != 'darwin' or extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
-    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "typer", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
     { name = "typer", version = "0.27.3", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'extra-3-efp-archive-docker' or extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback' or extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0e/9e/750649904a065007a838981785b2bd8d9ff26154c6c341ac67d0b7f82c68/transformers-5.17.0.tar.gz", hash = "sha256:a153be279169b55b92d8000bf4af294aed684503d091cca7804da2dd8a9de000", size = 9817878, upload-time = "2026-09-09T15:39:56.886Z" }
@@ -7598,37 +7457,20 @@ name = "typer"
 version = "0.21.2"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "sys_platform == 'win32'",
     "sys_platform == 'emscripten'",
     "sys_platform == 'darwin'",
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "annotated-doc", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "click", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "shellingham", marker = "(sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
+    { name = "annotated-doc", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "click", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "shellingham", marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f2/1e/a27cc02a0cd715118c71fa2aef2c687fdefc3c28d90fd0dd789c5118154c/typer-0.21.2.tar.gz", hash = "sha256:1abd95a3b675e17ff61b0838ac637fe9478d446d62ad17fa4bb81ea57cc54028", size = 120426, upload-time = "2026-02-10T19:33:46.182Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/cc/d59f893fbdfb5f58770c05febfc4086a46875f1084453621c35605cec946/typer-0.21.2-py3-none-any.whl", hash = "sha256:c3d8de54d00347ef90b82131ca946274f017cffb46683ae3883c360fa958f55c", size = 56728, upload-time = "2026-02-10T19:33:48.01Z" },
-]
-
-[[package]]
-name = "typer"
-version = "0.26.8"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "annotated-doc", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "colorama", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "rich", version = "14.3.4", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "shellingham", marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/f7/68adc395201b20b872d68e975386832e8005ffeacedd43a1d837a32815be/typer-0.26.8.tar.gz", hash = "sha256:c244a6bd558886fe3f8780efb6bdd28bb9aff005a94eedebaa5cb32926fe2f7e", size = 202097, upload-time = "2026-06-26T09:22:45.705Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/87/b9fd69c92c6102a066e1b86a35243f53e70bd4c709f2a26d9f4fee4f4dc0/typer-0.26.8-py3-none-any.whl", hash = "sha256:3512ca79ac5c11113414b36e80281b872884477722440691c89d1112e321a49c", size = 122564, upload-time = "2026-06-26T09:22:44.72Z" },
 ]
 
 [[package]]
@@ -7678,6 +7520,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/03/51/d33db42cc72ffd8c30777547b42d01f0cbf9d95a770457698d0174b3ed71/typer-0.27.3.tar.gz", hash = "sha256:d0396f770a560ab1b0a8504e13b5f254b728cedb05c61cf0359e944e50ce8901", size = 205303, upload-time = "2026-10-06T17:24:16.61Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/ea/2e31b67051e91a133189e9c000c222502ddc6969856416de0d095de4c0b0/typer-0.27.3-py3-none-any.whl", hash = "sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff", size = 123312, upload-time = "2026-10-06T17:24:15.054Z" },
+]
+
+[[package]]
+name = "types-openpyxl"
+version = "3.1.5.20261017"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/13/ce0b36e7e29ee31ec75d6718d48d28d2d48ad319ddf4665f81c8f3a8fc95/types_openpyxl-3.1.5.20261017.tar.gz", hash = "sha256:3deb3b6279b65ab379c126df0ee1fd27500c9628edb8d9667d73f637462917dc", size = 102026, upload-time = "2026-10-17T06:20:01.431Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/17/a091e90fde3e90eff9168354269626e210a4c3c688910d8c9176b8a08cb4/types_openpyxl-3.1.5.20261017-py3-none-any.whl", hash = "sha256:3315cfebad290cc7ade1fccaf3a46ee820b3a8e7df726ff4f18d30ab7f383d68", size = 165886, upload-time = "2026-10-17T06:19:59.944Z" },
 ]
 
 [[package]]
@@ -7978,73 +7829,8 @@ wheels = [
 
 [[package]]
 name = "websockets"
-version = "16.1.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/21/f7/bc3a25c5ec26ce62ce487690becc2f3710bbc7b33338f005ad390db0b986/websockets-16.1.1.tar.gz", hash = "sha256:db234eda965dcce15df96bb9709f587cd87d4d52aaf0e80e2f34ec04c7670c57", size = 182204, upload-time = "2026-07-17T22:51:05.858Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/9d/681cda21c9eee743203a6cb79b9d3d05adad9aa60ec660c6c9bf4dd619ca/websockets-16.1.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:cc97814dfb786a83b6e2dc2e79351e1b83e6d715647d6887fcabd83026417a00", size = 179600, upload-time = "2026-07-17T22:49:13.92Z" },
-    { url = "https://files.pythonhosted.org/packages/fb/8d/6195a88b45e8d2a8f745fc2046e36f885a3c9763e6767d2c46229bf9510c/websockets-16.1.1-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:e047dc87ef7ca50f4d309bf775ad4a71711c58556d75d7bd0604b2317f43e94b", size = 177272, upload-time = "2026-07-17T22:49:15.453Z" },
-    { url = "https://files.pythonhosted.org/packages/73/e3/fe2d498c64dea0095c9a9f9a351af4cd6eef31b618395582bc1f38ba45ff/websockets-16.1.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:01fbdcbac298efe19360b94bc0039c8f746f0220ba570f327577bfee81059175", size = 177542, upload-time = "2026-07-17T22:49:16.875Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/ed/f1831681fce0e3242346e5458486003c5f124ed69e5e0b847fd029db4973/websockets-16.1.1-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:0f62863e8a00a6d33c3d6566ec0b89f23787b747ffe0c3bc71ec0e76b82c94b1", size = 187137, upload-time = "2026-07-17T22:49:18.323Z" },
-    { url = "https://files.pythonhosted.org/packages/6f/79/4ff9dcc1bb46f6b4c536936dde1fd60f9b564f3304307274db97f4c9496d/websockets-16.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8087e82f842609734c9b5a1330464f8e94e346ba0e18c832c08bafa4b0d63c15", size = 188374, upload-time = "2026-07-17T22:49:19.65Z" },
-    { url = "https://files.pythonhosted.org/packages/62/c3/5c49b6efb36cab733d23773f6de575e1dba65736ead17d5d2b2a1daef779/websockets-16.1.1-cp312-cp312-manylinux2014_armv7l.manylinux_2_17_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:2bb5d041a8307d2e18782e7ce777f6fdb1e8c2f5d09291484b18c294b789d9aa", size = 191155, upload-time = "2026-07-17T22:49:21.331Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/f6/56ccceda3a4838d18f1d40821480da4775397e8b1eecf4031e20c50e2e90/websockets-16.1.1-cp312-cp312-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:1db4de4a0e95673f7545d393c49eeb0c2f18ac1ef93073218c79d5cdb2ee75ab", size = 189011, upload-time = "2026-07-17T22:49:22.889Z" },
-    { url = "https://files.pythonhosted.org/packages/86/d6/ad5286241a2bce1107e2798d3bfbd62cf79aee167bdb654f8cb1e9dbf949/websockets-16.1.1-cp312-cp312-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:f17dbe07eb3ea7f99e4df9b7e0efefe80fbf30d37a8cc4d561a0aed310bc8847", size = 187766, upload-time = "2026-07-17T22:49:24.339Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/67/d65c970b7e347fdca69479beb7811c2060529956730a7a4e3ae7c66b0e31/websockets-16.1.1-cp312-cp312-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:4b57693728576d84ede0a77987ab16881b783d2cd9f1dc180a8fbbc3f79c4428", size = 185173, upload-time = "2026-07-17T22:49:25.743Z" },
-    { url = "https://files.pythonhosted.org/packages/1d/5b/14af3cd4ee69d8ea9baca58f3dc3cfb1ba78332a347fd478cb096549d60e/websockets-16.1.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:2a636ff1e7a5c4edf71ef0e79adae7f25dba93b4fcbe3dc958733477ffeb0eaf", size = 187809, upload-time = "2026-07-17T22:49:27.147Z" },
-    { url = "https://files.pythonhosted.org/packages/7b/11/be301710d70de97e3e7b3586e6d492c9c06d6a61bf1c2202c36cf0c75607/websockets-16.1.1-cp312-cp312-musllinux_1_2_armv7l.whl", hash = "sha256:d6bec75c290fe484a8ba4cacdf838501e17c06ecfbbf31eede81a9e431bd7751", size = 186412, upload-time = "2026-07-17T22:49:28.611Z" },
-    { url = "https://files.pythonhosted.org/packages/db/07/fe1435bf6fe738a3d3b54dbe0c18dabf12cba4d909ac8b58b539ce27c1f4/websockets-16.1.1-cp312-cp312-musllinux_1_2_ppc64le.whl", hash = "sha256:54509b8e92fee4453e152b7558ddef37ce9705a044922f2095a6105e3f80c96f", size = 188290, upload-time = "2026-07-17T22:49:29.965Z" },
-    { url = "https://files.pythonhosted.org/packages/8a/0a/81f394aff8efcbb01208c1ced77df0a3c7fcce584a88c7273663697946c2/websockets-16.1.1-cp312-cp312-musllinux_1_2_riscv64.whl", hash = "sha256:f0aa4aad3b1b69ad3fd85a0fd0952ec64331c762bd77ec51cc814170873890b2", size = 185844, upload-time = "2026-07-17T22:49:31.447Z" },
-    { url = "https://files.pythonhosted.org/packages/39/5c/dd485b995473f415510251fe9bd708f2d24458f439fce958daf8d66dc7c6/websockets-16.1.1-cp312-cp312-musllinux_1_2_s390x.whl", hash = "sha256:42290eb6db4ccaca7012656738214f8514082fb6fa40cdeb61bb9a471b52e383", size = 186823, upload-time = "2026-07-17T22:49:33.104Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/0b/f78de76ff446f1e66af12b43c48a35f31744de93cfdec2f4ea67d5d7bbf1/websockets-16.1.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:53260c8930da5771cec89439bff99c20c8cb03ddb9588b980697355a83cd4bd3", size = 187102, upload-time = "2026-07-17T22:49:34.616Z" },
-    { url = "https://files.pythonhosted.org/packages/37/a1/4cf892007778eaf84ad162bfc98046e0ed89b63ac55949e3236626b2a23f/websockets-16.1.1-cp312-cp312-win32.whl", hash = "sha256:1d27fa8462ad6a1cb36206a3d0640b2333340def181fae11ed7f9adeaa5c0747", size = 179943, upload-time = "2026-07-17T22:49:36.213Z" },
-    { url = "https://files.pythonhosted.org/packages/d9/de/6abe251d28c3a3f217096575400b27750b18e0b1d2fff3a2a239960fea07/websockets-16.1.1-cp312-cp312-win_amd64.whl", hash = "sha256:b436f6ec4fc3a6b4237c84d3f83170ed2b40bb584222f0ac47a0c8a5921980c7", size = 180243, upload-time = "2026-07-17T22:49:37.626Z" },
-    { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
-]
-
-[[package]]
-name = "websockets"
 version = "17.4"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "platform_machine == 'x86_64' and sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "platform_machine != 'x86_64' and sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra == 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'darwin' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'darwin' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra == 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social')",
-    "sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform == 'emscripten' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-3-efp-archive-docker' and extra != 'extra-3-efp-extraction' and extra != 'extra-3-efp-ocr-fallback' and extra != 'extra-3-efp-social'",
-]
 sdist = { url = "https://files.pythonhosted.org/packages/75/79/590c5f0cc7d1661195aeefccb0e342b79f4c77d368d526d028821a390332/websockets-17.4.tar.gz", hash = "sha256:09d3939b70df0c8ad2da145ebd50978bccaee1d565e838b0e7921a34d38571eb", size = 191391, upload-time = "2026-10-30T15:10:35.873Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/af/71/b020221345ea6c012dcf7496827a48a744b58696470b2b07fef95a32905a/websockets-17.4-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:3d512e3a6c528c42ce220ed9c3caff83c6fdcd98a1b98249f08ccfc66ad111b1", size = 218779, upload-time = "2026-10-30T15:07:11.522Z" },
@@ -8212,8 +7998,7 @@ default = [
     { name = "requests", version = "2.33.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra == 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-3-efp-archive-docker' and (extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
     { name = "urllib3" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'win32' and extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-extraction') or (extra == 'extra-3-efp-archive-docker' and extra == 'extra-3-efp-ocr-fallback') or (extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social')" },
-    { name = "websockets", version = "17.4", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32' and extra == 'extra-3-efp-archive-docker' or extra == 'extra-3-efp-archive-docker' and (extra != 'extra-3-efp-extraction' or extra == 'extra-3-efp-ocr-fallback') or extra == 'extra-3-efp-extraction' and extra == 'extra-3-efp-social'" },
+    { name = "websockets" },
     { name = "yt-dlp-ejs" },
 ]
 

@@ -1,0 +1,388 @@
+{
+  "version": 1,
+  "seed": 20261027,
+  "requested_size": 50,
+  "size": 50,
+  "year_bands": [
+    "2000-09",
+    "2010-16",
+    "2017-25"
+  ],
+  "jurisdictions": [
+    "federal",
+    "state"
+  ],
+  "fraud_type_top": [
+    "fraudulent use of absentee ballots",
+    "false registrations",
+    "ineligible voting [felon voter]",
+    "duplicate voting",
+    "buying votes"
+  ],
+  "strata": [
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "federal",
+      "fraud_type": "fraudulent use of absentee ballots",
+      "population": 9,
+      "sampled": 1
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "federal",
+      "fraud_type": "other",
+      "population": 1,
+      "sampled": 1
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "buying votes",
+      "population": 54,
+      "sampled": 2
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "duplicate voting",
+      "population": 23,
+      "sampled": 1
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "false registrations",
+      "population": 81,
+      "sampled": 3
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "fraudulent use of absentee ballots",
+      "population": 65,
+      "sampled": 2
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "ineligible voting [felon voter]",
+      "population": 19,
+      "sampled": 1
+    },
+    {
+      "year_band": "2000-09",
+      "jurisdiction": "state",
+      "fraud_type": "other",
+      "population": 115,
+      "sampled": 3
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "buying votes",
+      "population": 51,
+      "sampled": 2
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "duplicate voting",
+      "population": 56,
+      "sampled": 2
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "false registrations",
+      "population": 96,
+      "sampled": 3
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "fraudulent use of absentee ballots",
+      "population": 118,
+      "sampled": 3
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "ineligible voting [felon voter]",
+      "population": 144,
+      "sampled": 4
+    },
+    {
+      "year_band": "2010-16",
+      "jurisdiction": "state",
+      "fraud_type": "other",
+      "population": 162,
+      "sampled": 4
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "federal",
+      "fraud_type": "false registrations",
+      "population": 1,
+      "sampled": 1
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "federal",
+      "fraud_type": "fraudulent use of absentee ballots",
+      "population": 1,
+      "sampled": 1
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "federal",
+      "fraud_type": "other",
+      "population": 5,
+      "sampled": 1
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "buying votes",
+      "population": 7,
+      "sampled": 1
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "duplicate voting",
+      "population": 64,
+      "sampled": 2
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "false registrations",
+      "population": 44,
+      "sampled": 2
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "fraudulent use of absentee ballots",
+      "population": 66,
+      "sampled": 2
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "ineligible voting [felon voter]",
+      "population": 40,
+      "sampled": 2
+    },
+    {
+      "year_band": "2017-25",
+      "jurisdiction": "state",
+      "fraud_type": "other",
+      "population": 259,
+      "sampled": 6
+    }
+  ],
+  "sample_sha256": "025a50c242d831db439f75765043f4b3338ad442082325e7844d03457d4c1839",
+  "rows": [
+    {
+      "row_id": 9,
+      "row_sha256": "678c0be79a7ed3b4345bfd0557e2e011bb990522dddd1ac16fe7e2717c687189"
+    },
+    {
+      "row_id": 13,
+      "row_sha256": "75e7a65a78967c28b02ad0d60f124a431cb31576a6af8f6a711e312833fff953"
+    },
+    {
+      "row_id": 21,
+      "row_sha256": "4d950098570ee3c9f604943c8b2df54f58f3dd94516802f25bcebc9d9731f717"
+    },
+    {
+      "row_id": 139,
+      "row_sha256": "261affd25e13078f0a5ed791abba8ab29a2d3d49844ea50837fbf6fb1d06f2cc"
+    },
+    {
+      "row_id": 140,
+      "row_sha256": "dd2e4d569182909dcbed6bed1c8685701bf800ae87a855a34769c69452226f0c"
+    },
+    {
+      "row_id": 163,
+      "row_sha256": "0d32b2348e341e68772b7efc77c2c078e6bc53ab59bc4a4a0457457620b6fa8e"
+    },
+    {
+      "row_id": 199,
+      "row_sha256": "abc8c6367dabdd2011aca5b75edbeeeeea77f4ded91f34226e17c716c0805655"
+    },
+    {
+      "row_id": 208,
+      "row_sha256": "20937f17bfc3081429ff3a4f658ee95fce1bf43c4b233191fd2d56fc6f3a9592"
+    },
+    {
+      "row_id": 242,
+      "row_sha256": "2d67aba07001895870b67114e0e8230be670ac45eef8b068a9891d530bfa49a6"
+    },
+    {
+      "row_id": 271,
+      "row_sha256": "c84e7ed8bd8e62e3c912d782c21fe42e71fe71fcf1c36a052b5bf8afca9da768"
+    },
+    {
+      "row_id": 290,
+      "row_sha256": "45d5dcc2b28c410e40de9036d5f47f030fc0dd1c64fc92046bd0f46ff05b8c59"
+    },
+    {
+      "row_id": 301,
+      "row_sha256": "c786af7891ce7a66b56cb329aac6f061c842bc3f67bd2c6d29cc9857b5c6ddf7"
+    },
+    {
+      "row_id": 320,
+      "row_sha256": "c915ca10cd4c128bd794d7114b30076e7e6c1c3830b6b13b0cf57eb267d8e3bf"
+    },
+    {
+      "row_id": 331,
+      "row_sha256": "3ee58f7638601406a062c13176efecd7e285f4e659f9e567a54fa93b742396cf"
+    },
+    {
+      "row_id": 399,
+      "row_sha256": "f71b2b05bc57bfce4a6b0eb22a5786c987129b08b311ce4d0c71f7b6804c6fb4"
+    },
+    {
+      "row_id": 414,
+      "row_sha256": "7393ab4356d9d094a2dd48cc64ec92c01e8ad77ae1afb18f4a0891300bb53f1f"
+    },
+    {
+      "row_id": 423,
+      "row_sha256": "c27e6f03819e70a887e98d0b059d6f8ddbde4848a0f022149ba7bd5052960a33"
+    },
+    {
+      "row_id": 434,
+      "row_sha256": "8edee821ef25a5a5f85eeff3e814b32d698780199a7bee402dd1a9a71500fe56"
+    },
+    {
+      "row_id": 521,
+      "row_sha256": "8de57576422cd254f41dc5f0e45ece650116fffe68c896fc6f534c3c04cf4fad"
+    },
+    {
+      "row_id": 528,
+      "row_sha256": "6716bef8a7f5cb442c5baeffa1839a62895b87db843244adf4cf95e6e9731f4a"
+    },
+    {
+      "row_id": 637,
+      "row_sha256": "b886ecc776c6d88a6c5354d64224d031b7b50eac52dab970bac721974ba9bb90"
+    },
+    {
+      "row_id": 654,
+      "row_sha256": "4554bd6c77abc009902d013568d356d8693518fc28e2fe12bd1267b32304f975"
+    },
+    {
+      "row_id": 672,
+      "row_sha256": "b08f71cdaed3a4068fc6de4feed9112db10e4e586c863efaec7417b2481ea11c"
+    },
+    {
+      "row_id": 742,
+      "row_sha256": "8c84dafdca9c404c8e5b1810f5bf1a7002aae16105d4dcefb6075e39059a7aec"
+    },
+    {
+      "row_id": 754,
+      "row_sha256": "55a51aec194b06e8df02bcea8ef151772e3ec562f40fe67be0ac3bfd8f5ca5b3"
+    },
+    {
+      "row_id": 787,
+      "row_sha256": "7f22ca960d22b7017730ac18b80e25286495967ec77a48c22a9f744a0e16cb38"
+    },
+    {
+      "row_id": 803,
+      "row_sha256": "9949e1bb25139ffecf08c8e53e1fe4f8c05eee74fdcfee4c5586a698492f542e"
+    },
+    {
+      "row_id": 849,
+      "row_sha256": "150cd6cb05c6ab5d9155024a74d3ccdbb720b6e892ba423f165d3a631e036ac3"
+    },
+    {
+      "row_id": 853,
+      "row_sha256": "886704643ee44f1678789fb3164c6eb3a8c5cac930dbcc61e5f7fa9155af008b"
+    },
+    {
+      "row_id": 911,
+      "row_sha256": "95bbd6109c0e1b3410c93979addd1e5249ad311f093c0c438b2a79dc5903b2d5"
+    },
+    {
+      "row_id": 950,
+      "row_sha256": "1157ab35af8892d03e9ae31546ed53efb16e8e5f1a24bb9d5b3c7eaba24218b5"
+    },
+    {
+      "row_id": 967,
+      "row_sha256": "21c6d269be21ba19526035383a703bba0c6a632a8de716d75a01e2be1ffc0115"
+    },
+    {
+      "row_id": 994,
+      "row_sha256": "1f892b8a0ccb44c603f5881d6b9d8d3a924aebeffb8f991a00c42d282bdba141"
+    },
+    {
+      "row_id": 1046,
+      "row_sha256": "29bff19c361ddd9520669b8bc5f22d8e0f2ea058fcc660476f317305ad5e2cfe"
+    },
+    {
+      "row_id": 1077,
+      "row_sha256": "53fedf54b07da6ba0849fb3a63f3288ce3adafeabc3b40f5c0be2c05b2d82fdf"
+    },
+    {
+      "row_id": 1091,
+      "row_sha256": "05ebb9ef3a9f7d47beb42931d0660a00fb08cc2649a2aae1ae38a846158837a9"
+    },
+    {
+      "row_id": 1123,
+      "row_sha256": "4f465a2eee8a61b9106c109010cfd1d53bc59f64030c590abfca99181eedd3b1"
+    },
+    {
+      "row_id": 1137,
+      "row_sha256": "71c450018c1ccb2ddaa2299e087bab9e34f81da6e095937f355a7ba0ca06d445"
+    },
+    {
+      "row_id": 1202,
+      "row_sha256": "7a276287521a51015f239a869e6e5f27bbf49b268608b1d209f1f542f0ef23b9"
+    },
+    {
+      "row_id": 1243,
+      "row_sha256": "8a677a05dd8719ba92a260b1c178a377edb666e9b03f8e2a605c7af6eced251f"
+    },
+    {
+      "row_id": 1251,
+      "row_sha256": "551434097ba155d718b18e83a1ad46de148455f2486d38f1992a7d0e69a7f178"
+    },
+    {
+      "row_id": 1269,
+      "row_sha256": "97f98d1c012ad52bd84e5f998e13aa6c8a03cf303961e20985a05653a1c7d1f3"
+    },
+    {
+      "row_id": 1317,
+      "row_sha256": "4e33593016fe28d1860d2652fd203faf106b258fc76ff463045fd0b19f319c7e"
+    },
+    {
+      "row_id": 1328,
+      "row_sha256": "e51cfbbbf786a613e2cd2191218c6e1f907d406a2fc6d92ba29f2d4e8233166a"
+    },
+    {
+      "row_id": 1337,
+      "row_sha256": "712a9d5d4670d2ca6fe8a607e5015a87bb3a2434787c569b6842d6611809079a"
+    },
+    {
+      "row_id": 1375,
+      "row_sha256": "a175dcb64587febd9750d25e639d202a3be49298a9123e623c244dc71f789e66"
+    },
+    {
+      "row_id": 1383,
+      "row_sha256": "7a2c07ec6a9ce6b8798f8f711e6e5c36cd89b73386534818ca36f914b54ee700"
+    },
+    {
+      "row_id": 1386,
+      "row_sha256": "512e2b9accc58722eea0821a4b4b0e272627b385435987a97198b62c81188ab1"
+    },
+    {
+      "row_id": 1405,
+      "row_sha256": "00f7c83fcefef4508c30c32ea7f3a87996900ec8c04d9d6cbb6dfc782858b73c"
+    },
+    {
+      "row_id": 1448,
+      "row_sha256": "2635db944754d37b2777e9781c2179b50978453fe0671ad107436f2c6ef3ed09"
+    }
+  ]
+}

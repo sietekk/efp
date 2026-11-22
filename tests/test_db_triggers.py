@@ -205,3 +205,40 @@ def test_other_tables_in_the_core_set_are_unprotected_by_design(seeded: sqlite3.
         "INSERT INTO identifiers (row_id, kind, value, capture_id) VALUES (1, 'city', 'x', 1)"
     )
     seeded.execute("UPDATE identifiers SET value = 'y' WHERE row_id = 1")
+
+
+WORKBOOK_ROW = (
+    "INSERT INTO source_workbook (workbook_id, sha256, filename, sheet_name, header_row, "
+    "data_rows, year_from, year_to, ingested_at) VALUES (?, ?, 'w.xlsx', 'Cases', 4, 20, 2000, 2025, ?)"
+)
+
+
+def test_source_workbook_is_one_immutable_row(conn: sqlite3.Connection) -> None:
+    conn.execute(WORKBOOK_ROW, (1, ZERO, STAMP))
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError):  # a second workbook is not allowed at all
+        conn.execute(WORKBOOK_ROW, (2, ZERO, STAMP))
+    for sql in (
+        "UPDATE source_workbook SET sha256 = 'x'",
+        "DELETE FROM source_workbook",
+        "INSERT OR REPLACE INTO source_workbook (workbook_id, sha256, filename, sheet_name, "
+        "header_row, data_rows, year_from, year_to, ingested_at) "
+        "VALUES (1, 'x', 'x', 'x', 1, 1, 2000, 2025, 'x')",
+    ):
+        _refused(conn, sql)
+    assert conn.execute("SELECT sha256 FROM source_workbook").fetchone() == (ZERO,)
+
+
+def test_a_raw_connection_cannot_replace_the_workbook_record(config: Config) -> None:
+    conn = database.connect(config)
+    conn.execute(WORKBOOK_ROW, (1, ZERO, STAMP))
+    conn.commit()
+    conn.close()
+    raw = sqlite3.connect(config.paths.database)
+    assert raw.execute("PRAGMA recursive_triggers").fetchone()[0] == 0
+    with pytest.raises(sqlite3.IntegrityError, match=APPEND_ONLY):
+        raw.execute(
+            "REPLACE INTO source_workbook (workbook_id, sha256, filename, sheet_name, header_row, "
+            f"data_rows, year_from, year_to, ingested_at) VALUES (1, 'x', 'x', 'x', 1, 1, 2000, 2025, '{STAMP}')"
+        )
+    raw.close()
