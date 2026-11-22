@@ -234,6 +234,12 @@ An eighteenth review round:
 | --- | --- |
 | Filings are re-captured only for a docket that is not weak, so when a docket turned weak or was no longer found, its earlier filing rows kept `current = 1, weak = 0` and stayed in `court_records_confirmed` | Migration 0012 redefines both views: a filing is current only while its parent docket record (same row, same docket id) is current, and confirmed only while that docket is also not weak. The filing rows themselves are untouched, so they come back if the docket is confirmed again |
 
+A nineteenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| `retry=False` still slept on `Retry-After` for a 429 (up to `capture.max_wait_seconds`) before returning it, so the CourtListener "no retry, no sleep" fail-fast still lost minutes per throttled row; the final attempt of a retried fetch slept too | `Capture._send` honors `Retry-After` only when another attempt follows. Two tests assert on the sleep stub (no sleep for `retry=False`; `attempts - 1` sleeps for a retried fetch, none after the last) and both fail on the old code. Note for test authors: `tests/test_capture.py`'s fixture puts stamina in testing mode with 4 attempts, which overrides `retry=False`; the test sets 1 attempt itself |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

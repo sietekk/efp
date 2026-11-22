@@ -766,9 +766,10 @@ class Capture:
         limits = self.config.rate_limits
         last: requests.Response | None = None
         try:
+            max_attempts = limits.retry_attempts + 1 if retry else 1
             for attempt in stamina.retry_context(
                 on=(requests.ConnectionError, requests.Timeout, _RetryableStatus),
-                attempts=limits.retry_attempts + 1 if retry else 1,
+                attempts=max_attempts,
                 wait_initial=limits.retry_backoff_seconds,
                 wait_max=max(limits.retry_backoff_seconds * 8, limits.retry_backoff_seconds),
                 wait_jitter=limits.retry_backoff_seconds / 2,
@@ -788,7 +789,8 @@ class Capture:
                     if response.status_code in _RETRY_STATUS and not getattr(
                         response, "from_cache", False
                     ):
-                        self._honor_retry_after(response)
+                        if attempt.num < max_attempts:  # only when another attempt follows
+                            self._honor_retry_after(response)
                         raise _RetryableStatus(response)
         except _RetryableStatus as exc:
             return exc.response  # retries exhausted: a 429/5xx is still a capture

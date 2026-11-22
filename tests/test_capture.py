@@ -694,3 +694,34 @@ def test_a_domain_with_a_daily_cap_of_zero_is_a_budget_error_and_nothing_is_sent
         assert not rsps.calls
     finally:
         capture.close()
+
+
+def test_retry_false_does_not_sleep_on_retry_after_and_the_last_attempt_does_not_either(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    stamina.set_testing(True, attempts=1, cap=False)  # this file's fixture forces 4: undo for one
+    insert_row(conn, 1)
+    sleeps: list[float] = []
+    cap = make_capture(config, conn, sleeps=sleeps)
+    _robots_ok(rsps)
+    rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "250"})
+    record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api", retry=False)
+    assert record.http_status == 429  # returned at once...
+    assert sleeps == []  # ...with no dead time spent on a retry that will not happen
+    assert len([c for c in rsps.calls if c.request.url.endswith("/busy")]) == 1
+    cap.close()
+
+
+def test_the_final_attempt_of_a_retried_fetch_does_not_sleep_after_it(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    insert_row(conn, 1)
+    sleeps: list[float] = []
+    cap = make_capture(config, conn, sleeps=sleeps)
+    _robots_ok(rsps)
+    rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "7"})
+    record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api")
+    attempts = config.rate_limits.retry_attempts + 1
+    assert record.http_status == 429
+    assert sleeps == [7.0] * (attempts - 1)  # between attempts only, never after the last
+    cap.close()
