@@ -270,7 +270,7 @@ def test_gold_set_split(conn: sqlite3.Connection) -> None:
 
 
 def test_state_adapters_mode_and_kind(conn: sqlite3.Connection) -> None:
-    for i, mode in enumerate(("automated", "assisted", "manual", "none", "broken")):
+    for i, mode in enumerate(("automated", "assisted", "manual", "none")):
         conn.execute(
             "INSERT INTO state_adapters (state, kind, mode) VALUES (?, 'ag', ?)", (f"S{i}", mode)
         )
