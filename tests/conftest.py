@@ -84,6 +84,22 @@ def config(write_config: Callable[..., Path]) -> Config:
 
 
 @pytest.fixture
+def full_config_path(write_config: Callable[..., Path]) -> Path:
+    """Like ``config`` but with all eight stages, which the runner tests need."""
+    old = 'stages = ["resolve_links", "court"]'
+    new = (
+        'stages = ["resolve_links", "court", "identity", "documents", "news", "social", '
+        '"extract", "code"]'
+    )
+    return write_config({old: new})
+
+
+@pytest.fixture
+def full_config(full_config_path: Path) -> Config:
+    return load_config(full_config_path)
+
+
+@pytest.fixture
 def conn(config: Config) -> Iterator[sqlite3.Connection]:
     """A migrated scratch database under tmp_path."""
     connection = database.connect(config)

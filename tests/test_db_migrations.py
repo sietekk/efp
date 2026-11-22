@@ -19,14 +19,20 @@ def _tables(conn: sqlite3.Connection) -> set[str]:
 
 def test_fresh_database_applies_all_migrations(config: Config) -> None:
     applied = database.migrate(config)
-    assert [m.id for m in applied] == [1, 2, 3, 4]
+    assert [m.id for m in applied] == [1, 2, 3, 4, 5]
     conn = database.connect(config, migrate=False, create=False)
     try:
         assert {"rows", "case_stage", "captures", "audit_log", "schema_migrations"} <= _tables(conn)
         recorded = conn.execute(
             "SELECT id, name, sha256 FROM schema_migrations ORDER BY id"
         ).fetchall()
-        assert [r[1] for r in recorded] == ["core", "supporting", "triggers", "source_workbook"]
+        assert [r[1] for r in recorded] == [
+            "core",
+            "supporting",
+            "triggers",
+            "source_workbook",
+            "case_stage_summary",
+        ]
         assert all(len(r[2]) == 64 for r in recorded)
     finally:
         conn.close()
@@ -67,14 +73,14 @@ def test_modified_migration_is_detected(config: Config, migrations_copy: Path) -
 
 def test_deleted_migration_is_detected(config: Config, migrations_copy: Path) -> None:
     database.migrate(config)
-    (migrations_copy / "0004_source_workbook.sql").unlink()
-    with pytest.raises(database.MigrationError, match="0004_source_workbook"):
+    (migrations_copy / "0005_case_stage_summary.sql").unlink()
+    with pytest.raises(database.MigrationError, match="0005_case_stage_summary"):
         database.connect(config)
 
 
 def test_new_migration_is_applied_after_the_old_ones(config: Config, migrations_copy: Path) -> None:
     database.migrate(config)
-    (migrations_copy / "0005_extra.sql").write_text(
+    (migrations_copy / "0006_extra.sql").write_text(
         "CREATE TABLE extra (x INTEGER);", encoding="utf-8"
     )
     assert [m.name for m in database.migrate(config)] == ["extra"]
@@ -221,7 +227,7 @@ def test_a_busy_database_is_a_clear_error(
     folder.mkdir()
     for m in database.discover_migrations():
         (folder / m.path.name).write_text(m.sql, encoding="utf-8")
-    (folder / "0005_more.sql").write_text("CREATE TABLE more (x INTEGER);", encoding="utf-8")
+    (folder / "0006_more.sql").write_text("CREATE TABLE more (x INTEGER);", encoding="utf-8")
     monkeypatch.setattr(database, "migrations_dir", lambda: folder)
     holder = sqlite3.connect(config.paths.database, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
@@ -264,7 +270,7 @@ def test_a_path_with_uri_special_characters_does_not_create_stray_files(
     database.migrate(config)
     before = sorted(p.name for p in data_dir.rglob("*"))
     conn = database.connect(config, migrate=False, create=False)
-    assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (4,)
+    assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (5,)
     conn.close()
     assert sorted(p.name for p in data_dir.rglob("*")) == before
     assert not (data_dir / "we").exists() and not (data_dir / "we%ird").is_file()

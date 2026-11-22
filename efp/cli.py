@@ -18,8 +18,9 @@ from typing import NoReturn
 
 import typer
 
-from efp import audit
+from efp import audit, runner
 from efp import db as database
+from efp import modules as module_chain
 from efp import status as status_view
 from efp.config import Config, ConfigError, find_config, load_config
 from efp.dbcheck import run_db_checks
@@ -203,18 +204,93 @@ def ingest(
             state.audit_id = state.start_audit(extra)
 
 
+def _need_config(state: AppState) -> Config:
+    if state.config is None:
+        typer.echo(f"configuration error: {state.config_error}", err=True)
+        raise typer.Exit(1)
+    return state.config
+
+
+def _open_db(state: AppState, *, migrate: bool = False) -> sqlite3.Connection:
+    if state.config is None:
+        typer.echo(f"configuration error: {state.config_error}", err=True)
+        raise typer.Exit(1)
+    try:
+        return database.connect(state.config, migrate=migrate, create=False)
+    except (database.DatabaseError, sqlite3.Error):
+        typer.echo("no database yet: run `efp ingest <workbook.xlsx>` first", err=True)
+        raise typer.Exit(1) from None
+
+
+def _check_stage(config: Config, stage: str | None) -> None:
+    if stage is not None and stage not in config.runner.stages:
+        typer.echo(f"unknown stage {stage!r}; stages: {', '.join(config.runner.stages)}", err=True)
+        raise typer.Exit(2)
+
+
 @app.command()
 def run(
+    ctx: typer.Context,
     stage: str = typer.Argument(..., help="Stage name."),
-    limit: int | None = typer.Option(None, "--limit", help="Process at most N rows."),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Process at most N rows."),
     state: str | None = typer.Option(None, "--state", help="Two-letter state code."),
     year_from: int | None = typer.Option(None, "--year-from", help="Earliest year."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Select rows; change nothing."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would run; change nothing."),
     sample: bool = typer.Option(False, "--sample", help="Only the frozen 50-row sample."),
-    reset: bool = typer.Option(False, "--reset", help="Re-run the selected rows."),
+    reset: bool = typer.Option(False, "--reset", help="Set the selected rows back to pending."),
+    recover: bool = typer.Option(False, "--recover", help="Reset every running row of the stage."),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed", help="Give failed rows at the attempt limit one more attempt."
+    ),
+    recheck: bool = typer.Option(
+        False, "--recheck", help="Also look at done rows; an unchanged input hash is a no-op."
+    ),
+    force: bool = typer.Option(False, "--force", help="Like --recheck, ignoring the hash."),
 ) -> None:
     """Run one stage over eligible rows."""
-    _not_built("04")
+    app_state: AppState = ctx.obj
+    config = _need_config(app_state)
+    _check_stage(config, stage)
+    conn = _open_db(app_state, migrate=not dry_run)
+    options = runner.RunOptions(
+        stage=stage,
+        limit=limit,
+        state=state,
+        year_from=year_from,
+        sample=sample,
+        dry_run=dry_run,
+        reset=reset,
+        recover=recover,
+        retry_failed=retry_failed,
+        recheck=recheck,
+        force=force,
+    )
+    try:
+        run_ctx = runner.make_context(config, conn)
+        if dry_run:
+            report = runner.dry_run(conn, config, options, run_ctx)
+            typer.echo(runner.render_dry_run(report))
+            return
+        result = runner.run_stage(conn, config, options, run_ctx)
+        if result.no_component:
+            typer.echo(f"stage {stage}: no component registered yet; nothing was run")
+        typer.echo(
+            f"stage {stage}: claimed {result.claimed}, done {result.done}, failed {result.failed}, "
+            f"needs_review {result.needs_review}, skipped {result.skipped}, no-op {result.noop}, "
+            f"recovered {result.recovered}, reset {result.reset}"
+        )
+        for reason, count in sorted(result.gate_skipped.items()):
+            typer.echo(f"  gate {reason}: {count} rows skipped")
+    except (runner.RunnerError, sqlite3.Error, database.DatabaseError) as exc:
+        typer.echo(f"run failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    finally:
+        conn.close()
+
+
+class StatusFormat(StrEnum):
+    md = "md"
+    json = "json"
 
 
 @app.command()
@@ -222,30 +298,44 @@ def status(
     ctx: typer.Context,
     stage: str | None = typer.Option(None, "--stage", help="Limit to one stage."),
     state: str | None = typer.Option(None, "--state", help="Limit to one state."),
+    fmt: StatusFormat = typer.Option(StatusFormat.md, "--format", help="md or json."),
 ) -> None:
-    """Counts by stage and status over the study population."""
+    """Stage x status counts, gate reasons, attempts and errors, and the frozen sample."""
     app_state: AppState = ctx.obj
-    if app_state.config is None:
-        typer.echo(f"configuration error: {app_state.config_error}", err=True)
-        raise typer.Exit(1)
-    if stage is not None and stage not in app_state.config.runner.stages:
-        typer.echo(
-            f"unknown stage {stage!r}; stages: {', '.join(app_state.config.runner.stages)}",
-            err=True,
-        )
-        raise typer.Exit(2)
+    config = _need_config(app_state)
+    _check_stage(config, stage)
+    conn = _open_db(app_state)
     try:
-        conn = database.connect(app_state.config, migrate=False, create=False)
-    except (database.DatabaseError, sqlite3.Error):
-        typer.echo("no database yet: run `efp ingest <workbook.xlsx>` first", err=True)
-        raise typer.Exit(1) from None
-    try:
-        population, matrix = status_view.status_matrix(
-            conn, app_state.config, stage=stage, state=state
-        )
+        report = status_view.build_report(conn, config, stage=stage, state=state)
     finally:
         conn.close()
-    typer.echo(status_view.render(app_state.config.scope.population, population, matrix))
+    typer.echo(
+        status_view.render_json(report)
+        if fmt is StatusFormat.json
+        else status_view.render_md(report)
+    )
+
+
+@app.command()
+def modules(
+    ctx: typer.Context,
+    stage: str | None = typer.Option(None, "--stage", help="Limit to one stage."),
+) -> None:
+    """Every configured module with its availability and the reason it cannot run."""
+    app_state: AppState = ctx.obj
+    config = app_state.config
+    if config is None:
+        typer.echo(f"configuration error: {app_state.config_error}", err=True)
+        raise typer.Exit(1)
+    if stage is not None and stage not in (*config.runner.stages, *module_chain.COMMAND_CHAINS):
+        typer.echo(f"unknown stage {stage!r}", err=True)
+        raise typer.Exit(2)
+    run_ctx = runner.make_context(config, None)
+    rows = module_chain.describe(config, run_ctx, stage=stage)
+    width = max((len(r.name) for r in rows), default=4)
+    for item in rows:
+        mark = "ok     " if item.ok else ("absent " if not item.registered else "skipped")
+        typer.echo(f"[{mark}] {item.stage:<13} {item.name:<{width}}  {item.reason}".rstrip())
 
 
 @app.command()

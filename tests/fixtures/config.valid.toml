@@ -52,6 +52,7 @@ tsa_urls = ["http://tsa.example.test"]
 [runner]
 batch_size = 50
 max_attempts_per_stage = 3
+stale_after_minutes = 120
 stages = ["resolve_links", "court"]
 
 [stages.resolve_links]

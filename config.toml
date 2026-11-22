@@ -67,6 +67,7 @@ tsa_urls = ["http://timestamp.digicert.com", "http://freetsa.org/tsr"]
 [runner]
 batch_size = 50
 max_attempts_per_stage = 3
+stale_after_minutes = 120        # a stage row still `running` after this long is reset to pending (no attempt counted)
 # Stages in the first pass, in predecessor order; export is a command, not a stage.
 stages = ["resolve_links", "court", "identity", "documents", "news", "social", "extract", "code"]
 

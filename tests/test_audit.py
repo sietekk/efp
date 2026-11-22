@@ -97,7 +97,7 @@ def test_every_cli_invocation_is_recorded(
     database.migrate(config)
     monkeypatch.setenv("EFP_CONFIG", str(write_config()))
     for argv, code in (
-        (["run", "court"], 2),
+        (["run", "court"], 0),
         (["review", "court"], 2),
         (["run"], 2),
         (["selftest"], 0),
@@ -106,7 +106,7 @@ def test_every_cli_invocation_is_recorded(
         assert runner.invoke(app, argv).exit_code == code
     rows = _rows(config)
     assert [(r["command"], r["exit_code"]) for r in rows] == [
-        ("run court", 2),
+        ("run court", 0),
         ("review court", 2),
         ("run", 2),  # usage error: missing STAGE
         ("selftest", 0),

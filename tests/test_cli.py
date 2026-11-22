@@ -12,7 +12,6 @@ runner = CliRunner()
 
 # command -> build that will implement it
 STUBS: dict[tuple[str, ...], str] = {
-    ("run", "court"): "04",
     ("review", "court"): "04",
     ("import", "f.pdf", "--row", "1", "--source", "westlaw"): "14",
     ("identity", "explain", "1"): "12",
@@ -74,5 +73,5 @@ def test_commands_work_without_any_config(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_audit_is_a_no_op_without_a_database(cfg_env: Path, data_dir: Path) -> None:
     result = runner.invoke(app, ["run", "court"])
-    assert result.exit_code == 2
+    assert result.exit_code == 1  # no database yet; the audit row is not written either
     assert not data_dir.exists()
