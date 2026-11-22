@@ -170,3 +170,16 @@ def test_common_crawl_no_captures_is_not_an_error(
         body=b'{"message":"No Captures found"}',
     )
     assert wayback.cdx(cap, "http://nothing.test/", source="commoncrawl") == []
+
+
+def test_the_list_of_common_crawl_indexes_is_fetched_once_per_client(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(
+        wayback.COMMONCRAWL_INDEXES, json=[{"cdx-api": "https://index.commoncrawl.org/CC-1-index"}]
+    )
+    rsps.get("https://index.commoncrawl.org/CC-1-index", status=404, body=b"{}")
+    wayback.cdx(cap, "http://a.test/1", source="commoncrawl")
+    wayback.cdx(cap, "http://a.test/2", source="commoncrawl")
+    listings = [c for c in rsps.calls if c.request.url == wayback.COMMONCRAWL_INDEXES]
+    assert len(listings) == 1

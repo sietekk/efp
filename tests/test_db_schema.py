@@ -181,16 +181,25 @@ def test_codes_evidence_tier_check(conn: sqlite3.Connection) -> None:
 
 def test_links_enums(conn: sqlite3.Connection) -> None:
     insert_row(conn)
-    for method in ("live", "wayback_short", "wayback_target", "unresolved", None):
+    methods = (
+        "live",
+        "bitly_info",
+        "wayback_short",
+        "wayback_target",
+        "commoncrawl",
+        "unresolved",
+        None,
+    )
+    for i, method in enumerate(methods):
         conn.execute(
             "INSERT INTO links (row_id, url_raw, expansion_method, status) "
-            "VALUES (1, 'https://example.test', ?, 'unresolved')",
-            (method,),
+            "VALUES (1, ?, ?, 'unresolved')",
+            (f"https://example.test/{i}", method),
         )
     for status in ("live", "archived", "dead", "unresolved"):
         conn.execute(
-            "INSERT INTO links (row_id, url_raw, status) VALUES (1, 'https://example.test', ?)",
-            (status,),
+            "INSERT INTO links (row_id, url_raw, status) VALUES (1, ?, ?)",
+            (f"https://example.test/s-{status}", status),
         )
     _expect_rejected(
         conn,
@@ -198,6 +207,20 @@ def test_links_enums(conn: sqlite3.Connection) -> None:
         "VALUES (1, 'u', 'guessed', 'live')",
     )
     _expect_rejected(conn, "INSERT INTO links (row_id, url_raw, status) VALUES (1, 'u', 'maybe')")
+
+
+def test_a_link_is_unique_per_row_and_url_and_carries_a_note(conn: sqlite3.Connection) -> None:
+    insert_row(conn)
+    conn.execute(
+        "INSERT INTO links (row_id, url_raw, status, note) VALUES (1, 'https://e.test/a', 'dead', 'x')"
+    )
+    _expect_rejected(
+        conn, "INSERT INTO links (row_id, url_raw, status) VALUES (1, 'https://e.test/a', 'live')"
+    )
+    insert_row(conn, 2)
+    conn.execute(
+        "INSERT INTO links (row_id, url_raw, status) VALUES (2, 'https://e.test/a', 'live')"
+    )
 
 
 def test_court_record_source_kind(conn: sqlite3.Connection) -> None:

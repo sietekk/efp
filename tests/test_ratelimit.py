@@ -126,5 +126,8 @@ def test_two_processes_share_one_budget(write_config: Callable[..., Path], tmp_p
     stamps = sorted(float(x) for out in outs for x in out.read_text().split())
     assert len(stamps) == 10
     gaps = [b - a for a, b in itertools.pairwise(stamps)]
-    # 200 ms apart across both processes, never a double burst (timestamp jitter allowed)
-    assert min(gaps) >= 0.12
+    # Ten requests at one per 200 ms take about 1.8 s however the two processes interleave; two
+    # processes with separate budgets would finish in about 0.8 s. The span is immune to the
+    # jitter in when each process happens to write its timestamp.
+    assert stamps[-1] - stamps[0] >= 1.5
+    assert min(gaps) >= 0.04  # and never a true double burst

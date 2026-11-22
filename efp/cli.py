@@ -18,7 +18,7 @@ from typing import NoReturn
 
 import typer
 
-from efp import audit, runner
+from efp import audit, linkreport, runner
 from efp import capture as capture_mod
 from efp import db as database
 from efp import manifest as manifest_mod
@@ -35,7 +35,7 @@ from efp.livecheck import live_checks
 from efp.logging import register_secret_values, setup_logging
 from efp.secrets import SecretsError, load_secrets
 from efp.selftest import Check, run_checks
-from efp.version import git_sha, package_version
+from efp.version import git_sha, package_version, repo_root
 
 app = typer.Typer(
     name="efp",
@@ -49,6 +49,8 @@ db_app = typer.Typer(help="Database administration.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 spn_app = typer.Typer(help="Save Page Now queue.", no_args_is_help=True)
 app.add_typer(spn_app, name="spn")
+links_app = typer.Typer(help="Link survival and the source-domain table.", no_args_is_help=True)
+app.add_typer(links_app, name="links")
 
 
 def _no_audit(extra: Mapping[str, object] | None = None) -> int | None:
@@ -307,12 +309,21 @@ def status(
     stage: str | None = typer.Option(None, "--stage", help="Limit to one stage."),
     state: str | None = typer.Option(None, "--state", help="Limit to one state."),
     fmt: StatusFormat = typer.Option(StatusFormat.md, "--format", help="md or json."),
+    links: bool = typer.Option(
+        False, "--links", help="Link survival and the source-domain table instead."
+    ),
 ) -> None:
     """Stage x status counts, gate reasons, attempts and errors, and the frozen sample."""
     app_state: AppState = ctx.obj
     config = _need_config(app_state)
     _check_stage(config, stage)
     conn = _open_db(app_state)
+    if links:
+        try:
+            typer.echo(linkreport.render_md(linkreport.build(conn, config), title=False))
+        finally:
+            conn.close()
+        return
     try:
         report = status_view.build_report(conn, config, stage=stage, state=state)
     finally:
@@ -322,6 +333,34 @@ def status(
         if fmt is StatusFormat.json
         else status_view.render_md(report)
     )
+
+
+@links_app.command("report")
+def links_report(
+    ctx: typer.Context,
+    write: bool = typer.Option(
+        True, "--write/--print", help="Write reports/first-pass/domains.md (default) or print."
+    ),
+) -> None:
+    """Link survival and the source-domain table (aggregates only: no names, no row text)."""
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state)
+    try:
+        text = linkreport.render_md(linkreport.build(conn, config))
+    finally:
+        conn.close()
+    if not write:
+        typer.echo(text)
+        return
+    root = repo_root()
+    if root is None:
+        typer.echo("repository root not found; use --print", err=True)
+        raise typer.Exit(1)
+    target = root / "reports" / "first-pass" / "domains.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    typer.echo(f"wrote {target.relative_to(root)}")
 
 
 @app.command()

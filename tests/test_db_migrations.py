@@ -280,3 +280,34 @@ def test_a_path_with_uri_special_characters_does_not_create_stray_files(
     conn.close()
     assert sorted(p.name for p in data_dir.rglob("*")) == before
     assert not (data_dir / "we").exists() and not (data_dir / "we%ird").is_file()
+
+
+def test_migration_7_rebuilds_links_keeping_existing_rows(
+    config: Config, migrations_copy: Path
+) -> None:
+    from tests.dbhelpers import insert_row
+
+    seventh = next(m for m in database.discover_migrations() if m.name == "links_resolution")
+    held = migrations_copy / seventh.path.name
+    text = held.read_text(encoding="utf-8")
+    held.unlink()  # a database as it stood before this migration
+    database.migrate(config)
+    conn = database.connect(config, migrate=False, create=False)
+    insert_row(conn)
+    conn.execute(
+        "INSERT INTO links (link_id, row_id, url_raw, expansion_method, status) "
+        "VALUES (41, 1, 'https://old.example.test/x', 'wayback_short', 'archived')"
+    )
+    conn.commit()
+    conn.close()
+    held.write_text(text, encoding="utf-8")
+    assert [m.name for m in database.migrate(config)] == ["links_resolution"]
+    conn = database.connect(config, migrate=False, create=False)
+    try:
+        assert conn.execute(
+            "SELECT link_id, url_raw, expansion_method, status, note FROM links"
+        ).fetchall() == [(41, "https://old.example.test/x", "wayback_short", "archived", None)]
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert {"idx_links_row", "idx_links_capture"} <= names
+    finally:
+        conn.close()

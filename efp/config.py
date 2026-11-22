@@ -90,6 +90,8 @@ class FirstPass(_Section):
     voter_file_enrichment: bool
     people_search_enabled: bool
     google_search_enabled: bool
+    commoncrawl_enabled: bool
+    bitly_info_enabled: bool
 
 
 class RateLimits(BaseModel):

@@ -13,6 +13,7 @@ The Wayback index is rate-limited at 80% of its published ~0.4 requests per seco
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -76,8 +77,13 @@ def cdx(
     match: str = "exact",
     limit: int = 20,
     source: str = "wayback",
+    statuscode: str | None = "200",
 ) -> list[CdxRow]:
-    """List archived captures of ``url`` (newest first), from the Wayback CDX or Common Crawl."""
+    """List archived captures of ``url`` (newest first), from the Wayback CDX or Common Crawl.
+
+    ``statuscode`` is a regular expression on the archived HTTP status (``"200"`` by default;
+    ``"3.."`` finds archived redirects; ``None`` lists everything).
+    """
     if match not in MATCH_TYPES:
         raise ValueError(f"match must be one of {MATCH_TYPES}")
     if source == "commoncrawl":
@@ -90,6 +96,7 @@ def cdx(
             to_year=to_year,
             match=match,
             limit=limit,
+            statuscode=statuscode,
         )
     if source != "wayback":
         raise ValueError("source must be 'wayback' or 'commoncrawl'")
@@ -98,9 +105,10 @@ def cdx(
         "output": "json",
         "matchType": match,
         "limit": str(-limit),  # a negative limit returns the newest captures
-        "filter": "statuscode:200",
         "fl": ",".join(CDX_FIELDS),
     }
+    if statuscode:
+        params["filter"] = f"statuscode:{statuscode}"
     if from_year:
         params["from"] = str(from_year)
     if to_year:
@@ -136,7 +144,7 @@ def availability(
 
 
 def fetch_archived(
-    capture: Capture, row: CdxRow, *, row_id: int | None, stage: str
+    capture: Capture, row: CdxRow, *, row_id: int | None, stage: str, follow: bool = True
 ) -> CaptureRecord:
     """Fetch an archived body through the same path, recording the original URL as requested.
 
@@ -152,6 +160,7 @@ def fetch_archived(
         kind="api",
         record_url=row.original,
         tool="wayback",
+        allow_redirects=follow,
     )
 
 
@@ -168,10 +177,14 @@ def commoncrawl_cdx(
     to_year: int | None,
     match: str,
     limit: int,
+    statuscode: str | None = "200",
 ) -> list[CdxRow]:
     """Search the most recent Common Crawl indexes (a sample of the web, not a mirror)."""
-    listing = capture.fetch(COMMONCRAWL_INDEXES, row_id=row_id, stage=stage, kind="api")
-    indexes = [i for i in (_json(listing, capture) or []) if i.get("cdx-api")]
+    indexes = getattr(capture, "_cc_indexes", None)
+    if indexes is None:  # the list of crawls changes monthly: one fetch per client is plenty
+        listing = capture.fetch(COMMONCRAWL_INDEXES, row_id=row_id, stage=stage, kind="api")
+        indexes = [i for i in (_json(listing, capture) or []) if i.get("cdx-api")]
+        capture._cc_indexes = indexes  # type: ignore[attr-defined]
     out: list[CdxRow] = []
     for index in indexes[:3]:  # the three newest crawls: bounded politeness
         params = {"url": url, "output": "json", "matchType": match, "limit": str(limit)}
@@ -188,7 +201,7 @@ def commoncrawl_cdx(
             if not line.strip():
                 continue
             d = json.loads(line)
-            if str(d.get("status")) != "200":
+            if statuscode and not re.fullmatch(statuscode, str(d.get("status"))):
                 continue
             out.append(
                 CdxRow(
@@ -225,3 +238,25 @@ def _fetch_commoncrawl(
         record_url=row.original,
         tool="commoncrawl",
     )
+
+
+def commoncrawl_payload(member: bytes) -> tuple[int, str | None, bytes] | None:
+    """The HTTP response inside a Common Crawl WARC member: ``(status, content type, body)``.
+
+    A Common Crawl range request returns one gzipped WARC record, not the page. None if the member
+    is not a readable HTTP response record.
+    """
+    from io import BytesIO
+
+    from warcio.archiveiterator import ArchiveIterator
+
+    try:
+        for record in ArchiveIterator(BytesIO(member)):
+            if record.rec_type != "response" or record.http_headers is None:
+                continue
+            status = int(record.http_headers.get_statuscode())
+            content_type = record.http_headers.get_header("Content-Type")
+            return status, content_type, record.content_stream().read()
+    except Exception:  # a truncated or non-WARC body: abstain rather than guess
+        return None
+    return None
