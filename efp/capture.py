@@ -262,6 +262,7 @@ class Capture:
         self._robots: dict[str, _Robots] = {}
         self._throttled: set[str] = set()  # services that answered 429 in this run
         self._failed: set[str] = set()  # URLs that could not be fetched in this run
+        self._once: set[str] = set()  # work done once per run (see once_per_run)
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
         self._ua_token = self.user_agent.split("/")[0].split()[0]
@@ -425,6 +426,7 @@ class Capture:
         """Forget every throttle and failed fetch (the runner calls this at the start of a run)."""
         self._throttled.clear()
         self._failed.clear()
+        self._once.clear()
 
     def note_failed(self, url: str) -> None:
         """Remember that ``url`` could not be fetched, so this run tries it once (not per row)."""
@@ -432,6 +434,13 @@ class Capture:
 
     def failed_this_run(self, url: str) -> bool:
         return url in self._failed
+
+    def once_per_run(self, key: str) -> bool:
+        """True the first time ``key`` is asked in a run, False after (for a refresh done once)."""
+        if key in self._once:
+            return False
+        self._once.add(key)
+        return True
 
     @contextmanager
     def wait_limit(self, seconds: float) -> Iterator[None]:

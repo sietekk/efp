@@ -219,6 +219,15 @@ A sixteenth review round:
 | --- | --- |
 | Filings that RECAP listed as available but whose download failed (a 5xx, a spent budget, a robots block) were skipped silently, so a docket with no filing fetched was reported "not in the RECAP archive" and queued for PACER purchase, and `--recheck` never retried it | Failed downloads are counted. If none succeeded and at least one failed, the outcome is `documents not fetched (n listed): ...`, transient (`:recap` on the hash, never queued), and a spent budget also sets the quota flag. Only an empty listing, or one whose entries are all unavailable, is reported as absent from RECAP and queued |
 
+A seventeenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| A PIN report that failed to read, or yielded no entries, was marked read forever, so installing or fixing `pdfplumber`/`pypdf` never re-read it and `--reset`/`--recheck` could not help (the index is a separate file) | The mark records which reader tried (name and version). A report that yielded entries is final; a failed or empty read is final only for that reader, so a different or upgraded one reads it again |
+| The DOJ harvest walked only backward and never saw releases published after it began, while `covered()` checked only the old end | The index records the newest release the walk has seen. Once per run, before reading the harvest, the walk is repeated from page 0 (bypassing the response cache) until it reaches a release already indexed, within the per-row page budget. The newest date is part of the court input hash, so `--recheck` revisits rows when the fresh end moved |
+
+Both use new `CREATE TABLE IF NOT EXISTS` tables in the derived index files (`harvest_newest`, and a reader column on `indexed_urls`); the repository's database guard forbids altering a table from code. The once-per-run memory on the capture client is `Capture.once_per_run`, cleared with the throttles at the start of each run.
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

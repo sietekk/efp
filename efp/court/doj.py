@@ -39,6 +39,19 @@ TITLE_PARAM = "parameters[title]"  # the title-keyword parameter (spec section 4
 COVERAGE_FROM = 2013  # the API is substantive from about 2013
 
 
+def newest_indexed(config: Config) -> str | None:
+    """The newest release date in the local harvest index (None when there is none): part of a
+    row's input hash, so ``--recheck`` revisits rows when the feed's fresh end has moved."""
+    path = config.paths.bulk / "doj_releases.sqlite"
+    if not path.is_file():
+        return None
+    index = DojIndex(path)
+    try:
+        return index.newest()
+    finally:
+        index.close()
+
+
 def harvest_target_year(config: Config) -> int:
     """How far back the harvest must reach for every row the DOJ module admits.
 
@@ -156,6 +169,10 @@ class DojIndex:
             "CREATE TABLE IF NOT EXISTS harvest (id INTEGER PRIMARY KEY CHECK (id = 1), "
             "next_page INTEGER NOT NULL, oldest TEXT, done INTEGER NOT NULL DEFAULT 0);"
         )
+        self.conn.execute(  # the newest release the date-sorted walk has seen
+            "CREATE TABLE IF NOT EXISTS harvest_newest "
+            "(id INTEGER PRIMARY KEY CHECK (id = 1), newest TEXT NOT NULL)"
+        )
 
     def close(self) -> None:
         self.conn.close()
@@ -223,6 +240,24 @@ class DojIndex:
             )
         self.conn.commit()
 
+    def newest(self) -> str | None:
+        """The newest release the date-sorted walk has indexed (the feed's fresh end)."""
+        found = self.conn.execute("SELECT newest FROM harvest_newest WHERE id = 1").fetchone()
+        return str(found[0]) if found and found[0] else None
+
+    def note_newest(self, releases: list[Release]) -> None:
+        dated = [r.date.isoformat() for r in releases if r.date]
+        if not dated:
+            return
+        known = self.newest()
+        best = max(dated) if known is None else max(max(dated), known)
+        updated = self.conn.execute(
+            "UPDATE harvest_newest SET newest = ? WHERE id = 1", (best,)
+        ).rowcount
+        if not updated:
+            self.conn.execute("INSERT INTO harvest_newest (id, newest) VALUES (1, ?)", (best,))
+        self.conn.commit()
+
     def count(self) -> int:
         return int(self.conn.execute("SELECT count(*) FROM releases").fetchone()[0])
 
@@ -245,8 +280,12 @@ class DojClient:
     def close(self) -> None:
         self.index.close()
 
-    def _page(self, params: dict[str, str], row_id: int | None) -> list[Release]:
-        record = cap(self.ctx).fetch(API, row_id=row_id, stage=STAGE, kind="api", params=params)
+    def _page(
+        self, params: dict[str, str], row_id: int | None, *, fresh: bool = False
+    ) -> list[Release]:
+        record = cap(self.ctx).fetch(
+            API, row_id=row_id, stage=STAGE, kind="api", params=params, no_cache=fresh
+        )
         if not record.ok:
             raise CaptureError(f"DOJ API answered HTTP {record.http_status}")
         try:
@@ -308,6 +347,31 @@ class DojClient:
             self.title_capped = True
         return found
 
+    def refresh_newest(self, row_id: int | None) -> int:
+        """Pick up releases published since the harvest began (once per run).
+
+        The harvest walks backward from the newest page and resumes where it stopped, so it never
+        sees what was published afterwards. Re-walk from page 0 until a page reaches a release the
+        index already has, within the per-row page budget."""
+        _page, _oldest, _done = self.index.progress()
+        known = self.index.newest()
+        if known is None or not cap(self.ctx).once_per_run("doj-refresh"):
+            return 0  # nothing harvested yet (the harvest itself starts at the newest page)
+        fetched = 0
+        for number in range(self.config.court.doj_harvest_pages_per_row):
+            params = {
+                "pagesize": str(self.config.court.doj_pagesize),
+                "sort": "date",
+                "direction": "DESC",
+                "page": str(number),
+            }
+            releases = self._page(params, row_id, fresh=True)  # never the cached copy of page 0
+            fetched += 1
+            self.index.note_newest(releases)
+            if not releases or any(r.date and r.date.isoformat() <= known for r in releases):
+                break  # back at what the index already holds
+        return fetched
+
     def covered(self, first_year: int) -> bool:
         """Has the harvest reached back to ``first_year`` (or exhausted the feed)?"""
         _page, oldest, exhausted = self.index.progress()
@@ -334,6 +398,7 @@ class DojClient:
                 "page": str(page),
             }
             releases = self._page(params, row_id)
+            self.index.note_newest(releases)
             fetched += 1
             page += 1
             dated = [r.date for r in releases if r.date]
@@ -384,6 +449,7 @@ class DojClient:
         # The server ignores the title parameter, or a common surname filled the title search's
         # pages before the window: page the date-sorted feed back to the window instead (the
         # index is shared by every row) and read only releases that mention the surname.
+        self.refresh_newest(row_id)  # the fresh end of the feed, once per run
         self.harvest(first_year, row_id)
         local = self.index.between(first_year, last_year, keywords)
         if found or capped:  # what the title search did return stays beside the harvest's

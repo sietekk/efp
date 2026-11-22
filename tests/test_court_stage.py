@@ -1318,3 +1318,22 @@ def test_a_spent_budget_while_fetching_a_filing_is_a_quota_deferral(
     summary = process(config, conn, 1).summary_json
     assert summary["flags"]["api_quota_exhausted"] is True  # type: ignore[index]
     assert summary["pacer_queued"] == 0
+
+
+def test_a_failed_or_empty_pin_read_is_final_only_for_the_reader_that_tried_it(
+    tmp_path: Path,
+) -> None:
+    from efp.court import pin
+
+    index = pin.PinIndex(tmp_path / "pin.sqlite")
+    try:
+        url = "https://example.test/report.pdf"
+        index.mark(url, 1, 0, "could not be read", "pypdf 4.0")
+        assert index.indexed(url, "pypdf 4.0")  # the same reader will not read it again
+        assert not index.indexed(url, "pdfplumber 0.11")  # a different (or fixed) one will
+        assert not index.indexed(url, "none")
+        index.mark(url, 1, 3, None, "pdfplumber 0.11")
+        index.index_pages(url, 1, ["x" * 60])
+        assert index.indexed(url, "whatever 9")  # it yielded entries: final for every reader
+    finally:
+        index.close()

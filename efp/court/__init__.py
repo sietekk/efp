@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from efp import modules as chain
-from efp.court import courtlistener
+from efp.court import courtlistener, doj
 from efp.court.bulk import index_info
 from efp.court.classify import classify, link_hosts
 from efp.court.identifiers import extract_identifiers
@@ -68,6 +68,7 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
         _available(ctx, registry),
         info.dataset_date if info else None,
         ctx.config.court.pin_report_urls,
+        doj.newest_indexed(ctx.config),  # the feed's fresh end: a refresh revisits recent rows
     )
 
 

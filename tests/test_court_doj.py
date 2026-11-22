@@ -21,6 +21,7 @@ from tests.courthelpers import (
     process,
     release,
     release_html,
+    row_of,
 )
 
 API = doj.API
@@ -558,3 +559,40 @@ def test_a_same_surname_title_hit_is_not_authoritative_when_the_subject_is_named
     summary = process(config, conn, 1).summary_json
     assert summary["flags"]["doj"]["found_by"] == "title_search+harvest"  # type: ignore[index]
     assert summary["court_status"] == "press_release_only"  # the body-only release was found
+
+
+def test_the_fresh_end_of_the_feed_is_refreshed_once_per_run_and_changes_the_inputs(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp import court as component
+
+    old = doj_page(
+        release("Older news", "x", date="2020-01-10", uuid="a"),
+        release("Oldest news", "x", date="2019-12-01", uuid="b"),
+    )
+    new = doj_page(
+        release("Brand new release", "x", date="2020-06-01", uuid="c"),
+        release("Older news", "x", date="2020-01-10", uuid="a"),  # back at what the index holds
+    )
+    ctx, cap, registry = make_ctx(config, conn)
+    try:
+        rsps.get(API, json=old)
+        first = doj.DojClient(ctx)
+        first.harvest(2019, None)  # the initial walk
+        first.close()
+        before = doj.newest_indexed(config)
+        add_court_row(conn, 1)
+        hash_before = component.input_hash(row_of(conn, 1), ctx, registry)
+        assert before is not None and before.startswith("2020-01-10")
+        rsps.replace(responses.GET, API, json=new)  # a release was published since
+        cap.clear_throttles()  # a new run
+        again = doj.DojClient(ctx)
+        assert again.refresh_newest(None) >= 1
+        assert again.refresh_newest(None) == 0  # once per run
+        assert {r.uuid for r in again.index.between(2020, 2020)} >= {"a", "c"}
+        again.close()
+        after = doj.newest_indexed(config)
+        assert after is not None and after.startswith("2020-06-01")
+        assert component.input_hash(row_of(conn, 1), ctx, registry) != hash_before  # recheck
+    finally:
+        cap.close()
