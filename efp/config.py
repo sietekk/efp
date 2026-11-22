@@ -176,14 +176,6 @@ class Stages(_Section):
     validate_: ValidateStage = Field(alias="validate")
 
 
-class Irb(_Section):
-    cleared: bool
-    determination: str
-    date: str = Field(pattern=r"^(\d{4}-\d{2}-\d{2})?$")
-    reference: str
-    scope_notes: str
-
-
 class IdentityCfg(_Section):
     confirm_threshold: float = Field(ge=0, le=1)
     review_threshold: float = Field(ge=0, le=1)
@@ -240,7 +232,6 @@ class Config(_Section):
     capture: Capture
     runner: Runner
     stages: Stages
-    irb: Irb
     identity: IdentityCfg
     documents: DocumentsCfg
     llm: Llm

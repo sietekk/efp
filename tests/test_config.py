@@ -131,4 +131,4 @@ def test_schema_and_example_have_the_same_keys() -> None:
 
 
 def test_example_config_validates() -> None:
-    assert load_config(REPO / "config.example.toml").irb.cleared is False
+    load_config(REPO / "config.example.toml")

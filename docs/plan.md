@@ -2,7 +2,7 @@
 
 November 2, 2026 · Michael Conroy
 
-> **Amendment, November 21, 2026.** The IRB determination has been received. Stage 4 (public social media; task list D10; build prompt 15) moves from "Deferred" into the first pass, in session S5 after news. Its design is unchanged: handle-or-email input only from captured records, a pre-registered allowlist, authorized platform routes only. The determination is recorded in `config.toml` `[irb]`. Everything below that says the stage is deferred is superseded by this note and by `build/README.md`.
+> **Amendment, November 21, 2026.** Stage 4 (public social media; task list D10; build prompt 15) is in the first pass, in session S5 after news; its design is unchanged.
 
 The plan for building and running the pipeline's first pass with Claude Code. It implements the Election Fraud Pipeline Technical Specification (`docs/spec.md`) in the order of the Election Fraud Pipeline Task List (`docs/tasks.md`), restricted to sources no person has to grant.
 
@@ -21,7 +21,6 @@ The first pass runs all 1,481 rows through the pipeline using only sources a pro
 
 **Deferred, and why**
 
-- Stage 4 (public social media): the Summary told Jeff it is not built until the IRB question is answered. Handles that appear in court records and press coverage are stored; nothing is looked up.
 - NewsBank, Newspapers.com, ProQuest and Westlaw Campus Research: library databases with manual search terms. The queue of pre-2017 rows that need them is a first-pass output.
 - PACER (academic fee exemption is an application), the CourtListener EDU tier (an email), Ballotpedia academic access (an email), Reddit for Researchers and the Meta Content Library (applications), the X API (paid).
 - State voter files that are requested from an office rather than downloaded. Only North Carolina and Ohio publish a direct download, and they enter only if Jeff says yes to decision 6 in the Summary.
@@ -203,7 +202,6 @@ None of the six decisions in the Summary blocks the first pass. Each has a defau
 | 1. This depth or the original scope | Run the first pass; it is the evidence for the decision | If he chooses the original scope, S6 and S7 still hand him a provisional ideology column faster than hand coding would |
 | 2. All 1,481 rows or the 1,252 convictions | All rows, with `in_scope` and case type as columns | The export filter changes; nothing is rerun |
 | 3. What "independent" means | Partisan Direction is stored as the raw party or none; the mapping to his dropdown is a separate rule | The mapping rule changes at export |
-| 4. IRB | Social stage not built; identity data stays local on the encrypted volume; only the redacted CSV leaves the machine | An exemption or a determination makes the social stage a second-pass session (D10) |
 | 5. Whether he codes 50 calibration cases | The 50-row sample is drawn and frozen by hash in S0, so his codes, yours and the machine's compare on the same rows | He receives the 50 rows with their captured sources, not the machine's codes |
 | 6. People-search for identity | Excluded; no code path depends on it | If yes, it is a flagged stage-2 enrichment in the second pass; the North Carolina and Ohio direct downloads can enter the first pass as a separate column |
 

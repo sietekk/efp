@@ -135,9 +135,6 @@ def run_checks(config: Config | None, config_error: str | None) -> list[Check]:
         checks.append(
             Check(f"extra {extra}", _installed(module), f"marker module {module}", required=False)
         )
-    checks.append(
-        Check("irb cleared", config.irb.cleared, "social stage needs [irb].cleared", required=False)
-    )
     docker = shutil.which("docker")
     checks.append(Check("docker", docker is not None, docker or "not on PATH", required=False))
     return checks

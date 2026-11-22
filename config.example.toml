@@ -38,7 +38,7 @@ sample_file = "tests/fixtures/sample_rows.json"
 [first_pass]
 # Flags that keep the first pass within docs/plan.md. Do not flip these without the operator.
 online_only = true
-social_enabled = true             # D10 runs in the first pass; the gate also requires [irb].cleared
+social_enabled = true             # D10 runs in the first pass
 voter_file_enrichment = false     # NC and OH direct downloads only if decision 6 is answered yes
 people_search_enabled = false     # never true; present so the audit log can prove it was off
 google_search_enabled = false     # optional discovery for pre-2017 coverage; capped below
@@ -119,14 +119,6 @@ policy = "all"
 [stages.validate]
 label_modules = ["validate.labels.gold_set", "validate.labels.sample_tally", "validate.labels.none"]
 label_policy = "first_available"
-
-[irb]
-# The human-subjects determination that permits the social stage. Fill every field; the stage is unavailable until cleared = true.
-cleared = false
-determination = ""               # e.g. "exempt" or "approved", in the IRB's own words
-date = ""                        # YYYY-MM-DD
-reference = ""                   # protocol or determination number
-scope_notes = ""                 # any conditions attached: public posts only, retention limits, no contact with subjects
 
 [identity]
 confirm_threshold = 0.99

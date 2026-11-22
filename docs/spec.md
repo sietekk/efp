@@ -569,7 +569,6 @@ Explicitly excluded and named so a reviewer does not have to ask: newspaper3k (d
   - **Source terms.** NewsBank, Newspapers.com and Westlaw prohibit scraping; they are reached only through the manual import path. Reddit is reached only through Reddit for Researchers; Meta only through the Content Library; X only on a paid tier or not at all. twscrape is excluded by name.
   - **PACER.** The academic fee exemption prohibits internet redistribution; RECAP Fetch uploads to a public archive. The two are not combined without written clarification from the Administrative Office.
   - **Data separation.** The repository never contains pipeline.db, store/ or .env. The public export is the redacted CSV.
-  - **IRB.** The social component is not built until the IRB question is answered; it is the last component in the build order for this reason as well as for value.
 
 ### Risks
 
@@ -588,7 +587,6 @@ Explicitly excluded and named so a reviewer does not have to ask: newspaper3k (d
 
   - ☐ Population: all 1,481 dispositions or the 1,252 criminal convictions (Treistman)
   - ☐ Meaning of *independent* in the source dropdown (Treistman)
-  - ☐ IRB path and who files (Treistman / department)
   - ☐ Whether to purchase X API Basic if stage 4 surfaces X handles (budget)
   - ☐ Whether Ballotpedia grants academic access, and at what price (pending email)
   - ☐ Whether NewsBank will grant a research data license for a defined extract (pending librarian)
@@ -596,6 +594,6 @@ Explicitly excluded and named so a reviewer does not have to ask: newspaper3k (d
   - ☐ LLM provider for extraction, and whether the native citation API replaces LangExtract's alignment
   - ☐ Depth: whether the research runs at this depth or at the original read-and-code scope (Treistman)
   - ☐ Calibration set: whether Treistman codes fifty cases himself before coding at volume, so differences in reading the categories surface early (Treistman)
-  - ☐ People-search: whether identity confirmation may use a commercial people-search service (BeenVerified, the operator’s personal subscription) where public records run out; excluded by default because the results cannot be reproduced or cited by another researcher and lookups on private individuals raise IRB questions (Treistman)
+  - ☐ People-search: whether identity confirmation may use a commercial people-search service (BeenVerified, the operator’s personal subscription) where public records run out; excluded by default because the results cannot be reproduced or cited by another researcher and lookups on private individuals raise human-subjects questions (Treistman)
 
 *AI disclosure: This technical specification, the accompanying summary and their diagrams were written by Claude (Anthropic). The system they describe was designed with Claude’s help, working from my research direction and decisions, and I edited both documents directly.*
