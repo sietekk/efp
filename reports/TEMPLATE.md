@@ -46,6 +46,14 @@ The plan's nine numbers that this build can speak to (link survival, primary-rec
 
 Numbered. Each with the default the code currently takes.
 
+## Operator decisions
+
+Filled in by the operator at merge time, one line per item from the section above: the number, the decision, the date.
+
+## Carried forward
+
+What later builds must know from this one, each line starting with the build number(s) it concerns, e.g. "19: the Ideological Motivation dropdown is a list validation on H5:H1624 that openpyxl drops; export must re-add it." Only facts established in this build; nothing speculative.
+
 ## Done-when check
 
 Quote each "Done when" line from the prompt and say whether it holds, with the evidence (command and output, test name, file path).

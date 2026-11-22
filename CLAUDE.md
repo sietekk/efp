@@ -55,12 +55,12 @@ Additional rules:
 
 ## How a build runs
 
-1. Start in plan mode. Read the build prompt, this file, the index, the spec sections the prompt names (via `spec-brief`), and the reports it needs. Propose the approach, the files you will touch, and the tests you will add. Wait for approval.
+1. Start in plan mode. Read the build prompt, this file, the index, the spec sections the prompt names (via `spec-brief`, including the Operator decisions and Carried forward lines from every earlier report), and the reports it needs. Propose the approach, the files you will touch, and the tests you will add. Wait for approval.
 2. Work on branch `build/NN-<name>` off `main` (the name is the prompt's file name). Commit in small steps with messages that say what changed and why.
 3. Tests before merge: `uv run pytest` (unit + contract tests on recorded cassettes; no live network in the test suite), `uv run ruff check .`, `uv run mypy efp`. CI runs the same.
 4. Run a stage on the frozen 50-row sample first (`efp run <stage> --sample`), then on all rows. Runs are resumable; never re-fetch what the capture store already holds.
 5. Write `reports/NN-<name>.md` from `reports/TEMPLATE.md`: rows attempted and resolved, per-source counts, failures by reason, gated sources with affected row counts, time and API spend, decisions needed from the operator, and whether each "Done when" line in the prompt holds.
-6. Open a pull request. Do not merge. The operator reviews the report, spot-checks rows with `efp review`, and merges. If the next build starts before the merge, it stacks on this branch.
+6. Open a pull request. Do not merge. The operator reviews the report, spot-checks rows with `efp review`, and merges. At merge the operator records answers under Operator decisions in that build's report; the next build reads them. If the next build starts before the merge, it stacks on this branch.
 
 Some prompts name an **operator refinement** (labeling 150 pairs, the 50-row extraction tally, double coding, the 100-row QA review). Build the tooling for it and the fallback that runs without it, run the pipeline in provisional mode, and list the refinement in the report. Never do the operator's part yourself (no invented labels or verdicts), and never wait for it.
 
