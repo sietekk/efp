@@ -489,3 +489,18 @@ def test_the_budget_is_taken_for_every_network_hop_on_its_own_domain(
     cap.fetch("https://example.test/go", row_id=1, stage="resolve_links")
     assert taken == ["example.test", "example.test", "other.test", "other.test"]
     # robots.txt and the first hop on example.test, then robots.txt and the page on other.test
+
+
+def test_an_api_call_redirected_off_its_host_gets_that_hosts_robots_txt_checked(
+    cap: Capture, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(
+        "https://example.test/api/q",
+        status=302,
+        headers={"Location": "https://other.test/private/x"},
+    )
+    rsps.get("https://other.test/robots.txt", body="User-agent: *\nDisallow: /private\n")
+    rsps.get("https://other.test/private/x", json={"ok": True})
+    record = cap.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
+    assert record.tool == "robots_disallow"
+    assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]

@@ -110,6 +110,6 @@ def test_run_without_a_component_says_so(
 ) -> None:
     monkeypatch.setenv("EFP_CONFIG", str(full_config_path))
     runner.invoke(app, ["ingest", str(workbook)])
-    result = runner.invoke(app, ["run", "resolve_links"])
+    result = runner.invoke(app, ["run", "court"])  # court has no component yet
     assert result.exit_code == 0
     assert "no component registered yet; nothing was run" in result.output

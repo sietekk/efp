@@ -109,6 +109,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 # a closed map, `?` placeholders); every value is bound, never interpolated.
 "efp/runner.py" = ["S608"]
 "efp/status.py" = ["S608"]
+"efp/linkreport.py" = ["S608"]
 
 [tool.mypy]
 strict = true

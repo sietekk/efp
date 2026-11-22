@@ -33,6 +33,8 @@ social_enabled = false
 voter_file_enrichment = false
 people_search_enabled = false
 google_search_enabled = false
+commoncrawl_enabled = true
+bitly_info_enabled = true
 
 [rate_limits]
 default_rps = 0.5

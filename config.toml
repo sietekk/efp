@@ -42,6 +42,8 @@ social_enabled = true             # D10 runs in the first pass
 voter_file_enrichment = false     # NC and OH direct downloads only if decision 6 is answered yes
 people_search_enabled = false     # never true; present so the audit log can prove it was off
 google_search_enabled = false     # optional discovery for pre-2017 coverage; capped below
+commoncrawl_enabled = true        # resolve.commoncrawl: second chance for a dead link (not on the plan allowlist; operator enabled it for build 06)
+bitly_info_enabled = true         # resolve.bitly_info: Bitly's + page when a bit.ly/herit.ag link fails live (spec section 6; not on the plan allowlist; operator enabled it)
 
 [rate_limits]
 # Requests per second per domain: 80% of the published limit, or 1 request per 2 seconds where none is published (spec section 10).

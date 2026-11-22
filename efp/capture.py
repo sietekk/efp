@@ -306,7 +306,10 @@ class Capture:
         current, current_method, current_params, current_data = url, method, params, data
         hops: list[requests.Response] = []
         while True:
-            if check_robots:
+            # A documented API endpoint is trusted for its own host, but a redirect off that host
+            # is a page on someone else's site and gets its robots.txt checked like any other.
+            off_host = bool(hops) and urlsplit(current).hostname != origin_host
+            if (check_robots or (api and off_host)) and self.config.rate_limits.honor_robots_txt:
                 blocked = self._robots_block(
                     with_params(current, current_params),
                     wanted,
@@ -372,10 +375,13 @@ class Capture:
 
         return wayback.availability(self, url, **kwargs)
 
-    def fetch_archived(self, row: Any, *, row_id: int | None, stage: str) -> CaptureRecord:
+    def fetch_archived(
+        self, row: Any, *, row_id: int | None, stage: str, follow: bool = True
+    ) -> CaptureRecord:
+        """Fetch an archived body (``follow=False`` keeps an archived redirect as the answer)."""
         from efp import wayback
 
-        return wayback.fetch_archived(self, row, row_id=row_id, stage=stage)
+        return wayback.fetch_archived(self, row, row_id=row_id, stage=stage, follow=follow)
 
     def perma(self, url: str, secrets: Any = None) -> Any:
         """Archive a cited URL at Perma.cc (no-op without a key): see :func:`efp.perma.archive`."""

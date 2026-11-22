@@ -86,6 +86,9 @@ class ArchiveAutoArchiver:
 
 
 def register_builtin(registry: Registry = REGISTRY) -> None:
+    from efp.resolve_links.modules import register_modules as register_resolve_links
+
     for module in (ArchiveSpn, ArchivePerma, ArchiveAutoArchiver):
         if registry.get(module.name) is None:
             registry.register(module)
+    register_resolve_links(registry)

@@ -119,9 +119,10 @@ def test_sample_restricts_to_the_frozen_rows(full_config: Config, db) -> None:  
 
 
 def test_a_stage_with_no_component_runs_nothing(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
-    summary = run(db, full_config, "resolve_links", None)
+    set_stage(db, 1, "resolve_links", "done")  # court has a predecessor satisfied for row 1
+    summary = run(db, full_config, "court", None)  # no component is built for court yet
     assert summary.no_component and summary.claimed == 0
-    assert set(statuses(db, "resolve_links").values()) == {"pending"}
+    assert set(statuses(db, "court").values()) == {"pending"}
 
 
 def test_stage_validation(full_config: Config, write_config: Callable[..., Path]) -> None:
@@ -502,10 +503,10 @@ def test_reset_cannot_be_combined_with_limit_and_respects_state(full_config: Con
     with pytest.raises(rn.RunnerError, match="--limit"):
         run(db, full_config, "resolve_links", FakeComponent("resolve_links"), reset=True, limit=2)
     for row_id in range(1, 7):
-        set_stage(db, row_id, "resolve_links", "done")
-    summary = run(db, full_config, "resolve_links", None, reset=True, state="CT")
+        set_stage(db, row_id, "court", "done")
+    summary = run(db, full_config, "court", None, reset=True, state="CT")  # (no court component)
     assert summary.reset == 3
-    assert statuses(db, "resolve_links") == {
+    assert statuses(db, "court") == {
         1: "pending",
         2: "done",
         3: "pending",
