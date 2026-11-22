@@ -131,3 +131,39 @@ def test_classification_table(kwargs: dict[str, object], ok: bool, reason: str) 
         final_url=kwargs.get("final", "http://a.test/deep/story"),  # type: ignore[arg-type]
     )
     assert verdict.ok is ok and reason in verdict.reason
+
+
+def test_judge_does_not_flag_a_long_article_for_error_words_in_its_headline() -> None:
+    from efp.resolve_links import classify
+
+    body = "word " * 1000
+    ok = classify.judge(
+        http_status=200, content_type="text/html", body_len=9999, text=body,
+        original_url="https://a.example/n/1", final_url="https://a.example/n/1",
+        title="Ballots not found in county audit - Local News",
+    )  # fmt: skip
+    assert ok.ok
+    bad = classify.judge(
+        http_status=200, content_type="text/html", body_len=9999, text=body,
+        original_url="https://a.example/n/1", final_url="https://a.example/n/1",
+        title="404 Not Found",
+    )  # fmt: skip
+    assert not bad.ok
+
+
+def test_soft_404_ignores_canonicalising_redirects_to_the_root() -> None:
+    from efp.resolve_links import classify
+
+    assert not classify.is_soft_404("https://a.example/index.html", "https://a.example/")
+    assert not classify.is_soft_404("https://a.example/en", "https://a.example/")
+    assert classify.is_soft_404("https://a.example/news/2019/story", "https://a.example/")
+
+
+def test_bitly_info_url_keeps_the_plus_off_the_query_string() -> None:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit("https://bit.ly/abc?utm=1")
+    assert (
+        parts._replace(path=parts.path.rstrip("/") + "+", query="").geturl()
+        == "https://bit.ly/abc+"
+    )

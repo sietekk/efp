@@ -37,6 +37,13 @@ _ERROR_TITLE = re.compile(
     r"page does not exist|error 40\d|file not found|access denied|forbidden)\b",
     re.I,
 )
+# Title forms that only an error page has (the whole title, not a phrase inside a headline).
+_ERROR_TITLE_STRICT = re.compile(
+    r"^\W*(?:error\s*)?(?:40[0-9]|50[0-9])\b|^\W*(?:page|file)?\s*not found\W*(?:[-|:].*)?$|"
+    r"^\W*(?:access denied|forbidden)\W*$",
+    re.I,
+)
+_HOME_SEGMENT = re.compile(r"(?:index|home|default|main)(?:\.\w+)?|[a-z]{2}(?:[-_][a-z]{2})?", re.I)
 SHORT_BODY_CHARS = 1500  # error and parked phrases are trusted in the body only below this length
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 _TAGS = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.I | re.S)
@@ -75,6 +82,8 @@ def is_soft_404(original_url: str, final_url: str | None) -> bool:
     if not final_url:
         return False
     deep = urlsplit(original_url).path.strip("/")
+    if _HOME_SEGMENT.fullmatch(deep):
+        return False  # /index.html, /home, /en: canonicalisation, not a gone page
     final = urlsplit(final_url).path.strip("/")
     return bool(deep) and not final and not urlsplit(final_url).query
 
@@ -103,7 +112,9 @@ def judge(
             return Verdict(False, "parked or placeholder domain")
         if is_shortener_error(title) or (short and is_shortener_error(body_text)):
             return Verdict(False, "shortener error page")
-        if _ERROR_TITLE.search(title) or (short and _ERROR_TITLE.search(body_text[:200])):
+        if _ERROR_TITLE_STRICT.search(title) or (
+            short and (_ERROR_TITLE.search(title) or _ERROR_TITLE.search(body_text[:200]))
+        ):
             return Verdict(False, "error page served with a 200")
         if len(body_text) < MIN_TEXT_CHARS:
             return Verdict(False, f"trivial body ({len(body_text)} characters of text)")

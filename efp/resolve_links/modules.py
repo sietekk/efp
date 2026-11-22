@@ -330,7 +330,8 @@ class ResolveBitlyInfo(_Base):
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task: LinkTask = row  # type: ignore[assignment]
         st = task.st
-        info_url = task.fetch_url.rstrip("/") + "+"
+        parts = urlsplit(task.fetch_url)  # the "+" goes on the path, never after a query string
+        info_url = parts._replace(path=parts.path.rstrip("/") + "+", query="", fragment="").geturl()
         record = _fetch_page(ctx, task, info_url)
         if record is None:
             return ModuleResult(Outcome.miss)

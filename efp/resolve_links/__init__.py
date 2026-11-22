@@ -136,10 +136,11 @@ def _finalise(
     expansion = st.expansion or (None if task.is_shortener else task.fetch_url)
     if st.status in ("live", "archived"):
         status, capture_id = st.status, st.capture_id
-    elif expansion:
+    elif expansion and not st.robots_blocked:
         status, capture_id = "dead", st.evidence_capture_id
     else:
         status, capture_id = "unresolved", st.evidence_capture_id
+    # (a page robots.txt forbids us to fetch is unreachable by policy, not known to be dead)
     method = st.method or ("live" if expansion else "unresolved")
     note = "; ".join(dict.fromkeys(st.notes))[:500] or None
     conn.execute(
