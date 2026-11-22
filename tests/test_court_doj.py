@@ -255,14 +255,15 @@ def _reason(summary: dict[str, object], name: str) -> str:
     return next(m["reason"] for m in summary["modules"] if m["name"] == name)  # type: ignore[index, union-attr]
 
 
-def test_an_api_failure_is_a_note_and_the_row_still_completes(
+def test_an_api_failure_is_a_deferred_error_not_a_negative_and_is_retried(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     add_court_row(conn, 1)
     rsps.get(API, status=503)
     result = process(config, conn, 1)
-    assert result.status == "done" and result.summary_json["court_status"] == "not_found"
+    assert result.status == "done" and result.summary_json["court_status"] == "deferred_error"
     assert any("DOJ API" in n for n in result.summary_json["notes"])  # type: ignore[union-attr]
+    assert result.input_hash and result.input_hash.endswith(":error")
 
 
 def test_the_captured_page_is_kept_and_a_robots_block_falls_back_to_the_api_body(

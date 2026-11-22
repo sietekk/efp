@@ -928,3 +928,41 @@ def test_a_record_the_strategy_no_longer_finds_is_marked_not_current_not_deleted
         ).fetchone()[0]
         == 1
     )  # found again: current again
+
+
+def test_a_courtlistener_outage_is_a_deferred_error_not_a_clean_not_found(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
+    _quiet_doj(rsps)
+    rsps.get(SEARCH, status=503)
+    result = process(config, conn, 1)
+    assert result.summary_json["court_status"] == "deferred_error"
+    assert any("CourtListener" in e for e in result.summary_json["errors"])  # type: ignore[union-attr]
+    assert result.input_hash and result.input_hash.endswith(":error")
+
+
+def test_a_spent_budget_or_an_outage_does_not_retire_earlier_api_dockets(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
+    _quiet_doj(rsps)
+    component._upsert_record(conn, 1, _docket_item(weak=False, strategy="court.courtlistener_api"))
+    conn.commit()
+
+    def spent(ctx, secret, params, row_id):  # type: ignore[no-untyped-def]
+        raise courtlistener.CaptureBudgetError("budget not available within 5 s")
+
+    monkeypatch.setattr(courtlistener, "_search", spent)
+    summary = process(config, conn, 1).summary_json
+    assert summary["court_status"] == "deferred_quota"
+    assert conn.execute("SELECT current FROM court_records").fetchone()[0] == 1
+    monkeypatch.undo()
+    rsps.get(SEARCH, status=503)  # an outage: the module errored, so it was not evaluated either
+    process(config, conn, 1)
+    assert conn.execute("SELECT current FROM court_records").fetchone()[0] == 1

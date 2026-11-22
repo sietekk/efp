@@ -98,6 +98,13 @@ A third review round, also fixed with tests:
 | `wait_limit` set one shared value on the adapter | It is thread-local, so a parallel fetch keeps its own budget wait |
 | `court bulk fetch` chose the newest file of each kind independently, so mismatched dates could be downloaded and then rejected by `load` | `latest_set` returns the newest single date that has all four kinds (empty when none does), and the command says which kinds exist on which dates |
 
+A fourth review round, also fixed with tests:
+
+| Issue | Fix |
+| --- | --- |
+| The CourtListener API module (and the DOJ listing) turned an outage, a 5xx or a bad answer into a clean *miss*, so the row ended `not_found` with a hash `--recheck` never revisits | A non-budget `CaptureError` is now `Outcome.error`: the row is `deferred_error` (or keeps its finding) with `:error` on its hash. A spent budget stays a quota deferral |
+| `_supersede` counted a quota-spent or failed API run as "evaluated" and retired earlier dockets | An errored module is never evaluated, and a spent budget removes the API and RECAP strategies from the evaluated set, so earlier records stay `current = 1` |
+
 `court_status` therefore has seven values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the two `deferred_*` values are "could not finish" (the API budget was spent, or a module failed): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

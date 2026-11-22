@@ -178,7 +178,10 @@ class CourtApi:
                 if quota
                 else f"CourtListener: {exc}"[:200]
             )
-            return ModuleResult(Outcome.miss)
+            if quota:  # not a negative: the stage defers the row (and keeps earlier records)
+                return ModuleResult(Outcome.miss)
+            # an outage or a bad answer is a failure, not "no docket": the row is retried
+            return ModuleResult(Outcome.error, error=f"CourtListener: {exc}"[:200])
         cs.flags["api"] = {"candidates": len(dockets)}
         for docket in dockets:
             evidence = (

@@ -424,7 +424,7 @@ class CourtDoj:
             releases, how = client.candidates(cs.parts, year - slack, year + slack, task.row_id)
         except CaptureError as exc:
             cs.notes.append(f"DOJ API: {exc}"[:200])
-            return ModuleResult(Outcome.miss)
+            return ModuleResult(Outcome.error, error=f"DOJ API: {exc}"[:200])
         finally:
             client.close()  # one local index connection per row would pile up over a run
         matches = [

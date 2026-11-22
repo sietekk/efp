@@ -272,11 +272,13 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     queued = append_queue(ctx.config, _queue_items(task, recap))
 
     seen = {_upsert_record(conn, row.row_id, item) for item in state.located}
+    quota_hit = bool(state.flags.get("api_quota_exhausted"))
     evaluated = {m["name"] for m in run.records if m["status"] in ("hit", "miss")}
+    if quota_hit:  # a spent budget says nothing about what the API found before
+        evaluated -= {"court.courtlistener_api", "court.recap"}
     superseded = _supersede(conn, row.row_id, evaluated, seen)
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
-    quota_hit = bool(state.flags.get("api_quota_exhausted"))
     errored = bool(run.errors)
     status = court_status(state.located, quota_exhausted=quota_hit, errored=errored)
     summary: dict[str, Any] = {
