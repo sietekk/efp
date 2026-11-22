@@ -298,13 +298,15 @@ class DojClient:
 
     def covered(self, first_year: int) -> bool:
         """Has the harvest reached back to ``first_year`` (or exhausted the feed)?"""
-        _page, oldest, done = self.index.progress()
-        return done or bool(oldest and int(oldest[:4]) <= first_year)
+        _page, oldest, exhausted = self.index.progress()
+        # "exhausted" is the feed having no older page; reaching some other row's window is not
+        # coverage of this one's, so only the oldest date reached counts besides that
+        return exhausted or bool(oldest and int(oldest[:4]) < first_year)
 
     def harvest(self, until_year: int, row_id: int | None) -> int:
         """Page the date-sorted feed (newest first) into the index back to ``until_year``."""
-        page, oldest, done = self.index.progress()
-        if done and oldest and int(oldest[:4]) <= until_year:
+        page, oldest, exhausted = self.index.progress()
+        if exhausted or (oldest and int(oldest[:4]) < until_year):
             return 0
         fetched = 0
         while page < self.config.court.doj_harvest_max_pages:
@@ -320,10 +322,9 @@ class DojClient:
             dated = [r.date for r in releases if r.date]
             if dated:
                 oldest = min(dated).isoformat()
+            self.index.save_progress(page, oldest, not releases)  # done = the feed ran out
             if not releases or (oldest and int(oldest[:4]) < until_year):
-                self.index.save_progress(page, oldest, True)
                 return fetched
-            self.index.save_progress(page, oldest, False)
         return fetched
 
     def candidates(

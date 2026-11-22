@@ -68,13 +68,26 @@ class PinIndex:
             "CREATE TABLE IF NOT EXISTS entries (id INTEGER PRIMARY KEY, url TEXT, "
             "capture_id INTEGER, page INTEGER, paragraph TEXT);"
             "CREATE INDEX IF NOT EXISTS idx_pin_url ON entries(url);"
+            "CREATE TABLE IF NOT EXISTS indexed_urls (url TEXT PRIMARY KEY, capture_id INTEGER, "
+            "entries INTEGER NOT NULL, note TEXT);"
         )
 
     def indexed(self, url: str) -> bool:
+        """Has this report been read (even to no entries: a scanned PDF, a corrupt one)?"""
         return (
-            self.conn.execute("SELECT 1 FROM entries WHERE url = ? LIMIT 1", (url,)).fetchone()
+            self.conn.execute("SELECT 1 FROM indexed_urls WHERE url = ?", (url,)).fetchone()
+            is not None
+            or self.conn.execute("SELECT 1 FROM entries WHERE url = ? LIMIT 1", (url,)).fetchone()
             is not None
         )
+
+    def mark(self, url: str, capture_id: int, entries: int, note: str | None = None) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO indexed_urls (url, capture_id, entries, note) "
+            "VALUES (?, ?, ?, ?)",
+            (url, capture_id, entries, note),
+        )
+        self.conn.commit()
 
     def index_pages(self, url: str, capture_id: int, pages: list[str]) -> int:
         rows = [
@@ -146,7 +159,17 @@ class CourtPin:
             if not record.ok:
                 task.cs.notes.append(f"PIN report {url}: HTTP {record.http_status}"[:200])
                 continue
-            index.index_pages(url, record.capture_id, backend(cap(ctx).read_body(record)))
+            try:
+                pages = backend(cap(ctx).read_body(record))
+            except Exception as exc:  # a corrupt or encrypted PDF: say so once, never retry per row
+                note = f"PIN report {url} could not be read: {type(exc).__name__}: {exc}"[:200]
+                task.cs.notes.append(note)
+                index.mark(url, record.capture_id, 0, note)
+                continue
+            count = index.index_pages(url, record.capture_id, pages)
+            if count == 0:
+                task.cs.notes.append(f"PIN report {url} has no extractable text (scanned?)")
+            index.mark(url, record.capture_id, count, None if count else "no extractable text")
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task: CourtTask = row  # type: ignore[assignment]

@@ -156,6 +156,14 @@ A tenth review round:
 | A robots-blocked bulk download was recorded with `url_requested = "GET"` (the verb was passed where the URL belongs), and captures cannot be corrected later | The blocked file's URL is passed; a test asserts the `robots_disallow` capture's `url_requested` |
 | An empty DOJ title result counted as "the server honors the title" and as an authoritative miss, so a name that appears only in a release body gave a silent `not_found` | An empty page leaves the parameter undecided (no miss counted, nothing cached). When the title search yields nothing usable in the window, the harvest index is read too (the harvest is shared by every row, bounded by `doj_harvest_max_pages`, and a short reach is the existing `deferred_coverage`); the hits are `title_search+harvest` or `harvest` |
 
+Minor review items, handled:
+
+- **Harvest coverage:** the index's `done` flag now means only "the feed ran out of pages". Reaching another row's window is not coverage of an earlier one: `covered()` is "exhausted, or the oldest year reached is before the row's first year".
+- **PIN reports read once:** each URL is marked indexed even when it yields no entries (a scanned PDF) or cannot be read (a corrupt or encrypted one, noted on the row), so it is not re-fetched and re-parsed for every pre-2013 row, and a bad PDF no longer turns every such row into `deferred_error`.
+- **Download reuse** checks the file's size and SHA-256 against the manifest the download recorded, so a same-sized foreign or corrupt file (or one with no listed size) is fetched again, not indexed as a trusted quarter.
+- **Contract change for operator-local configs:** `rate_limits.daily_caps.<host>` of 0 no longer loads (decision 1 of the PR description); change any local zero to at least 1.
+- **For later builds:** nothing reads `court_records.current` yet. Whichever build reads the table (identity, export) must filter on `current = 1`, or superseded candidates will look live.
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import bz2
 import csv
 import gzip
+import hashlib
 import json
 import re
 from collections.abc import Callable, Iterable, Iterator
@@ -41,6 +42,7 @@ from efp.court.located import (
 )
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
+from efp.store import read_verified
 from efp.types import Context, Row
 
 KINDS = ("dockets", "courts", "parties", "party-types")
@@ -186,14 +188,31 @@ def fetch_files(
 
 
 def _earlier_download(ctx: Context, dest: Path, item: BulkFile) -> int | None:
+    """The manifest capture of a file already here, if the file is exactly what it recorded.
+
+    The name and the listed size are not enough (a listing may give no size, and a same-sized
+    foreign or corrupt file would be indexed as a trusted quarter): the file's size and SHA-256
+    must match the manifest the download recorded."""
     if not dest.is_file() or (item.size and dest.stat().st_size != item.size) or ctx.db is None:
         return None
     found = ctx.db.execute(
-        "SELECT capture_id FROM captures WHERE tool = 'bulk_download' AND url_requested LIKE ? "
-        "ORDER BY capture_id DESC LIMIT 1",
+        "SELECT capture_id, content_sha256 FROM captures WHERE tool = 'bulk_download' "
+        "AND url_requested LIKE ? ORDER BY capture_id DESC LIMIT 1",
         (f"%{dest.name}",),
     ).fetchone()
-    return None if found is None else int(found[0])
+    if found is None:
+        return None
+    try:
+        manifest = json.loads(read_verified(ctx.config.paths.store, found[1]))
+    except (OSError, ValueError):
+        return None
+    if dest.stat().st_size != manifest.get("size"):
+        return None
+    digest = hashlib.sha256()
+    with dest.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return int(found[0]) if digest.hexdigest() == manifest.get("sha256") else None
 
 
 # --- reading the CSVs -----------------------------------------------------------------------

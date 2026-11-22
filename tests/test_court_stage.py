@@ -1002,3 +1002,18 @@ def test_a_press_release_is_the_same_record_whatever_page_or_listing_it_was_read
     assert first == again and other != first
     assert component._supersede(conn, 1, {"court.doj"}, {again, other}) == 0  # nothing flipped
     assert conn.execute("SELECT count(*) FROM court_records WHERE current = 1").fetchone()[0] == 2
+
+
+def test_a_pin_report_with_no_entries_or_that_cannot_be_read_is_not_fetched_for_every_row(
+    config: Config, tmp_path: Path
+) -> None:
+    from efp.court import pin
+
+    index = pin.PinIndex(tmp_path / "pin.sqlite")
+    try:
+        assert not index.indexed("https://example.test/scan.pdf")
+        assert index.index_pages("https://example.test/scan.pdf", 1, ["", "  "]) == 0
+        index.mark("https://example.test/scan.pdf", 1, 0, "no extractable text")
+        assert index.indexed("https://example.test/scan.pdf")  # read once, never again
+    finally:
+        index.close()

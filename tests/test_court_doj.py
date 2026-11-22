@@ -511,3 +511,20 @@ def test_an_empty_title_result_is_not_taken_as_proof_the_server_honors_the_title
     summary = result.summary_json
     assert summary["flags"]["doj"]["found_by"] == "harvest"  # type: ignore[index]
     assert summary["court_status"] == "press_release_only"  # found in the body via the harvest
+
+
+def test_reaching_another_rows_window_is_not_coverage_of_an_earlier_year(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    small = config.model_copy(
+        update={"court": config.court.model_copy(update={"doj_harvest_max_pages": 1})}
+    )
+    ctx, cap, _ = make_ctx(small, conn)
+    rsps.get(API, json=doj_page(release("Old", "x", date="2017-01-01", uuid="a")))
+    try:
+        client = doj.DojClient(ctx)
+        client.harvest(2018, None)  # a later row's window is reached on the last allowed page
+        assert client.covered(2018) and not client.covered(2010)  # an earlier row is not covered
+        client.close()
+    finally:
+        cap.close()
