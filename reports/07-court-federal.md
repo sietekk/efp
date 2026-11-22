@@ -71,6 +71,18 @@ None in the build's own runs. Independent review (`done-when-reviewer`) found 18
 
 One bug in build 05 surfaced and was fixed here: a daily cap of exactly 1 produced an invalid rate list in the limiter (regression test added).
 
+## Follow-up fixes after PR review
+
+Three issues were raised on the PR and are fixed with tests:
+
+| Issue | Fix |
+| --- | --- |
+| A bulk download wedged forever on a complete or oversized `.part` (the retry asked for a range past the end and got 416) | A `.part` already the expected size is finalized without a request; one longer than the file is discarded; a 416 for a shorter stale part discards it and restarts from zero in the same call; a 206 whose `Content-Range` does not start at the offset is discarded; a wrong-sized finish removes the part so it cannot wedge the next try |
+| A weak or ambiguous docket match produced `court_status = primary_record`, and a weak bulk hit ended the `first_hit` chain so the API and state modules never ran | `court_status` is `primary_record` only for a docket that is not weak; a row with only weak dockets is `candidate_only`. Every module now returns *hit* only for a non-weak result with a case number, so a weak match is recorded but the chain goes on (DOJ, bulk and API; PIN entries are always weak, so that module never stops it). `court_records` gained `weak` and `basis_json` (migration 0008), so a reader of the table sees the candidate and the evidence |
+| A row whose API lookup hit the daily quota finished `done` / `not_found` and escaped `--recheck`; the quota was detected by substring; malformed JSON failed the row | The quota is a typed `CaptureBudgetError` (also raised for HTTP 429). Such a row finishes with `court_status = deferred_quota` and an input hash that never matches, so `efp run court --recheck` revisits exactly those rows. A non-JSON CourtListener answer is a noted miss, not a failed row |
+
+`court_status` therefore has six values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `not_found`. The plan's four are a subset; `candidate_only` and `deferred_quota` are the honest names for "found a candidate, not confirmed" and "could not ask yet", which would otherwise be counted as findings or as negatives.
+
 ## Gated sources encountered (not worked around)
 
 | Source | What it wants | Rows affected | Where logged |
@@ -100,11 +112,14 @@ Two of the plan's nine numbers draw on this stage. Primary-record rate: rows wit
 6. **The DOJ RSS fallback (`field_component`) is not built.** The prompt calls it a coverage check, not the primary path. When the server ignores the title parameter, the client harvests the date-sorted feed into a local index instead. Say so if you want the per-office feeds as well.
 7. **Loader speed.** The loader streams CSVs row by row in Python and inserts in batches; at tens of gigabytes that is hours, not minutes. DuckDB's own `read_csv` would be faster but needs decompressing the `.bz2` files first (DuckDB does not read bz2) and a confirmed column list. Worth switching if the first real load is too slow.
 8. **RECAP Fetch** is never enabled and there is no purchase function. Its availability needs `court.recap_enabled = true` and PACER credentials; even then `run()` only records a note.
-9. **Weak flags.** A record is `weak` when the state is not corroborated, only an initial and the surname matched, the document names several case numbers, the index returned several dockets, or the state is unknown. Weak records are still recorded; the identity build decides.
+9. **Weak flags.** A record is `weak` when the state is not corroborated, only an initial and the surname matched, the document names several case numbers, the index returned several dockets, or the state is unknown. Weak records are still recorded, now with `weak` and `basis_json` columns on `court_records` (migration 0008); the identity build decides. A row with only weak dockets has `court_status = candidate_only`, not `primary_record`, and a weak-only bulk or API result is a `miss` so the chain goes on to the modules that can confirm it.
 10. **Name matching** is an in-house parser, not `nameparser`. It handles given/middle/surname/suffix, "Last, First", particles, nicknames and aka; it has no knowledge of cultural name orders beyond that.
 11. **Identifier extraction is windowed to the subject's sentence** and abstains rather than guess when a release names several defendants and the facts cannot be attributed. This lowers yield on multi-defendant releases by design.
 12. **Downloads** are recorded as manifests, not copies; the raw files stay in `~/efp-data/bulk/` (off backup) and a download refuses to follow a redirect.
 13. **Two local indexes** live under `paths.bulk` (`doj_releases.sqlite`, `pin_reports.sqlite`): derived, rebuildable, every page behind them is a capture.
+14. **Bulk downloads do not check `robots.txt`.** `Capture.download` (and the bucket listing, which is `kind="api"`) fetches the CourtListener S3 bulk files from the address the listing names, under the domain's rate budget and logged, but without a `robots.txt` check, as for any documented data endpoint. The default I took: treat the bucket as a published dataset, not a scrape target. Say so if you want the check added.
+15. **API quota.** A row the CourtListener API could not be asked about (daily budget spent) finishes `done` with `court_status = deferred_quota` and an input hash that never matches, so `efp run court --recheck` revisits exactly those rows once the budget resets.
+16. **The row's `state` is free text.** `efp.court.doj.normalize_state` accepts a postal abbreviation or a full state name and treats anything else (blank, "N/A", "Unknown", "Multiple") as unknown. An unknown state applies no state filter and makes every docket match weak; before, a junk value was used as a filter and matched nothing. Ingest does not normalize the column; I could not read the real database to see which values occur, so this is a guard, not a fix for a known value.
 
 ## Done-when check
 

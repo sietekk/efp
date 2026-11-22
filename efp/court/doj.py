@@ -55,6 +55,22 @@ STATES = {
     "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
     "PR": "Puerto Rico", "GU": "Guam", "VI": "Virgin Islands",
 }  # fmt: skip
+_STATE_BY_NAME = {name.lower(): abbreviation for abbreviation, name in STATES.items()}
+
+
+def normalize_state(value: object) -> str | None:
+    """A row's state as a postal abbreviation, or None when it is not one we can place.
+
+    The workbook's state column is free text: besides "CT" it may hold a full name, "D.C.", blanks,
+    "N/A", "Unknown", "Multiple", or anything else. Only a value that names a state or territory
+    is used; everything else is unknown, never a filter that matches nothing."""
+    text = str(value or "").strip()
+    compact = text.replace(".", "").replace(" ", "").upper()
+    if compact in STATES:
+        return compact
+    return _STATE_BY_NAME.get(re.sub(r"\s+", " ", text).lower())
+
+
 DISTRICT = re.compile(
     r"\b(?:(Eastern|Western|Northern|Southern|Middle|Central)\s+)?District of "
     r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)"
@@ -129,6 +145,9 @@ class DojIndex:
             "next_page INTEGER NOT NULL, oldest TEXT, done INTEGER NOT NULL DEFAULT 0);"
         )
 
+    def close(self) -> None:
+        self.conn.close()
+
     def add(self, releases: list[Release]) -> None:
         self.conn.executemany(
             "INSERT OR IGNORE INTO releases (uuid, date, title, url, body, capture_id) "
@@ -180,6 +199,11 @@ class DojIndex:
         return int(self.conn.execute("SELECT count(*) FROM releases").fetchone()[0])
 
 
+TITLE_PROBES = (
+    3  # consecutive probes that find no keyword in the titles before the search is dropped
+)
+
+
 class DojClient:
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
@@ -188,6 +212,9 @@ class DojClient:
         # whether the server honours the title keyword is a property of the server, not of a row:
         # remembered on the capture client so it is probed once per run
         self.title_search_works: bool | None = getattr(cap(ctx), "_doj_title_works", None)
+
+    def close(self) -> None:
+        self.index.close()
 
     def _page(self, params: dict[str, str], row_id: int | None) -> list[Release]:
         record = cap(self.ctx).fetch(API, row_id=row_id, stage=STAGE, kind="api", params=params)
@@ -217,9 +244,18 @@ class DojClient:
             }
             releases = self._page(params, row_id)
             if page == 0:
-                self.title_search_works = honors_title(releases, keyword)
-                cap(self.ctx)._doj_title_works = self.title_search_works
-                if not self.title_search_works:
+                if honors_title(releases, keyword):
+                    self.title_search_works = True
+                    cap(self.ctx)._doj_title_works = True
+                else:
+                    # One keyword that matched nothing in the titles is weak evidence the server
+                    # ignores the parameter (it may match bodies, or the name may be absent from
+                    # titles): only several misses in a row disable the title search for the run.
+                    misses = getattr(cap(self.ctx), "_doj_title_misses", 0) + 1
+                    cap(self.ctx)._doj_title_misses = misses
+                    if misses >= TITLE_PROBES:
+                        self.title_search_works = False
+                        cap(self.ctx)._doj_title_works = False
                     return releases
             found.extend(releases)
             dated = [r.date.year for r in releases if r.date]
@@ -310,9 +346,10 @@ def match_release(
 def mentions_state(text: str, abbreviation: str | None) -> bool:
     """Does the text place the case in this state? ("Virginia" is not "West Virginia"; a
     Washington dateline is not the state.)"""
+    abbreviation = normalize_state(abbreviation)
     if not abbreviation:
         return False
-    name = STATES.get(abbreviation.upper(), "")
+    name = STATES.get(abbreviation, "")
     if name and re.search(
         rf"(?<!West )(?<!North )(?<!South )\b{re.escape(name)}\b(?!,? D\.?C)", text
     ):
@@ -386,6 +423,8 @@ class CourtDoj:
         except CaptureError as exc:
             cs.notes.append(f"DOJ API: {exc}"[:200])
             return ModuleResult(Outcome.miss)
+        finally:
+            client.close()  # one local index connection per row would pile up over a run
         matches = [
             m
             for r in releases
@@ -441,7 +480,7 @@ class CourtDoj:
             item.basis["initial_only"] = match.initial_only
             item.basis["document_has_several_case_numbers"] = several
             cs.located.append(item)
-            found_case = found_case or bool(numbers)
+            found_case = found_case or (bool(numbers) and not item.weak)  # weak never stops it
         return ModuleResult(
             Outcome.hit if found_case else Outcome.miss, wrote={"matched": len(matches)}
         )

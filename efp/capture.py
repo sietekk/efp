@@ -100,6 +100,15 @@ class CaptureError(Exception):
     """A fetch could not be completed (no response was received, or an input was invalid)."""
 
 
+class CaptureBudgetError(CaptureError):
+    """The domain's rate budget did not free up in time (a spent daily quota, typically)."""
+
+
+def _range_starts_at(content_range: str, offset: int) -> bool:
+    found = re.match(r"bytes\s+(\d+)-", content_range.strip())
+    return found is not None and int(found.group(1)) == offset
+
+
 def redact_url(url: str, *, api: bool = False) -> str:
     """The URL with credential-looking query parameters replaced, for anything that is stored."""
     parts = urlsplit(url)
@@ -431,37 +440,61 @@ class Capture:
                 for chunk in iter(lambda: handle.read(1 << 20), b""):
                     digest.update(chunk)
                     have += len(chunk)
+        if expected_size is not None and have > expected_size:
+            part.unlink()  # longer than the file can be: not a prefix of it, start over
+            digest, have = hashlib.sha256(), 0
         headers = {"Range": f"bytes={have}-"} if have else {}
-        try:
-            with self.session.cache_disabled():
-                response = self.session.get(
-                    url,
-                    stream=True,
-                    headers=headers,
-                    timeout=self.config.capture.timeout_seconds,
-                    allow_redirects=False,  # fetched from the address that was listed
-                )
-        except (RateLimitTimeout, requests.RequestException) as exc:
-            raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
-        with response:
-            if response.status_code == 200 and have:  # the server ignored the range: start over
-                digest, have = hashlib.sha256(), 0
-                part.unlink()
-            elif response.status_code in _REDIRECT_STATUS:
-                raise CaptureError(
-                    f"{redact_url(url, api=True)}: redirected; not followed (no robots check on a "
-                    "new host): download the final address deliberately"
-                )
-            elif response.status_code not in (200, 206):
-                raise CaptureError(f"{redact_url(url, api=True)}: HTTP {response.status_code}")
-            with part.open("ab") as out:
-                for chunk in response.iter_content(chunk_size=1 << 20):
-                    out.write(chunk)
-                    digest.update(chunk)
-                    have += len(chunk)
-            etag = response.headers.get("ETag")
-            modified = response.headers.get("Last-Modified")
+        etag: str | None = None
+        modified: str | None = None
+        status = 0
+        if expected_size is not None and have == expected_size:
+            status = 200  # a complete .part (killed before the rename): finalize without a request
+        else:
+            try:
+                with self.session.cache_disabled():
+                    response = self.session.get(
+                        url,
+                        stream=True,
+                        headers=headers,
+                        timeout=self.config.capture.timeout_seconds,
+                        allow_redirects=False,  # fetched from the address that was listed
+                    )
+            except (RateLimitTimeout, requests.RequestException) as exc:
+                raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
+            with response:
+                status = response.status_code
+                if status == 416 and have:  # asked for bytes past the end: the part is stale
+                    part.unlink()  # (a complete one was finalized above without a request)
+                    return self.download(
+                        url, dest, stage=stage, row_id=row_id, expected_size=expected_size
+                    )  # start again from zero; with no part left this cannot loop
+                if status == 200 and have:  # the server ignored the range: start over
+                    digest, have = hashlib.sha256(), 0
+                    part.unlink()
+                elif status in _REDIRECT_STATUS:
+                    raise CaptureError(
+                        f"{redact_url(url, api=True)}: redirected; not followed (no robots check "
+                        "on a new host): download the final address deliberately"
+                    )
+                elif status not in (200, 206):
+                    raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")
+                elif status == 206 and not _range_starts_at(
+                    response.headers.get("Content-Range", ""), have
+                ):
+                    part.unlink()
+                    raise CaptureError(
+                        f"{dest.name}: the server resumed at a different offset; the partial "
+                        "file was removed, run the download again"
+                    )
+                with part.open("ab") as out:
+                    for chunk in response.iter_content(chunk_size=1 << 20):
+                        out.write(chunk)
+                        digest.update(chunk)
+                        have += len(chunk)
+                etag = response.headers.get("ETag")
+                modified = response.headers.get("Last-Modified")
         if expected_size is not None and have != expected_size:
+            part.unlink(missing_ok=True)  # a wrong-sized part can never be resumed into the file
             raise CaptureError(f"{dest.name}: got {have} bytes, expected {expected_size}")
         part.replace(dest)
         manifest = {
@@ -478,7 +511,7 @@ class Capture:
             stage=stage,
             url_requested=url,
             url_final=url,
-            http_status=response.status_code,
+            http_status=status,
             content_type="application/json",
             tool="bulk_download",
             tool_version=package_version(),
@@ -657,7 +690,7 @@ class Capture:
         except _RetryableStatus as exc:
             return exc.response  # retries exhausted: a 429/5xx is still a capture
         except RateLimitTimeout as exc:
-            raise CaptureError(str(exc)) from exc
+            raise CaptureBudgetError(str(exc)) from exc
         except requests.RequestException as exc:
             raise CaptureError(
                 scrub_text(f"{redact_url(url, api=True)}: {type(exc).__name__}: {exc}")

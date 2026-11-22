@@ -29,7 +29,7 @@ import duckdb
 
 from efp.capture import CaptureError
 from efp.config import Config
-from efp.court.doj import STATES
+from efp.court.doj import STATES, normalize_state
 from efp.court.located import STAGE, CourtTask, Located, cap, store_text
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
@@ -460,6 +460,7 @@ def search_dockets(
     path = index_path(config)
     if not path.is_file() or not parts.usable:
         return []
+    state = normalize_state(state)  # junk is unknown: a filter on "N/A" would match nothing
     cfg = config.court
     surname = parts.surname.lower()
     escaped = surname.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -468,15 +469,21 @@ def search_dockets(
     first_ended = f"{year - cfg.terminated_slack_years}-01-01"
     con = duckdb.connect(str(path), read_only=True)
     try:
+        # pre-filter on the surname first (case name, or a party of the docket), then join only
+        # the candidates: the full dockets x parties join is never built per row
         rows = con.execute(
+            "WITH cand AS ("
+            "SELECT docket_id FROM dockets WHERE lower(case_name) LIKE ? ESCAPE '\\' "
+            "UNION SELECT dp.docket_id FROM parties p JOIN docket_parties dp "
+            "ON dp.party_id = p.party_id WHERE lower(p.name) LIKE ? ESCAPE '\\') "
             "SELECT d.docket_id, d.court_id, c.full_name, c.state, d.docket_number, d.case_name, "
             "CAST(d.date_filed AS VARCHAR), CAST(d.date_terminated AS VARCHAR), d.absolute_url, "
             "coalesce(string_agg(DISTINCT p.name, ' | '), '') "
-            "FROM dockets d LEFT JOIN courts c ON c.court_id = d.court_id "
+            "FROM cand JOIN dockets d ON d.docket_id = cand.docket_id "
+            "LEFT JOIN courts c ON c.court_id = d.court_id "
             "LEFT JOIN docket_parties dp ON dp.docket_id = d.docket_id "
             "LEFT JOIN parties p ON p.party_id = dp.party_id "
-            "WHERE (lower(d.case_name) LIKE ? ESCAPE '\\' OR lower(p.name) LIKE ? ESCAPE '\\') "
-            "AND (d.date_filed IS NULL OR d.date_filed <= CAST(? AS DATE)) "
+            "WHERE (d.date_filed IS NULL OR d.date_filed <= CAST(? AS DATE)) "
             "AND (d.date_terminated IS NULL OR d.date_terminated >= CAST(? AS DATE)) "
             "AND (? IS NULL OR c.state IS NULL OR c.state = ?) "
             "GROUP BY ALL",
@@ -583,7 +590,7 @@ class CourtBulk:
                     },
                     # several dockets for one name, or a weaker kind of match, is not settled
                     weak=(
-                        row.state is None
+                        normalize_state(row.state) is None
                         or hit.state is None
                         or len(hits) > 1
                         or hit.score < 3
@@ -592,4 +599,9 @@ class CourtBulk:
                     docket_id=hit.docket_id,
                 )
             )
-        return ModuleResult(Outcome.hit, wrote={"candidates": len(hits)})
+        # A weak-only result (several candidates, initial-only, state not corroborated) is kept as
+        # candidates but is not a hit: the chain goes on to the modules that can confirm it.
+        confirmed = any(not item.weak for item in cs.located if item.strategy == self.name)
+        return ModuleResult(
+            Outcome.hit if confirmed else Outcome.miss, wrote={"candidates": len(hits)}
+        )

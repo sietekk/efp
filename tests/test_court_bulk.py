@@ -363,3 +363,93 @@ def test_the_size_guard_refuses_a_download_over_the_configured_limit(
     with pytest.raises(CaptureError, match=r"court\.bulk_max_gb"):
         bulk.fetch_files(ctx, files, max_gb=1)
     cap.close()
+
+
+def _tiny_index(config: Config) -> None:
+    target = bulk.index_path(config)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(target))
+    con.execute(
+        "CREATE TABLE courts (court_id VARCHAR, full_name VARCHAR, short_name VARCHAR, "
+        "jurisdiction VARCHAR, state VARCHAR);"
+        "CREATE TABLE dockets (docket_id BIGINT, court_id VARCHAR, docket_number VARCHAR, "
+        "case_name VARCHAR, date_filed DATE, date_terminated DATE, pacer_case_id VARCHAR, "
+        "absolute_url VARCHAR);"
+        "CREATE TABLE docket_parties (docket_id BIGINT, party_id BIGINT);"
+        "CREATE TABLE parties (party_id BIGINT, name VARCHAR);"
+        "CREATE TABLE meta (key VARCHAR, value VARCHAR);"
+        "INSERT INTO courts VALUES ('ctd', 'District Court, D. Connecticut', 'D. Conn.', 'FD', 'CT');"
+        "INSERT INTO dockets VALUES "
+        "(1, 'ctd', '3:13-cr-1', 'United States v. Pat Lane', '2013-01-01', NULL, '1', '/d/1/'),"
+        "(2, 'ctd', '3:13-cr-2', 'Sealed matter', '2013-02-01', NULL, '2', '/d/2/'),"
+        "(3, 'ctd', '3:13-cr-3', 'United States v. Quinn Other', '2013-03-01', NULL, '3', '/d/3/');"
+        "INSERT INTO parties VALUES (10, 'Pat Lane'), (11, 'Sam Roe'), (12, 'Quinn Other');"
+        "INSERT INTO docket_parties VALUES (2, 10), (2, 11), (3, 12);"
+        "INSERT INTO meta VALUES ('dataset_date', '2026-09-30');"
+    )
+    con.close()
+
+
+def test_the_surname_prefilter_finds_a_case_name_match_and_a_party_only_match(
+    config: Config,
+) -> None:
+    _tiny_index(config)
+    hits = bulk.search_dockets(config, parse_name("Pat Lane"), state="CT", year=2014)
+    assert sorted(h.docket_number for h in hits) == ["3:13-cr-1", "3:13-cr-2"]  # not Quinn Other
+    by_number = {h.docket_number: h for h in hits}
+    assert "case name" in by_number["3:13-cr-1"].matched_on
+    assert "party name" in by_number["3:13-cr-2"].matched_on  # the case name does not carry it
+    roe = bulk.search_dockets(config, parse_name("Sam Roe"), state="CT", year=2014)
+    assert [h.docket_number for h in roe] == ["3:13-cr-2"]  # one row per docket, not per party
+
+
+def test_a_weak_only_bulk_result_is_a_miss_kept_as_candidates_not_a_primary_record(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    # two dockets for one name in one state: neither can be settled, so every match is weak
+    _tiny_index(config)
+    add_court_row(conn, 1, name="Pat Lane", details="Charged in U.S. District Court")
+    rsps.get("https://www.justice.gov/robots.txt", status=404)
+    rsps.get("https://www.justice.gov/api/v1/press_releases.json", json={"results": []})
+    rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
+    summary = process(config, conn, 1).summary_json
+    statuses = {m["name"]: m["status"] for m in summary["modules"]}  # type: ignore[index, union-attr]
+    assert statuses["court.courtlistener_bulk"] == "miss"  # the chain was not stopped by it
+    assert summary["court_status"] == "candidate_only"  # type: ignore[index]
+    flags = conn.execute("SELECT weak, basis_json FROM court_records").fetchall()
+    assert len(flags) == 2 and all(weak == 1 and json.loads(basis) for weak, basis in flags)
+
+
+@pytest.mark.parametrize("junk", ["", "N/A", "Unknown", "Multiple", "XX"])
+def test_an_unrecognised_state_is_unknown_not_a_filter_that_matches_nothing(
+    config: Config, loaded: bulk.LoadResult, junk: str
+) -> None:
+    unfiltered = bulk.search_dockets(config, parse_name("Alex Example"), state=None, year=2014)
+    assert {h.state for h in unfiltered} == {"CT", "NY"}
+    junked = bulk.search_dockets(config, parse_name("Alex Example"), state=junk, year=2014)
+    assert [h.docket_id for h in junked] == [h.docket_id for h in unfiltered]
+
+
+def test_a_full_state_name_filters_like_its_abbreviation(
+    config: Config, loaded: bulk.LoadResult
+) -> None:
+    hits = bulk.search_dockets(config, parse_name("Alex Example"), state="connecticut", year=2014)
+    assert [h.docket_number for h in hits] == ["3:13-cr-00045"]
+
+
+@pytest.mark.parametrize("junk", ["N/A", "Unknown", ""])
+def test_a_row_with_an_unrecognised_state_gets_only_weak_matches(
+    config: Config,
+    conn: sqlite3.Connection,
+    loaded: bulk.LoadResult,
+    rsps: responses.RequestsMock,
+    junk: str,
+) -> None:
+    add_court_row(conn, 1, state=junk, details="Charged in U.S. District Court")
+    rsps.get("https://www.justice.gov/robots.txt", status=404)
+    rsps.get("https://www.justice.gov/api/v1/press_releases.json", json={"results": []})
+    rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
+    summary = process(config, conn, 1).summary_json
+    assert summary["court_status"] == "candidate_only"  # type: ignore[index]
+    assert conn.execute("SELECT count(*) FROM court_records WHERE weak = 0").fetchone() == (0,)
+    assert conn.execute("SELECT count(*) FROM court_records WHERE weak = 1").fetchone()[0] >= 2

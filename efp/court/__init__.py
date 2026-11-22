@@ -14,6 +14,7 @@ without a change here.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import UTC, datetime
@@ -70,12 +71,18 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     )
 
 
-def court_status(located: list[Located]) -> str:
-    if any(item.source_kind in DOCKET_KINDS for item in located):
+def court_status(located: list[Located], *, quota_exhausted: bool = False) -> str:
+    """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
+    A row where nothing was found but the API quota ran out is ``deferred_quota``, not a
+    negative."""
+    dockets = [item for item in located if item.source_kind in DOCKET_KINDS]
+    if any(not item.weak for item in dockets):
         return "primary_record"
+    if dockets:
+        return "candidate_only"
     if located:
         return "press_release_only"
-    return "not_found"
+    return "deferred_quota" if quota_exhausted else "not_found"
 
 
 def _insert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> None:
@@ -105,7 +112,8 @@ def _insert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> None
         return
     conn.execute(
         "INSERT INTO court_records (row_id, source_kind, jurisdiction, court, case_number, "
-        "document_kind, strategy, capture_id, found_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "document_kind, strategy, capture_id, found_at, weak, basis_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row_id,
             item.source_kind,
@@ -116,6 +124,8 @@ def _insert_record(conn: sqlite3.Connection, row_id: int, item: Located) -> None
             item.strategy,
             item.capture_id,
             _now(),
+            int(item.weak),
+            json.dumps(item.basis, sort_keys=True, default=str),
         ),
     )
 
@@ -194,7 +204,8 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         _insert_record(conn, row.row_id, item)
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
-    status = court_status(state.located)
+    quota_hit = bool(state.flags.get("api_quota_exhausted"))
+    status = court_status(state.located, quota_exhausted=quota_hit)
     summary: dict[str, Any] = {
         "court_status": status,
         "classification": {"kind": classification.kind, "basis": classification.basis[:6]},
@@ -224,7 +235,8 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         row_id=row.row_id,
         stage=STAGE,
         status="done",
-        input_hash=input_hash(row, ctx, registry),
+        # a row the API could not be asked about must not look finished to ``--recheck``
+        input_hash=input_hash(row, ctx, registry) + (":quota" if quota_hit else ""),
         tool_version=TOOL_VERSION,
         summary_json=summary,
     )

@@ -504,3 +504,52 @@ def test_an_api_call_redirected_off_its_host_gets_that_hosts_robots_txt_checked(
     record = cap.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
     assert record.tool == "robots_disallow"
     assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]
+
+
+def test_download_finalizes_a_complete_part_without_a_request(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    dest = tmp_path / "bulk" / "f.csv"
+    dest.parent.mkdir()
+    (tmp_path / "bulk" / "f.csv.part").write_bytes(b"abcdef")  # killed before the rename
+    record = cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef" and not (tmp_path / "bulk" / "f.csv.part").exists()
+    assert record.http_status == 200 and not rsps.calls
+
+
+def test_download_drops_an_oversized_part_and_restarts(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abcdefgh")
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef"
+
+
+def test_download_416_drops_the_stale_part_and_restarts_from_zero(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abc")  # shorter than the file, but not a prefix of it
+    rsps.add(
+        responses.GET,
+        "https://example.test/f.csv",
+        status=416,
+        match=[responses.matchers.header_matcher({"Range": "bytes=3-"})],
+    )
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef" and not (tmp_path / "f.csv.part").exists()
+    assert [c.request.headers.get("Range") for c in rsps.calls] == ["bytes=3-", None]
+
+
+def test_download_wrong_size_does_not_leave_an_unresumable_part(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    with pytest.raises(CaptureError, match="expected 9"):
+        cap.download(
+            "https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=9
+        )
+    assert not (tmp_path / "f.csv.part").exists()

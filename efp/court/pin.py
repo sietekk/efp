@@ -97,6 +97,9 @@ class PinIndex:
         ).fetchall()
         return [r for r in rows if (m := match_name(parts, r[3])) and m.full]
 
+    def close(self) -> None:
+        self.conn.close()
+
     def count(self) -> int:
         return int(self.conn.execute("SELECT count(*) FROM entries").fetchone()[0])
 
@@ -149,32 +152,33 @@ class CourtPin:
         task: CourtTask = row  # type: ignore[assignment]
         cs = task.cs
         index = PinIndex(index_path(ctx.config))
-        self._ensure_indexed(ctx, index, task)
-        found = index.find(cs.parts)
-        cs.flags["pin"] = {"entries": index.count(), "matched": len(found)}
-        any_case = False
-        for url, pdf_capture, page, paragraph in found[:3]:
-            numbers = _CASE.findall(paragraph)
-            district = doj.DISTRICT.search(paragraph)
-            text_id = store_text(
-                ctx, task.row_id, parent_capture_id=pdf_capture, url=url, text=paragraph,
-                tool="pin_report_text", extra={"page": page},
-            )  # fmt: skip
-            cs.located.append(
-                Located(
-                    source_kind="pin_report",
-                    jurisdiction="US",
-                    court=district.group(0) if district else None,
-                    case_number=numbers[0] if numbers else None,
-                    document_kind="report_entry",
-                    url=url,
-                    strategy=self.name,
-                    capture_id=pdf_capture,
-                    text=paragraph,
-                    text_capture_id=text_id,
-                    basis={"page": page},
-                    weak=True,  # a report paragraph carries no state or date to corroborate
+        try:
+            self._ensure_indexed(ctx, index, task)
+            found = index.find(cs.parts)
+            cs.flags["pin"] = {"entries": index.count(), "matched": len(found)}
+            for url, pdf_capture, page, paragraph in found[:3]:
+                numbers = _CASE.findall(paragraph)
+                district = doj.DISTRICT.search(paragraph)
+                text_id = store_text(
+                    ctx, task.row_id, parent_capture_id=pdf_capture, url=url, text=paragraph,
+                    tool="pin_report_text", extra={"page": page},
+                )  # fmt: skip
+                cs.located.append(
+                    Located(
+                        source_kind="pin_report",
+                        jurisdiction="US",
+                        court=district.group(0) if district else None,
+                        case_number=numbers[0] if numbers else None,
+                        document_kind="report_entry",
+                        url=url,
+                        strategy=self.name,
+                        capture_id=pdf_capture,
+                        text=paragraph,
+                        text_capture_id=text_id,
+                        basis={"page": page},
+                        weak=True,  # a report paragraph carries no state or date to corroborate
+                    )
                 )
-            )
-            any_case = any_case or bool(numbers)
-        return ModuleResult(Outcome.hit if any_case else Outcome.miss)
+        finally:
+            index.close()
+        return ModuleResult(Outcome.miss)  # a report entry is always weak: recorded, never a stop

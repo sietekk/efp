@@ -17,8 +17,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from efp.capture import CaptureError
+from efp.capture import CaptureBudgetError, CaptureError
 from efp.court.bulk import index_info, state_of_court
+from efp.court.doj import normalize_state
 from efp.court.located import STAGE, CourtTask, Located, cap, store_text
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
@@ -95,15 +96,20 @@ def _search(
             headers={"Authorization": f"Token {secret}"},
         )
     if record.http_status == 429:
-        raise CaptureError("CourtListener throttled the request (HTTP 429)")
+        raise CaptureBudgetError("CourtListener throttled the request (HTTP 429)")
     if not record.ok:
         raise CaptureError(f"CourtListener answered HTTP {record.http_status}")
-    return parse_dockets(json.loads(cap(ctx).read_body(record))), record.capture_id
+    try:
+        payload = json.loads(cap(ctx).read_body(record))
+    except ValueError as exc:
+        raise CaptureError("CourtListener did not return JSON") from exc
+    return parse_dockets(payload), record.capture_id
 
 
 def search_party(
     ctx: Context, secret: str, parts: NameParts, *, state: str | None, year: int, row_id: int
 ) -> tuple[list[ApiDocket], int]:
+    state = normalize_state(state)
     params = {
         "type": "r",
         "party_name": f"{parts.given} {parts.surname}".strip(),
@@ -118,7 +124,7 @@ def search_party(
         if not (named and named.full):
             continue
         court_state = state_of_court(docket.court)
-        if state and court_state and court_state != state.upper():
+        if state and court_state and court_state != state:
             continue
         kept.append(docket)
     return kept[: ctx.config.court.top_candidates], capture_id
@@ -161,7 +167,7 @@ class CourtApi:
                 ctx, secret, cs.parts, state=row.state, year=row.year or 0, row_id=task.row_id
             )
         except CaptureError as exc:
-            quota = "budget not available" in str(exc) or "429" in str(exc)
+            quota = isinstance(exc, CaptureBudgetError)
             cs.flags["api_quota_exhausted"] = quota
             cs.notes.append(
                 "CourtListener daily budget spent: re-run later with --reset"
@@ -195,11 +201,14 @@ class CourtApi:
                     text=evidence,
                     text_capture_id=text_id,
                     basis={"recap_documents": len(docket.documents), "candidates": len(dockets)},
-                    weak=row.state is None,
+                    weak=normalize_state(row.state) is None,
                     docket_id=docket.docket_id,
                 )
             )
-        return ModuleResult(Outcome.hit if any(d.docket_number for d in dockets) else Outcome.miss)
+        confirmed = any(
+            not item.weak for item in cs.located if item.strategy == self.name and item.case_number
+        )
+        return ModuleResult(Outcome.hit if confirmed else Outcome.miss)
 
 
 @dataclass

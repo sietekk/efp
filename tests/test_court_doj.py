@@ -17,6 +17,7 @@ from tests.courthelpers import (
     add_court_row,
     court_config,
     doj_page,
+    make_ctx,
     process,
     release,
     release_html,
@@ -278,3 +279,113 @@ def test_the_captured_page_is_kept_and_a_robots_block_falls_back_to_the_api_body
     assert basis and not [c for c in rsps.calls if c.request.url == PR_URL]
     tool = conn.execute("SELECT tool FROM captures WHERE tool IN ('doj_release_text')").fetchone()
     assert tool is not None  # the body the API returned was kept as the text capture
+
+
+def test_one_keyword_missing_from_the_titles_does_not_disable_the_title_search(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(API, json=doj_page(release("Budget announcement", "x", uuid="a")))
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        states = []
+        for keyword in ("Alpha", "Beta", "Gamma"):
+            client = doj.DojClient(ctx)
+            try:
+                client.search_title(keyword, None, 2013)
+                states.append(client.title_search_works)
+            finally:
+                client.close()
+        # undecided after one and two misses, off only after doj.TITLE_PROBES of them
+        assert doj.TITLE_PROBES == 3 and states == [None, None, False]
+        again = doj.DojClient(ctx)
+        assert again.title_search_works is False  # remembered for the run
+        again.close()
+    finally:
+        cap.close()
+
+
+def test_a_server_that_honors_the_title_is_remembered_at_once(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(API, json=doj_page(release("Alex Example pleads guilty", "x", uuid="a")))
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        client = doj.DojClient(ctx)
+        client.search_title("Example", None, 2013)
+        assert client.title_search_works is True and doj.DojClient(ctx).title_search_works is True
+        client.close()
+    finally:
+        cap.close()
+
+
+def test_the_doj_index_connection_is_closed_after_each_row(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[doj.DojIndex] = []
+    original = doj.DojIndex.__init__
+
+    def tracking(self: doj.DojIndex, path: Path) -> None:
+        original(self, path)
+        opened.append(self)
+
+    monkeypatch.setattr(doj.DojIndex, "__init__", tracking)
+    add_court_row(conn, 1)
+    _site(rsps)
+    rsps.get(API, json=doj_page())
+    process(config, conn, 1)
+    assert opened
+    for index in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            index.count()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("CT", "CT"),
+        (" ct ", "CT"),
+        ("Connecticut", "CT"),
+        ("connecticut", "CT"),
+        ("D.C.", "DC"),
+        ("District of Columbia", "DC"),
+        ("", None),
+        (None, None),
+        ("N/A", None),
+        ("Unknown", None),
+        ("Multiple", None),
+        ("US", None),
+        ("XX", None),
+        (7, None),
+    ],
+)
+def test_a_state_value_is_used_only_when_it_names_a_state(
+    raw: object, expected: str | None
+) -> None:
+    assert doj.normalize_state(raw) == expected
+
+
+def test_a_junk_state_does_not_credit_a_release_with_the_state() -> None:
+    assert doj.mentions_state("Hartford, CT woman charged", "Connecticut")
+    assert not doj.mentions_state("Hartford, CT woman charged", "N/A")
+
+
+def test_a_release_whose_state_is_not_corroborated_is_recorded_but_does_not_stop_the_chain(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    add_court_row(conn, 1, state="CT")
+    body = (
+        "Alex Example, 47, of Dayton, Ohio, pleaded guilty to voting twice. "
+        "Case No. 3:13-cr-00045 is pending. " + ARTICLE
+    )  # an Ohio release for a Connecticut row: a different person, perhaps
+    _site(rsps, release_html(body))
+    rsps.get(API, json=doj_page(release("Alex Example pleads guilty to voter fraud", body)))
+    summary = process(config, conn, 1).summary_json
+    assert _modules(summary)["court.doj"] == "miss"  # a weak match never ends the search
+    assert "court.courtlistener_bulk" in _modules(summary)  # so the later strategies still ran
+    located = summary["located"][0]  # type: ignore[index]
+    assert located["weak"] is True and summary["court_status"] == "press_release_only"
+    weak_row = conn.execute("SELECT weak, basis_json FROM court_records").fetchone()
+    assert weak_row[0] == 1 and "state_corroborated" in weak_row[1]  # persisted for readers

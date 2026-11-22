@@ -187,7 +187,14 @@ def render_md(report: StatusReport) -> str:
     else:
         out.append("No stage has been attempted yet.")
     if report.court:
-        statuses = ("primary_record", "press_release_only", "gated_portal", "not_found")
+        statuses = (
+            "primary_record",
+            "candidate_only",
+            "press_release_only",
+            "gated_portal",
+            "deferred_quota",
+            "not_found",
+        )
         out += ["", "### Court status (federal and state kept apart)", ""]
         out += [
             "| classification | " + " | ".join(statuses) + " |",

@@ -206,6 +206,8 @@ def test_a_spent_daily_budget_is_a_note_and_the_row_still_completes(
     assert first.status == "done" and second.status == "done"
     assert second.summary_json["flags"]["api_quota_exhausted"] is True  # type: ignore[index]
     assert any("daily budget spent" in n for n in second.summary_json["notes"])  # type: ignore[union-attr]
+    assert second.summary_json["court_status"] == "deferred_quota"  # type: ignore[index]
+    assert second.input_hash and second.input_hash.endswith(":quota")  # --recheck revisits it
     assert len([c for c in rsps.calls if "courtlistener.com/api" in c.request.url]) == 1
     conn.close()
 
@@ -393,6 +395,10 @@ def test_court_status_values() -> None:
     docket = Located("federal_docket", None, None, "1:19-cr-1", "docket", None, "x", None)
     release = Located("doj_release", None, None, None, "press_release", None, "x", None)
     assert component.court_status([release, docket]) == "primary_record"
+    weak = Located("federal_docket", None, None, "1:19-cr-1", "docket", None, "x", None, weak=True)
+    assert component.court_status([release, weak]) == "candidate_only"
+    assert component.court_status([weak, docket]) == "primary_record"
+    assert component.court_status([], quota_exhausted=True) == "deferred_quota"
     assert component.court_status([release]) == "press_release_only"
     assert component.court_status([]) == "not_found"
 
@@ -508,7 +514,8 @@ def test_a_pre_2013_federal_row_matches_a_report_entry(
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=doj_page())
     result = process(config, conn, 1)
     summary = result.summary_json
-    assert _modules(summary)["court.pin_reports"] == "hit" and "court.doj" in _modules(summary)
+    assert _modules(summary)["court.pin_reports"] == "miss"  # recorded, but a report entry is weak
+    assert "court.courtlistener_bulk" in _modules(summary)  # so the chain went on
     record = conn.execute(
         "SELECT source_kind, case_number, document_kind, strategy FROM court_records"
     ).fetchone()
@@ -620,3 +627,84 @@ def test_two_api_calls_in_a_row_both_get_their_turn_under_the_real_per_request_b
         courtlistener.search_party(ctx, "tok", parse_name(name), state="CT", year=2014, row_id=1)
     cap.close()
     assert len([c for c in rsps.calls if "courtlistener.com/api" in c.request.url]) == 2
+
+
+def test_pin_index_closes_its_connection(tmp_path: Path) -> None:
+    index = pin.PinIndex(tmp_path / "pin.sqlite")
+    index.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        index.count()
+
+
+def test_the_pin_module_closes_its_index_after_every_row_even_on_an_error(
+    write_config: Callable[..., Path],
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url = "https://example.test/pin2010.pdf"
+    config = court_config(write_config, **{"pin_report_urls = []": f'pin_report_urls = ["{url}"]'})
+    from efp.db import connect
+
+    conn = connect(config)
+    opened: list[pin.PinIndex] = []
+    original = pin.PinIndex.__init__
+
+    def tracking(self: pin.PinIndex, path: Path) -> None:
+        original(self, path)
+        opened.append(self)
+
+    monkeypatch.setattr(pin.PinIndex, "__init__", tracking)
+    monkeypatch.setattr(pin, "_backend", lambda: lambda pdf: [pdf.decode()])
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get(url, body=b"Nothing relevant here at all, a long enough paragraph to be indexed ok.")
+    add_court_row(conn, 1, year=2010, details="U.S. District Court")
+    rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=doj_page())
+    process(config, conn, 1)
+    assert opened
+    for index in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            index.count()
+
+    def boom(self: pin.PinIndex, parts: Any) -> Any:
+        raise RuntimeError("index failure")
+
+    monkeypatch.setattr(pin.PinIndex, "find", boom)
+    add_court_row(conn, 2, year=2010, details="U.S. District Court", sha="2" * 64)
+    opened.clear()
+    summary = process(config, conn, 2).summary_json
+    assert _modules(summary)["court.pin_reports"] == "error" and opened
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[-1].count()
+    conn.close()
+
+
+def test_recheck_revisits_a_row_that_was_deferred_for_the_api_quota_and_only_that_row(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp import runner as rn
+    from efp.builtin_modules import register_builtin
+
+    register_builtin()
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
+    add_court_row(conn, 2, name="Pat Absent", details="U.S. District Court", sha="2" * 64)
+    for row_id in (1, 2):
+        conn.execute(
+            "INSERT INTO case_stage (row_id, stage, status) VALUES (?, 'resolve_links', 'done')",
+            (row_id,),
+        )
+    conn.commit()
+    _quiet_doj(rsps)
+    rsps.get(SEARCH, json={"results": []})
+    ctx, cap, _registry = make_ctx(config, conn)
+    rn.run_stage(conn, config, rn.RunOptions("court"), ctx, component=component)
+    # pretend row 2's API lookup had been refused for the daily quota when it ran
+    conn.execute(
+        "UPDATE case_stage SET input_hash = input_hash || ':quota' WHERE row_id = 2 AND stage = 'court'"
+    )
+    conn.commit()
+    again = rn.run_stage(
+        conn, config, rn.RunOptions("court", recheck=True), ctx, component=component
+    )
+    cap.close()
+    assert (again.noop, again.claimed) == (1, 1)  # row 1 unchanged; row 2 is tried again
