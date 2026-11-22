@@ -914,3 +914,44 @@ def test_a_county_only_state_with_an_account_portal_keeps_its_row_gated_without_
     record_portal(conn, "TX", "manual", "account: a login is required")
     summary = process(config, conn, 1).summary_json
     assert summary["court_status"] == "gated_portal"  # type: ignore[index]  # not deferred_coverage
+
+
+def test_a_truncated_answer_with_no_matching_hit_is_a_gap_with_a_query_never_not_found(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    cfg = cleared(config, "WI")
+    add_court_row(conn, 1, state="WI", details=STATE_COURT, year=2014)
+    record_portal(conn, "WI", "automated")
+    partial = {
+        "result": {
+            "cases": [
+                {
+                    "caseNo": "2014CF000001",
+                    "caption": "State v. Someone Else",
+                    "countyNo": 1,
+                    "countyName": "Dane",
+                    "filingDate": "2014-03-05",
+                }
+            ],
+            "hasMore": True,
+        }
+    }
+    rsps.post(WI_SEARCH, json=partial)
+    result = process(cfg, conn, 1)
+    summary = result.summary_json
+    assert summary["court_status"] == "deferred_coverage"  # type: ignore[index]  # not not_found
+    assert summary["assisted"]["name"] == "Example, Alex"  # type: ignore[index]  # the operator can finish it
+    assert result.input_hash and result.input_hash.endswith(":coverage")
+
+
+def test_a_gated_docket_portal_keeps_the_row_waiting_even_when_a_press_release_was_found() -> None:
+    from efp.court.located import Located
+
+    release = Located(
+        "doj_release", "US", None, None, "press_release", "u", "court.doj", None, weak=False
+    )
+    assert component.court_status([release]) == "press_release_only"
+    assert component.court_status([release], gated_portal=True) == "gated_portal"
+    docket = Located("state_docket", "WI", "c", "n", "docket", "u", "court.state_docket", None)
+    assert component.court_status([release, docket], gated_portal=True) == "primary_record"
+    assert component.court_status([release], gated_portal=True, errored=True) == "deferred_error"

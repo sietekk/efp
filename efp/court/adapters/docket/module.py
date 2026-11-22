@@ -177,7 +177,7 @@ class CourtStateDocket:
             return ModuleResult(Outcome.miss)
         adapter = adapter_cls(ctx)
         try:
-            return self._automated(adapter, task, ctx, state)
+            return self._automated(adapter, task, ctx, state, portal)
         except SiteBlocked as exc:
             refusals = cap(ctx).run_state.get(f"docket-refused-{state}", 0) + 1
             cap(ctx).run_state[f"docket-refused-{state}"] = refusals
@@ -198,7 +198,7 @@ class CourtStateDocket:
             return ModuleResult(Outcome.error, error=f"state docket {state}: {exc}"[:200])
 
     def _automated(
-        self, adapter: object, task: CourtTask, ctx: Context, state: str
+        self, adapter: object, task: CourtTask, ctx: Context, state: str, portal: str
     ) -> ModuleResult:
         cs = task.cs
         year = task.year or 0
@@ -232,6 +232,18 @@ class CourtStateDocket:
             )
         if truncated:
             cs.notes.append(f"{state} docket: the portal says its answer is incomplete (not paged)")
+            if not matched:
+                # nothing in a partial answer is no evidence of absence: the row is a coverage gap
+                # (deferred) and the operator gets the query to run the whole search themselves
+                cs.flags["docket_coverage_gap"] = True
+                cs.flags["assisted"] = build_query(
+                    portal_url=portal,
+                    platform=platform_of(portal),
+                    parts=cs.parts,
+                    year=year,
+                    after=after,
+                    row_id=task.row_id,
+                )
         any_case = False
         for position, (hit, initial_only) in enumerate(matched):
             if position >= cap_hits:

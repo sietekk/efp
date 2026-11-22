@@ -159,6 +159,8 @@ def court_status(
     gated_portal: bool = False,
 ) -> str:
     """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
+    ``gated_portal`` (the docket portal is assisted or wants an account or a fee) wins over a
+    press release or other non-docket record, since the docket search never ran.
     A row whose search could not be completed (a module failed, the API budget ran out, the DOJ
     harvest did not reach its years) is ``deferred_error`` / ``deferred_quota`` /
     ``deferred_coverage`` even when a press release was found: the docket search is unfinished, so
@@ -174,9 +176,10 @@ def court_status(
         return "deferred_quota"
     if coverage_gap:
         return "deferred_coverage"  # the DOJ harvest did not reach the row's years
-    if gated_portal and not located:
-        # nothing was found, and the only route left is a docket portal that wants an account, a
-        # fee, or a human (assisted): the row waits on the operator, not on a search that ended
+    if gated_portal:
+        # the docket search did not run: the portal wants an account, a fee, or a human (assisted).
+        # A press release found meanwhile does not finish the row (like a deferral, this wins over
+        # ``press_release_only``): it stays visible as waiting on the operator
         return "gated_portal"
     if any(not item.weak for item in located):
         return "press_release_only"  # a press release (or other record) that is not a candidate
