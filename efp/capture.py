@@ -93,6 +93,16 @@ CACHE_IGNORED = sorted(
 )
 
 _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def image_tag(image: str) -> str:
+    """The tag of a Docker image reference (``repo/name:1.13.2`` or ``repo/name:1.13.2@sha256:…``),
+    or "" when there is none (a bare name, or a digest-only pin)."""
+    name = image.split("@", 1)[0]
+    last = name.rsplit("/", 1)[-1]
+    return last.split(":", 1)[1] if ":" in last else ""
+
+
 MAX_WACZ_BYTES = 250 * 1024 * 1024  # a browser capture of one page is far smaller than this
 _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
@@ -657,9 +667,8 @@ class Capture:
         if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
             raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
         image = self.config.court.docket_browser_image
-        if "@sha256:" not in image and (
-            ":" not in image.rsplit("/", 1)[-1] or image.endswith(":latest")
-        ):
+        tag = image_tag(image)
+        if "@sha256:" not in image and tag in ("", "latest"):
             raise CaptureError(
                 f"court.docket_browser_image {image!r} is not pinned to a version or digest"
             )
@@ -744,7 +753,7 @@ class Capture:
             except (OSError, subprocess.TimeoutExpired):
                 image_id = ""
         digest = write_body(self.config.paths.store, data)
-        tag = image.split("@")[0].rsplit(":", 1)[-1] if ":" in image.rsplit("/", 1)[-1] else ""
+        digest_pin = image.split("@sha256:", 1)[1][:19] if "@sha256:" in image else ""
         return self._insert(
             row_id=row_id,
             stage=stage,
@@ -757,7 +766,10 @@ class Capture:
             warc_path=None,
             wacz_path=body_relpath(digest),
             tool="browsertrix",
-            tool_version=tag or image_id[:19] or "unknown",  # Browsertrix's, not efp's
+            tool_version=tag
+            or digest_pin
+            or image_id[:19]
+            or "unknown",  # Browsertrix's, not efp's
             manual_source=None,
             site_data_sha256=None,
             from_cache=False,

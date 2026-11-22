@@ -504,6 +504,11 @@ def court_docket_probe(
     snapshot: bool = typer.Option(
         False, "--snapshot", help="Also write reference/docket_probe.csv (the dated results)."
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Promote a state to automated even if its portal refused automated requests in a run.",
+    ),
 ) -> None:
     """Load each portal's search entry point once (never a search) and record its mode.
 
@@ -545,6 +550,20 @@ def court_docket_probe(
                 typer.echo(f"{code}: a portal was not judged; the recorded mode is kept")
                 continue
             cls = have.get(code)
+            held = ag_sync.recorded(conn, code, "docket")
+            if (
+                not force
+                and verdict.mode == "automated"
+                and held is not None
+                and held[0] == "assisted"
+                and "refusals in one run" in (held[1] or "")
+            ):
+                # The portal refused automated requests when searched; one entry-page load being
+                # let through does not undo that. Re-clearing it is the operator's call.
+                typer.echo(
+                    f"{code}: kept assisted (the portal refused automated searches); use --force"
+                )
+                continue
             ag_sync.write(
                 conn,
                 code,

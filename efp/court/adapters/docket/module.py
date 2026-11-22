@@ -131,6 +131,13 @@ class CourtStateDocket:
             if only_counties:
                 text = f"{row.source.get('details') or ''} {row.source.get('source_raw') or ''}"
                 chosen = county_portal(state, text)
+                if chosen is None and mode == "manual" and wants_of(reason) in GATING_WANTS:
+                    # the state's portals want an account or a fee: gated whatever the county
+                    cs.flags["gated_portal"] = True
+                    cs.notes.append(
+                        f"{state} docket portals are county-level and gated: {reason}"[:200]
+                    )
+                    return ModuleResult(Outcome.miss)
                 if chosen is None:
                     # not searched and not absent: no portal was probed for this county, so the
                     # row is a coverage gap (deferred), never a recorded negative

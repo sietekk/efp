@@ -866,3 +866,51 @@ def test_a_surname_only_row_is_assisted_and_no_search_is_sent_to_the_portal(
         assert adapters()["WI"](ctx).search("Example", 2014) == []  # and the adapter refuses too
     finally:
         cap.close()
+
+
+def test_a_probe_does_not_promote_a_portal_that_refused_automated_searches_unless_forced(
+    cli_config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seeds = tmp_path / "portals.csv"
+    seeds.write_text(
+        "state,portal,url,platform,scope,note\nWI,WCCA,https://wcca.example/,wcca,statewide,\n"
+    )
+    monkeypatch.setattr(dp, "seeds_path", lambda: seeds)
+    cfg_path = Path(cli_config.paths.data_dir).parent / "config.toml"
+    cfg_path.write_text(
+        cfg_path.read_text().replace("docket_terms_cleared = []", 'docket_terms_cleared = ["WI"]')
+    )
+    record_portal(conn, "WI", "assisted", "blocked: HTTP 403 (3 refusals in one run)")
+    rsps.get("https://wcca.example/", body="<form><input name='lastName'></form>")
+    result = _invoke("court", "docket", "probe")
+    assert "kept assisted" in result.output
+    assert (sync.recorded(conn, "WI", "docket") or ("",))[0] == "assisted"  # not flipped back
+    assert _invoke("court", "docket", "probe", "--force").exit_code == 0
+    assert (sync.recorded(conn, "WI", "docket") or ("",))[
+        0
+    ] == "automated"  # the operator re-cleared
+
+
+def test_the_image_tag_is_read_from_the_name_not_from_a_digest() -> None:
+    from efp.capture import image_tag
+
+    assert image_tag("webrecorder/browsertrix-crawler:1.13.2") == "1.13.2"
+    assert image_tag("registry:5000/bt:1.2@sha256:abc") == "1.2"
+    assert image_tag("repo/name@sha256:abcdef") == ""  # digest only: no tag to record
+    assert image_tag("repo/name") == ""
+
+
+def test_a_county_only_state_with_an_account_portal_keeps_its_row_gated_without_a_county(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    sync.write(
+        conn, "TX", mode="manual", portal=None, adapter_module=None, reason="x"
+    )  # AG: offline
+    add_court_row(conn, 1, state="TX", details="Charged in a Texas state court", year=2014)
+    record_portal(conn, "TX", "manual", "account: a login is required")
+    summary = process(config, conn, 1).summary_json
+    assert summary["court_status"] == "gated_portal"  # type: ignore[index]  # not deferred_coverage
