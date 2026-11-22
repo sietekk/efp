@@ -1,6 +1,6 @@
 # Maintenance 02: Remove robots.txt and politeness policies
 
-Branch: `maint/02-remove-robots` (stacked on `build/07-court-federal`; PR #9 is unmerged) · Date: 2026-11-22 · Decision: the operator's, deliberate (a project policy and research decision).
+Branch: `maint/02-remove-robots` (off `main` after build 07 merged as #9) · Date: 2026-11-22 · Decision: the operator's, deliberate (a project policy and research decision).
 
 ## What changed
 
@@ -23,4 +23,4 @@ The project no longer reads or honors `robots.txt`, and no longer carries polite
 
 - Rows already in a database keep their old `robots_disallow` captures (captures are append-only); nothing creates new ones.
 - A site that refuses a request now shows up as an HTTP error capture (for example 403), not as a policy skip; the court and link stages treat it as a failed fetch.
-- Build 08 (state AG harvester) stacks on this branch.
+- Build 08 (state AG harvester) stacks on this branch until it merges.

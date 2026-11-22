@@ -17,6 +17,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0006_capture_support.sql` | Capture layer: `captures` may set `wayback_url` and `tsa_token_path` once from NULL (nothing else); `spn_queue`, `manifests`, `manifest_tokens`, `manifest_captures` |
 | `0007_links_resolution.sql` | `links` rebuilt: `bitly_info` and `commoncrawl` methods, a `note` column, unique per row and URL |
 | `0008_court_records.sql` | `court_records` gains `weak`, `basis_json`, `docket_id`, `current`, `text_capture_id`; views `court_records_current`, `court_records_confirmed` (a filing is only as current and confirmed as its docket) and `court_identifiers_current`: later builds read the views, never the table |
+| `0009_state_adapters_broken.sql` | `state_adapters` rebuilt: `mode` also allows `broken` (a module whose live smoke failed) |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 
