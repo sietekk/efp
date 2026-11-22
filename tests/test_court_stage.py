@@ -766,7 +766,9 @@ def test_an_error_after_something_was_found_keeps_the_finding_but_still_retries(
         else:
             registry.register(_Silent(name))
     result = component.process_row(row_of(conn, 1), make_context(config, conn), registry)
-    assert result.summary_json["court_status"] == "press_release_only"
+    # the release is recorded, but the search did not finish: not a finished press_release_only
+    assert result.summary_json["court_status"] == "deferred_error"
+    assert result.summary_json["located"]  # type: ignore[truthy-bool]
     assert result.input_hash and result.input_hash.endswith(":error")
 
 
@@ -1070,3 +1072,31 @@ def test_the_harvest_inside_a_row_stops_after_its_page_budget_and_leaves_a_gap(
         client.close()
     finally:
         cap.close()
+
+
+def test_a_weak_record_yields_no_person_level_identifiers_only_its_case_number(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.court.located import Located
+    from efp.court.names import parse_name
+
+    add_court_row(conn, 1)
+    from tests.dbhelpers import insert_capture
+
+    cap_id = 900
+    insert_capture(conn, cap_id, 1, content_sha256="a" * 64)
+    text = "Alex Example, 47, of Dayton, Ohio, pleaded guilty in Case No. 3:13-cr-00045."
+
+    def item(weak: bool) -> Located:
+        return Located(
+            source_kind="doj_release", jurisdiction="US", court=None, case_number=None,
+            document_kind="press_release", url="u", strategy="court.doj", capture_id=cap_id,
+            text=text, text_capture_id=cap_id, weak=weak,
+        )  # fmt: skip
+
+    state = component.CaseState(component.classify("", "", []), parse_name("Alex Example"))
+    state.located = [item(True)]
+    weak_counts = component._insert_identifiers(conn, 1, state)
+    assert set(weak_counts) <= {"case_number"}
+    state.located = [item(False)]
+    assert {"age", "city"} & set(component._insert_identifiers(conn, 1, state))

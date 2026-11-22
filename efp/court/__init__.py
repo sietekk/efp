@@ -79,20 +79,22 @@ def court_status(
     coverage_gap: bool = False,
 ) -> str:
     """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
-    A row where nothing was found but the API quota ran out is ``deferred_quota``, and one where
-    a module failed is ``deferred_error``: neither is a negative result."""
+    A row whose search could not be completed (a module failed, the API budget ran out, the DOJ
+    harvest did not reach its years) is ``deferred_error`` / ``deferred_quota`` /
+    ``deferred_coverage`` even when a press release was found: the docket search is unfinished, so
+    it is not counted as a finished ``press_release_only``. None of them is a negative result."""
     dockets = [item for item in located if item.source_kind in DOCKET_KINDS]
     if any(not item.weak for item in dockets):
         return "primary_record"
     if dockets:
         return "candidate_only"
-    if located:
-        return "press_release_only"
     if errored:
         return "deferred_error"
-    if coverage_gap and not quota_exhausted:
+    if quota_exhausted:
+        return "deferred_quota"
+    if coverage_gap:
         return "deferred_coverage"  # the DOJ harvest did not reach the row's years
-    return "deferred_quota" if quota_exhausted else "not_found"
+    return "press_release_only" if located else "not_found"
 
 
 def _identity(conn: sqlite3.Connection, item: Located) -> str:
@@ -197,11 +199,18 @@ def _supersede(conn: sqlite3.Connection, row_id: int, evaluated: set[str], seen:
 
 
 def _insert_identifiers(conn: sqlite3.Connection, row_id: int, state: CaseState) -> dict[str, int]:
+    """Identifiers read from the located documents, each with its verbatim span.
+
+    A weak record (state not corroborated, an initial-only match, several candidates) may be about
+    someone else, so it yields no person-level fact (age, city, birth date, office, employer,
+    party); only its case number, which names the document and not the person, is kept."""
     counts: dict[str, int] = {}
     for item in state.located:
         if not item.text or item.text_capture_id is None:
             continue
         for found in extract_identifiers(item.text, state.parts):
+            if item.weak and found.kind != "case_number":
+                continue
             seen = conn.execute(
                 "SELECT 1 FROM identifiers WHERE row_id = ? AND kind = ? AND value = ? "
                 "AND capture_id = ? LIMIT 1",

@@ -174,6 +174,15 @@ An eleventh review round:
 
 New config key: `court.doj_harvest_pages_per_row` (documented in `config.example.toml`).
 
+A twelfth review round:
+
+| Issue | Fix |
+| --- | --- |
+| Identifiers (age, city, birth date, office, employer, party) were read from weak records too, so a release about a possibly different person fed this row's identity signals | A weak record yields only its case number (which names the document, not the person); person-level kinds come only from records that are not weak |
+| A row with a DOJ release whose docket search was deferred (quota, a module error, a harvest gap) was reported as the finished `press_release_only` | A deferral now wins over `press_release_only`: the row is `deferred_error`, `deferred_quota` or `deferred_coverage` (the release is still recorded). A docket result (`primary_record`, `candidate_only`) is unaffected |
+
+Known, accepted: `identifiers` has no column linking a value to the record it came from, so identifiers already written from a record that a later run supersedes stay in the table. Because only non-weak records feed person-level identifiers, this needs a record to be confirmed and then no longer found; the identity build can discount by capture if it matters.
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)
