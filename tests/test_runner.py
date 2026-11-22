@@ -119,10 +119,10 @@ def test_sample_restricts_to_the_frozen_rows(full_config: Config, db) -> None:  
 
 
 def test_a_stage_with_no_component_runs_nothing(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
-    set_stage(db, 1, "resolve_links", "done")  # court has a predecessor satisfied for row 1
-    summary = run(db, full_config, "court", None)  # no component is built for court yet
+    _done(db, 1, "resolve_links", "court")  # identity's predecessor is satisfied for row 1
+    summary = run(db, full_config, "identity", None)  # no component is built for identity yet
     assert summary.no_component and summary.claimed == 0
-    assert set(statuses(db, "court").values()) == {"pending"}
+    assert set(statuses(db, "identity").values()) == {"pending"}
 
 
 def test_stage_validation(full_config: Config, write_config: Callable[..., Path]) -> None:
@@ -311,14 +311,14 @@ def test_reset_repends_without_touching_captures(full_config: Config, db) -> Non
     run(db, full_config, "resolve_links", FakeComponent("resolve_links"))
     insert_capture(db, 1, 1, stage="resolve_links")
     db.commit()
-    set_stage(db, 1, "court", "skipped", gate_reason="x")
     set_stage(db, 1, "identity", "skipped", gate_reason="court_not_done")
-    set_stage(db, 2, "court", "done")
-    summary = run(db, full_config, "court", None, reset=True)
+    set_stage(db, 1, "news", "skipped", gate_reason="court_not_done")
+    set_stage(db, 2, "identity", "done")
+    summary = run(db, full_config, "identity", None, reset=True)  # (no identity component yet)
     assert summary.reset == 6
-    assert stage_of(db, 1, "court")["status"] == "pending"
-    assert stage_of(db, 2, "court")["input_hash"] is None
-    assert stage_of(db, 1, "identity")["status"] == "pending"  # a stranded skip is re-opened
+    assert stage_of(db, 1, "identity")["status"] == "pending"
+    assert stage_of(db, 2, "identity")["input_hash"] is None
+    assert stage_of(db, 1, "news")["status"] == "pending"  # a stranded skip is re-opened
     assert db.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
     assert stage_of(db, 2, "resolve_links")["status"] == "done"
 
@@ -503,10 +503,12 @@ def test_reset_cannot_be_combined_with_limit_and_respects_state(full_config: Con
     with pytest.raises(rn.RunnerError, match="--limit"):
         run(db, full_config, "resolve_links", FakeComponent("resolve_links"), reset=True, limit=2)
     for row_id in range(1, 7):
-        set_stage(db, row_id, "court", "done")
-    summary = run(db, full_config, "court", None, reset=True, state="CT")  # (no court component)
+        set_stage(db, row_id, "identity", "done")
+    summary = run(
+        db, full_config, "identity", None, reset=True, state="CT"
+    )  # (no identity component)
     assert summary.reset == 3
-    assert statuses(db, "court") == {
+    assert statuses(db, "identity") == {
         1: "pending",
         2: "done",
         3: "pending",

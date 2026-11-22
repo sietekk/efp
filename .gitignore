@@ -22,6 +22,8 @@ manifests/
 *.pdf
 !tests/fixtures/*.pdf
 logs/
+# Work lists name row ids and case numbers: they stay with the data.
+queues/*.csv
 
 # Python
 __pycache__/

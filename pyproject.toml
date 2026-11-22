@@ -110,6 +110,9 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "efp/runner.py" = ["S608"]
 "efp/status.py" = ["S608"]
 "efp/linkreport.py" = ["S608"]
+# Regular-expression tables read better unwrapped.
+"efp/court/identifiers.py" = ["E501"]
+"efp/court/classify.py" = ["E501"]
 
 [tool.mypy]
 strict = true

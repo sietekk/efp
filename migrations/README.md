@@ -15,6 +15,8 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0004_source_workbook.sql` | `source_workbook`: the ingested workbook's hash, immutable |
 | `0005_case_stage_summary.sql` | `case_stage.summary_json`: the runner's per-row outcome summary (module chain outcomes) |
 | `0006_capture_support.sql` | Capture layer: `captures` may set `wayback_url` and `tsa_token_path` once from NULL (nothing else); `spn_queue`, `manifests`, `manifest_tokens`, `manifest_captures` |
+| `0007_links_resolution.sql` | `links` rebuilt: `bitly_info` and `commoncrawl` methods, a `note` column, unique per row and URL |
+| `0008_court_records.sql` | `court_records` gains `weak`, `basis_json`, `docket_id`, `current`, `text_capture_id`; views `court_records_current`, `court_records_confirmed` (a filing is only as current and confirmed as its docket) and `court_identifiers_current`: later builds read the views, never the table |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 

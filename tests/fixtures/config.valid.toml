@@ -36,6 +36,22 @@ google_search_enabled = false
 commoncrawl_enabled = true
 bitly_info_enabled = true
 
+[court]
+pin_report_urls = []
+recap_enabled = false
+bulk_listing_url = "https://bulk.example.test/?list-type=2&prefix=bulk-data/"
+bulk_download_base = "https://bulk.example.test/"
+bulk_max_gb = 1
+bulk_index_file = "courtlistener.duckdb"
+window_years_after = 1
+terminated_slack_years = 1
+top_candidates = 5
+doj_year_slack = 1
+doj_pagesize = 50
+doj_harvest_max_pages = 10
+doj_harvest_pages_per_row = 5
+pacer_queue = "queues/pacer.csv"
+
 [rate_limits]
 default_rps = 0.5
 "example.test" = 1.0

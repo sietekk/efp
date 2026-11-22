@@ -11,7 +11,14 @@ import requests
 import responses
 import stamina
 
-from efp.capture import REDACTED, Capture, CaptureError, redact_headers, redact_url
+from efp.capture import (
+    REDACTED,
+    Capture,
+    CaptureBudgetError,
+    CaptureError,
+    redact_headers,
+    redact_url,
+)
 from efp.config import Config
 from efp.store import config_store_path
 from tests.capturehelpers import captures, headers_of, make_capture, warc_records
@@ -504,3 +511,277 @@ def test_an_api_call_redirected_off_its_host_gets_that_hosts_robots_txt_checked(
     record = cap.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
     assert record.tool == "robots_disallow"
     assert not [c for c in rsps.calls if c.request.url.endswith("/private/x")]
+
+
+def test_download_finalizes_a_complete_part_without_a_request(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    dest = tmp_path / "bulk" / "f.csv"
+    dest.parent.mkdir()
+    (tmp_path / "bulk" / "f.csv.part").write_bytes(b"abcdef")  # killed before the rename
+    record = cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef" and not (tmp_path / "bulk" / "f.csv.part").exists()
+    assert record.http_status == 200 and not rsps.calls
+
+
+def test_download_drops_an_oversized_part_and_restarts(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abcdefgh")
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef"
+
+
+def test_download_416_drops_the_stale_part_and_restarts_from_zero(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abc")  # shorter than the file, but not a prefix of it
+    (tmp_path / "f.csv.part.etag").write_text('"v1"')
+    rsps.add(
+        responses.GET,
+        "https://example.test/f.csv",
+        status=416,
+        match=[responses.matchers.header_matcher({"Range": "bytes=3-"})],
+    )
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef" and not (tmp_path / "f.csv.part").exists()
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert [c.request.headers.get("Range") for c in gets] == ["bytes=3-", None]
+
+
+def test_download_wrong_size_does_not_leave_an_unresumable_part(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    with pytest.raises(CaptureError, match="expected 9"):
+        cap.download(
+            "https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=9
+        )
+    assert not (tmp_path / "f.csv.part").exists()
+
+
+def test_download_retries_a_503_then_succeeds(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", status=503)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk", expected_size=6)
+    assert (tmp_path / "f.csv").read_bytes() == b"abcdef"
+    assert len([c for c in rsps.calls if c.request.url.endswith("f.csv")]) == 2
+
+
+def test_download_honors_robots_txt(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
+    with pytest.raises(CaptureError, match="robots"):
+        cap.download("https://example.test/bulk/f.csv", tmp_path / "f.csv", stage="bulk")
+    assert not (tmp_path / "f.csv.part").exists()
+    assert not [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+
+
+def test_wait_limit_is_per_thread(cap: Capture) -> None:
+    import threading
+
+    seen: list[float | None] = []
+    with cap.wait_limit(5):
+        worker = threading.Thread(target=lambda: seen.append(cap.adapter.max_wait))
+        worker.start()
+        worker.join()
+        assert cap.adapter.max_wait == 5
+    assert seen == [None] and cap.adapter.max_wait is None
+
+
+def test_download_resumes_after_the_connection_breaks_mid_stream(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", body=b"abcdef", headers={"ETag": '"v1"'})
+    rsps.get(
+        "https://example.test/f.csv",
+        body=b"def",
+        status=206,
+        headers={"Content-Range": "bytes 3-5/6", "ETag": '"v1"'},
+    )
+    real = requests.Response.iter_content
+    state = {"broke": False}
+
+    def flaky(self, chunk_size=1, decode_unicode=False):  # type: ignore[no-untyped-def]
+        if self.url.endswith("f.csv") and not state["broke"]:
+            state["broke"] = True
+            yield b"abc"
+            raise requests.exceptions.ChunkedEncodingError("connection reset")
+        yield from real(self, chunk_size, decode_unicode)
+
+    monkeypatch.setattr(requests.Response, "iter_content", flaky)
+    dest = tmp_path / "f.csv"
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef"
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert [c.request.headers.get("Range") for c in gets] == [None, "bytes=3-"]
+
+
+def test_download_that_keeps_breaking_ends_as_a_capture_error_with_the_part_kept(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+
+    real = requests.Response.iter_content
+
+    def broken(self, chunk_size=1, decode_unicode=False):  # type: ignore[no-untyped-def]
+        if not self.url.endswith("f.csv"):
+            yield from real(self, chunk_size, decode_unicode)
+            return
+        raise requests.exceptions.ConnectionError("reset")
+
+    monkeypatch.setattr(requests.Response, "iter_content", broken)
+    with pytest.raises(CaptureError, match="run the download again"):
+        cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk")
+
+
+def test_a_resume_sends_if_range_and_restarts_when_the_file_was_replaced(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"old")
+    (tmp_path / "f.csv.part.etag").write_text('"v1"')
+    # the server's file changed (a new ETag): it ignores the range and sends the new file whole
+    rsps.get("https://example.test/f.csv", body=b"newnew", headers={"ETag": '"v2"'})
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert gets[0].request.headers["If-Range"] == '"v1"'
+    assert dest.read_bytes() == b"newnew" and not (tmp_path / "f.csv.part.etag").exists()
+
+
+def test_a_robots_blocked_download_is_recorded_under_the_blocked_url(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
+    url = "https://example.test/bulk/f.csv"
+    with pytest.raises(CaptureError, match="robots"):
+        cap.download(url, tmp_path / "f.csv", stage="bulk")
+    row = cap._conn.execute(
+        "SELECT url_requested, tool FROM captures WHERE tool = 'robots_disallow'"
+    ).fetchone()
+    assert row == (url, "robots_disallow")  # the provenance row names the file, not the verb
+
+
+def test_a_domain_with_a_daily_cap_of_zero_is_a_budget_error_and_nothing_is_sent(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    off = config.model_copy(
+        update={
+            "rate_limits": type(config.rate_limits).model_validate(
+                {**config.rate_limits.model_dump(), "daily_caps": {"example.test": 0}}
+            )
+        }
+    )
+    insert_row(conn, 1)
+    conn.commit()
+    capture = make_capture(off, conn)
+    try:
+        with pytest.raises(CaptureBudgetError, match="switched off"):
+            capture.fetch("https://example.test/api/q", row_id=None, stage="x", kind="api")
+        assert not rsps.calls
+    finally:
+        capture.close()
+
+
+def test_retry_false_does_not_sleep_on_retry_after_and_the_last_attempt_does_not_either(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    stamina.set_testing(True, attempts=1, cap=False)  # this file's fixture forces 4: undo for one
+    insert_row(conn, 1)
+    sleeps: list[float] = []
+    cap = make_capture(config, conn, sleeps=sleeps)
+    _robots_ok(rsps)
+    rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "250"})
+    record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api", retry=False)
+    assert record.http_status == 429  # returned at once...
+    assert sleeps == []  # ...with no dead time spent on a retry that will not happen
+    assert len([c for c in rsps.calls if c.request.url.endswith("/busy")]) == 1
+    cap.close()
+
+
+def test_the_final_attempt_of_a_retried_fetch_does_not_sleep_after_it(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    insert_row(conn, 1)
+    sleeps: list[float] = []
+    cap = make_capture(config, conn, sleeps=sleeps)
+    _robots_ok(rsps)
+    rsps.get("https://example.test/busy", status=429, headers={"Retry-After": "7"})
+    record = cap.fetch("https://example.test/busy", row_id=1, stage="x", kind="api")
+    attempts = config.rate_limits.retry_attempts + 1
+    assert record.http_status == 429
+    assert sleeps == [7.0] * (attempts - 1)  # between attempts only, never after the last
+    cap.close()
+
+
+def test_a_part_with_no_validator_is_not_resumed_into_a_possibly_different_file(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"old")  # begun without an ETag or Last-Modified
+    rsps.get("https://example.test/f.csv", body=b"newnew")
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert [c.request.headers.get("Range") for c in gets] == [None]  # asked for the whole file
+    assert dest.read_bytes() == b"newnew"
+
+
+def test_a_last_modified_date_is_the_validator_when_there_is_no_strong_etag(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abc")
+    stamp = "Wed, 01 Jul 2026 00:00:00 GMT"
+    (tmp_path / "f.csv.part.etag").write_text(stamp)
+    rsps.get(
+        "https://example.test/f.csv",
+        body=b"def",
+        status=206,
+        headers={"Content-Range": "bytes 3-5/6", "Last-Modified": stamp},
+    )
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert gets[0].request.headers["If-Range"] == stamp and gets[0].request.headers["Range"]
+    assert dest.read_bytes() == b"abcdef"
+
+
+def test_a_416_for_a_part_that_is_the_whole_file_finishes_it_without_restarting(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"abcdef")  # complete; its size was not known beforehand
+    (tmp_path / "f.csv.part.etag").write_text('"v1"')
+    rsps.get(
+        "https://example.test/f.csv",
+        status=416,
+        headers={"Content-Range": "bytes */6", "ETag": '"v1"'},
+    )
+    record = cap.download("https://example.test/f.csv", dest, stage="bulk")
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert len(gets) == 1 and dest.read_bytes() == b"abcdef"  # finished, not downloaded again
+    assert record.http_status == 200 and not (tmp_path / "f.csv.part").exists()
+
+
+def test_run_state_is_cleared_with_the_throttles_at_the_start_of_a_run(cap: Capture) -> None:
+    cap.run_state["doj_title_works"] = False
+    cap.mark_throttled("courtlistener")
+    assert cap.once_per_run("x") and not cap.once_per_run("x")
+    cap.clear_throttles()
+    assert cap.run_state == {} and not cap.is_throttled("courtlistener") and cap.once_per_run("x")

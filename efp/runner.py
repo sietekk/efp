@@ -502,6 +502,9 @@ def run_stage(
             "--reset applies to every selected row; it cannot be combined with --limit "
             "(narrow it with --state, --year-from or --sample)"
         )
+    clear = getattr(ctx.capture, "clear_throttles", None)
+    if callable(clear):
+        clear()  # a 429 remembered from an earlier run of this process says nothing about this one
     previous = conn.isolation_level
     conn.isolation_level = None  # the runner issues BEGIN/COMMIT itself
     summary = RunSummary(stage)

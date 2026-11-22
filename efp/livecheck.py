@@ -25,6 +25,55 @@ from efp.selftest import Check
 CDX_TARGET = "https://www.iana.org/"  # a stable public page with a long Wayback history
 
 
+def _court_live(capture: Capture, config: Config) -> list[Check]:
+    """One DOJ press-release query and one CourtListener search."""
+    import json
+
+    from efp.court import doj
+    from efp.court.courtlistener import SEARCH, token
+    from efp.runner import make_context
+
+    out: list[Check] = []
+    try:
+        record = capture.fetch(
+            doj.API,
+            row_id=None,
+            stage="selftest",
+            kind="api",
+            params={"pagesize": "1", "sort": "date", "direction": "DESC"},
+        )
+        found = (
+            doj.parse_releases(json.loads(capture.read_body(record)), record.capture_id)
+            if record.ok
+            else []
+        )
+        out.append(
+            Check("live: doj press releases", bool(found), f"{len(found)} release(s) returned")
+        )
+    except (CaptureError, ValueError) as exc:
+        out.append(Check("live: doj press releases", False, str(exc)))
+    secret = token(make_context(config, None))
+    if not secret:
+        out.append(
+            Check("live: courtlistener search", False, "COURTLISTENER_TOKEN not set; skipped")
+        )
+        return out
+    try:
+        with capture.wait_limit(1.0):
+            record = capture.fetch(
+                SEARCH,
+                row_id=None,
+                stage="selftest",
+                kind="api",
+                params={"type": "r", "q": "United States v.", "page_size": "1"},
+                headers={"Authorization": f"Token {secret}"},
+            )
+        out.append(Check("live: courtlistener search", record.ok, f"HTTP {record.http_status}"))
+    except CaptureError as exc:
+        out.append(Check("live: courtlistener search", False, str(exc)))
+    return out
+
+
 def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
     capture = Capture(config, conn)
     checks: list[Check] = []
@@ -40,6 +89,7 @@ def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
             )
         except CaptureError as exc:
             checks.append(Check("live: wayback cdx", False, str(exc)))
+        checks.extend(_court_live(capture, config))
         digest = hashlib.sha256(b"efp selftest").digest()
         request = (
             TimestampRequestBuilder()

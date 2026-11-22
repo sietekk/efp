@@ -45,6 +45,23 @@ google_search_enabled = false     # optional discovery for pre-2017 coverage; ca
 commoncrawl_enabled = true        # resolve.commoncrawl: second chance for a dead link (not on the plan allowlist; operator enabled it for build 06)
 bitly_info_enabled = true         # resolve.bitly_info: Bitly's + page when a bit.ly/herit.ag link fails live (spec section 6; not on the plan allowlist; operator enabled it)
 
+[court]
+# Court-record stage (build 07).
+pin_report_urls = []              # Public Integrity Section "Federal Prosecution of Election Offenses" PDFs (2000-2012 editions); the operator supplies the URLs
+recap_enabled = false             # RECAP Fetch needs PACER credentials and costs fees; the first pass never fetches from PACER
+bulk_listing_url = "https://com-courtlistener-storage.s3-us-west-2.amazonaws.com/?list-type=2&prefix=bulk-data/"
+bulk_download_base = "https://com-courtlistener-storage.s3-us-west-2.amazonaws.com/"
+bulk_max_gb = 150                 # `efp court bulk fetch` refuses to download more than this
+bulk_index_file = "courtlistener.duckdb"   # inside paths.bulk
+window_years_after = 1            # a docket may be filed this many years after the row's year
+terminated_slack_years = 1        # and must not have ended this many years before it
+top_candidates = 5                # dockets kept per row from the bulk index
+doj_year_slack = 1                # DOJ releases within this many years of the row's year
+doj_pagesize = 50                 # the API maximum
+doj_harvest_max_pages = 4000      # cap on the date-sorted harvest used if the server ignores the title search
+doj_harvest_pages_per_row = 25    # pages of that harvest one row may fetch (~1 minute); `efp court doj harvest` does the rest in one go
+pacer_queue = "queues/pacer.csv"  # federal dockets whose documents are not in RECAP; a relative path is under paths.data_dir (it names row ids and case numbers)
+
 [rate_limits]
 # Requests per second per domain: 80% of the published limit, or 1 request per 2 seconds where none is published (spec section 10).
 default_rps = 0.5

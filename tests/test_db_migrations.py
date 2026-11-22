@@ -290,7 +290,14 @@ def test_migration_7_rebuilds_links_keeping_existing_rows(
     seventh = next(m for m in database.discover_migrations() if m.name == "links_resolution")
     held = migrations_copy / seventh.path.name
     text = held.read_text(encoding="utf-8")
-    held.unlink()  # a database as it stood before this migration
+    later = {  # a database as it stood before this migration: nothing after it either
+        m.path.name: m.path.read_text(encoding="utf-8")
+        for m in database.discover_migrations()
+        if m.id > seventh.id
+    }
+    held.unlink()
+    for name in later:
+        (migrations_copy / name).unlink()
     database.migrate(config)
     conn = database.connect(config, migrate=False, create=False)
     insert_row(conn)
@@ -301,7 +308,12 @@ def test_migration_7_rebuilds_links_keeping_existing_rows(
     conn.commit()
     conn.close()
     held.write_text(text, encoding="utf-8")
-    assert [m.name for m in database.migrate(config)] == ["links_resolution"]
+    for name, body in later.items():
+        (migrations_copy / name).write_text(body, encoding="utf-8")
+    assert [m.name for m in database.migrate(config)] == [
+        "links_resolution",
+        *(n.removesuffix(".sql").split("_", 1)[1] for n in later),
+    ]
     conn = database.connect(config, migrate=False, create=False)
     try:
         assert conn.execute(

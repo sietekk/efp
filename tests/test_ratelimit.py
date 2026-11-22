@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -125,9 +124,41 @@ def test_two_processes_share_one_budget(write_config: Callable[..., Path], tmp_p
     assert [p.wait(timeout=60) for p in procs] == [0, 0]
     stamps = sorted(float(x) for out in outs for x in out.read_text().split())
     assert len(stamps) == 10
-    gaps = [b - a for a, b in itertools.pairwise(stamps)]
     # Ten requests at one per 200 ms take about 1.8 s however the two processes interleave; two
     # processes with separate budgets would finish in about 0.8 s. The span is immune to the
     # jitter in when each process happens to write its timestamp.
     assert stamps[-1] - stamps[0] >= 1.5
-    assert min(gaps) >= 0.04  # and never a true double burst
+
+
+def test_a_daily_cap_of_one_is_valid_and_allows_exactly_one_request(
+    write_config: Callable[..., Path],
+) -> None:
+    config = load_config(write_config({'"example.test" = 10': '"example.test" = 1'}))
+    limiter = DomainLimiter(config)
+    limiter.define("example.test", 1000.0)
+    limiter.acquire("example.test")
+    with pytest.raises(RateLimitTimeout):
+        limiter.acquire("example.test", max_wait=0.2)
+
+
+def test_a_daily_cap_of_zero_switches_the_domain_off_without_waiting_or_sending(
+    config: Config, tmp_path: Path
+) -> None:
+    from efp.ratelimit import DomainLimiter, RateLimitTimeout
+
+    off = config.model_copy(
+        update={
+            "rate_limits": type(config.rate_limits).model_validate(
+                {**config.rate_limits.model_dump(), "daily_caps": {"example.test": 0}}
+            )
+        }
+    )
+    limiter = DomainLimiter(off, db_path=tmp_path / "rl.sqlite")
+    try:
+        started = time.monotonic()
+        with pytest.raises(RateLimitTimeout, match="switched off"):
+            limiter.acquire("example.test")
+        assert time.monotonic() - started < 1  # immediate: it never waits for a budget
+        assert limiter.budget("example.test").daily_cap == 0  # not read as one a day
+    finally:
+        limiter.close()

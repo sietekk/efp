@@ -22,6 +22,7 @@ stored. Nothing else in the codebase may import ``requests`` (a test enforces it
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -29,10 +30,12 @@ import sqlite3
 import threading
 import time
 import urllib.robotparser
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -95,6 +98,28 @@ _ROBOTS_TOOL = "robots_txt"
 
 class CaptureError(Exception):
     """A fetch could not be completed (no response was received, or an input was invalid)."""
+
+
+class CaptureBudgetError(CaptureError):
+    """The domain's rate budget did not free up in time (a spent daily quota, typically)."""
+
+
+def _unsatisfied_total(content_range: str) -> int | None:
+    """N from a 416's ``Content-Range: bytes */N`` (the length of the server's file)."""
+    found = re.match(r"bytes\s+\*/(\d+)", content_range.strip())
+    return int(found.group(1)) if found else None
+
+
+def _validator(etag: str | None, modified: str | None) -> str | None:
+    """What a resume sends as If-Range: a strong ETag, else the Last-Modified date."""
+    if etag and not etag.startswith("W/"):
+        return etag
+    return modified or None
+
+
+def _range_starts_at(content_range: str, offset: int) -> bool:
+    found = re.match(r"bytes\s+(\d+)-", content_range.strip())
+    return found is not None and int(found.group(1)) == offset
 
 
 def redact_url(url: str, *, api: bool = False) -> str:
@@ -199,12 +224,21 @@ class _PoliteAdapter(HTTPAdapter):
         super().__init__(*args, **kwargs)
         self._limiter = limiter
         self.network_requests = 0
+        self._local = threading.local()  # wait_limit is per thread: a parallel fetch keeps its own
+
+    @property
+    def max_wait(self) -> float | None:
+        return getattr(self._local, "max_wait", None)
+
+    @max_wait.setter
+    def max_wait(self, value: float | None) -> None:
+        self._local.max_wait = value
 
     def send(
         self, request: requests.PreparedRequest, *args: Any, **kwargs: Any
     ) -> requests.Response:
         host = urlsplit(request.url or "").hostname or ""
-        self._limiter.acquire(host)
+        self._limiter.acquire(host, max_wait=self.max_wait)
         self.network_requests += 1
         return super().send(request, *args, **kwargs)
 
@@ -239,6 +273,10 @@ class Capture:
         self.limiter = limiter or DomainLimiter(config)
         self.warcs = WarcStore(config.paths.warc, software=f"efp/{package_version()}")
         self._robots: dict[str, _Robots] = {}
+        self._throttled: set[str] = set()  # services that answered 429 in this run
+        self._failed: set[str] = set()  # URLs that could not be fetched in this run
+        self._once: set[str] = set()  # work done once per run (see once_per_run)
+        self.run_state: dict[str, Any] = {}  # what a component learned this run (cleared per run)
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
         self._ua_token = self.user_agent.split("/")[0].split()[0]
@@ -389,6 +427,239 @@ class Capture:
 
         return perma.archive(self, url, secrets)
 
+    # --- throttle memory ---------------------------------------------------------------------
+
+    def mark_throttled(self, name: str) -> None:
+        """Remember that ``name`` (a service) answered 429, so the rest of this run does not ask."""
+        self._throttled.add(name)
+
+    def is_throttled(self, name: str) -> bool:
+        return name in self._throttled
+
+    def clear_throttles(self) -> None:
+        """Forget every throttle and failed fetch (the runner calls this at the start of a run)."""
+        self._throttled.clear()
+        self._failed.clear()
+        self._once.clear()
+        self.run_state.clear()
+
+    def note_failed(self, url: str) -> None:
+        """Remember that ``url`` could not be fetched, so this run tries it once (not per row)."""
+        self._failed.add(url)
+
+    def failed_this_run(self, url: str) -> bool:
+        return url in self._failed
+
+    def once_per_run(self, key: str) -> bool:
+        """True the first time ``key`` is asked in a run, False after (for a refresh done once)."""
+        if key in self._once:
+            return False
+        self._once.add(key)
+        return True
+
+    @contextmanager
+    def wait_limit(self, seconds: float) -> Iterator[None]:
+        """Within this block a fetch waits at most ``seconds`` for a domain budget, then raises
+        ``CaptureError``. For a daily quota (CourtListener's 125 a day), where waiting is no use."""
+        previous = self.adapter.max_wait
+        self.adapter.max_wait = seconds
+        try:
+            yield
+        finally:
+            self.adapter.max_wait = previous
+
+    def download(
+        self,
+        url: str,
+        dest: Path,
+        *,
+        stage: str,
+        row_id: int | None = None,
+        expected_size: int | None = None,
+        _resumes: int = 0,
+    ) -> CaptureRecord:
+        """Stream a large file to ``dest`` (resumable), hashing as it goes.
+
+        Bulk datasets run to tens of gigabytes, so they are not copied into the WARC or the
+        content store. The call still takes the domain's budget and is recorded: the ``captures``
+        row's body is a small JSON manifest (URL, size, SHA-256, ETag, last-modified, path), which
+        is the provenance of the file the loader later reads.
+        """
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+            raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + ".part")
+        digest = hashlib.sha256()
+        have = 0
+        if part.exists():  # resume: re-hash what is there, ask for the rest
+            with part.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+                    have += len(chunk)
+        if expected_size is not None and have > expected_size:
+            part.unlink()  # longer than the file can be: not a prefix of it, start over
+            digest, have = hashlib.sha256(), 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        tag_file = part.with_name(part.name + ".etag")  # the validator the part was started under
+        tag = ""
+        if have and tag_file.is_file():
+            tag = tag_file.read_text(encoding="utf-8").strip()
+            if tag.startswith("W/"):  # a weak validator cannot be used for If-Range
+                tag = ""
+        whole_part = expected_size is not None and have == expected_size
+        if have and not tag and not whole_part:
+            # Nothing says the server's file is still the one this part came from (the part was
+            # begun without a strong ETag or a Last-Modified date): resuming could splice two
+            # files into one that then hashes as if it were genuine. Start again.
+            part.unlink()
+            digest, have = hashlib.sha256(), 0
+            headers = {}
+        elif have and tag:
+            headers["If-Range"] = tag  # file replaced since: the server answers 200, in full
+        etag: str | None = None
+        modified: str | None = None
+        status = 0
+        if expected_size is not None and have == expected_size:
+            status = 200  # a complete .part (killed before the rename): finalize without a request
+        else:
+            if self.config.rate_limits.honor_robots_txt:
+                blocked = self._robots_block(url, url, row_id=row_id, stage=stage)
+                if blocked is not None:  # recorded as a robots_disallow capture, never bypassed
+                    raise CaptureError(f"{redact_url(url, api=True)}: disallowed by robots.txt")
+            response = self._open_download(url, headers)
+            with response:
+                status = response.status_code
+                if status == 416 and have:
+                    # "bytes */N": the server's file is N long. N == what we hold means the part
+                    # is the whole file (killed before the rename, size not known beforehand):
+                    # finish it. Anything else means the part is stale: start again from zero.
+                    total = _unsatisfied_total(response.headers.get("Content-Range", ""))
+                    if total == have:
+                        status = 200
+                        etag = response.headers.get("ETag")
+                        modified = response.headers.get("Last-Modified")
+                    else:
+                        part.unlink()
+                        return self.download(
+                            url,
+                            dest,
+                            stage=stage,
+                            row_id=row_id,
+                            expected_size=expected_size,
+                            _resumes=_resumes,
+                        )  # with no part left this cannot loop
+                else:
+                    if status == 200 and have:  # the server ignored the range: start over
+                        digest, have = hashlib.sha256(), 0
+                        part.unlink()
+                    elif status in _REDIRECT_STATUS:
+                        raise CaptureError(
+                            f"{redact_url(url, api=True)}: redirected; not followed (no "
+                            "robots check on a new host): download the final address deliberately"
+                        )
+                    elif status not in (200, 206):
+                        raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")
+                    elif status == 206 and not _range_starts_at(
+                        response.headers.get("Content-Range", ""), have
+                    ):
+                        part.unlink()
+                        raise CaptureError(
+                            f"{dest.name}: the server resumed at a different offset; the partial "
+                            "file was removed, run the download again"
+                        )
+                    validator = _validator(
+                        response.headers.get("ETag"), response.headers.get("Last-Modified")
+                    )
+                    if validator:
+                        tag_file.write_text(validator, encoding="utf-8")
+                    else:
+                        tag_file.unlink(missing_ok=True)
+                    try:
+                        with part.open("ab") as out:
+                            for chunk in response.iter_content(chunk_size=1 << 20):
+                                out.write(chunk)
+                                digest.update(chunk)
+                                have += len(chunk)
+                    except requests.RequestException as exc:
+                        # The connection broke mid-stream: what arrived is in the .part file, so
+                        # ask again for the rest (a bounded number of times), then give up cleanly.
+                        limits = self.config.rate_limits
+                        if _resumes >= limits.retry_attempts:
+                            raise CaptureError(
+                                scrub_text(
+                                    f"{dest.name}: the connection broke after {have} bytes "
+                                    f"({type(exc).__name__}); run the download again to resume"
+                                )
+                            ) from exc
+                        self._sleep(limits.retry_backoff_seconds * 2.0 ** (_resumes + 1))
+                        return self.download(
+                            url,
+                            dest,
+                            stage=stage,
+                            row_id=row_id,
+                            expected_size=expected_size,
+                            _resumes=_resumes + 1,
+                        )
+                    etag = response.headers.get("ETag")
+                    modified = response.headers.get("Last-Modified")
+        if expected_size is not None and have != expected_size:
+            part.unlink(missing_ok=True)  # a wrong-sized part can never be resumed into the file
+            raise CaptureError(f"{dest.name}: got {have} bytes, expected {expected_size}")
+        part.replace(dest)
+        tag_file.unlink(missing_ok=True)
+        manifest = {
+            "url": redact_url(url, api=True),
+            "path": str(dest),
+            "size": have,
+            "sha256": digest.hexdigest(),
+            "etag": etag,
+            "last_modified": modified,
+        }
+        return self.store_bytes(
+            json.dumps(manifest, sort_keys=True).encode(),
+            row_id=row_id,
+            stage=stage,
+            url_requested=url,
+            url_final=url,
+            http_status=status,
+            content_type="application/json",
+            tool="bulk_download",
+            tool_version=package_version(),
+            headers=manifest,
+        )
+
+    def _open_download(self, url: str, headers: dict[str, str]) -> requests.Response:
+        """GET for a download, retried with a pause on 429/5xx like ``fetch`` (a download is the
+        same politeness: the domain budget is taken per attempt)."""
+        limits = self.config.rate_limits
+        attempts = limits.retry_attempts + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                with self.session.cache_disabled():
+                    response = self.session.get(
+                        url,
+                        stream=True,
+                        headers=headers,
+                        timeout=self.config.capture.timeout_seconds,
+                        allow_redirects=False,  # fetched from the address that was listed
+                    )
+            except RateLimitTimeout as exc:
+                raise CaptureBudgetError(str(exc)) from exc
+            except requests.RequestException as exc:
+                raise CaptureError(scrub_text(f"{redact_url(url, api=True)}: {exc}")) from exc
+            if response.status_code not in _RETRY_STATUS or attempt == attempts:
+                return response
+            self._honor_retry_after(response)
+            if not response.headers.get("Retry-After", "").isdigit():
+                self._sleep(
+                    min(
+                        limits.retry_backoff_seconds * 2.0**attempt,
+                        self.config.capture.max_wait_seconds,
+                    )
+                )
+            response.close()
+        raise CaptureError("no response received")  # unreachable
+
     def store_bytes(
         self,
         data: bytes,
@@ -534,9 +805,10 @@ class Capture:
         limits = self.config.rate_limits
         last: requests.Response | None = None
         try:
+            max_attempts = limits.retry_attempts + 1 if retry else 1
             for attempt in stamina.retry_context(
                 on=(requests.ConnectionError, requests.Timeout, _RetryableStatus),
-                attempts=limits.retry_attempts + 1 if retry else 1,
+                attempts=max_attempts,
                 wait_initial=limits.retry_backoff_seconds,
                 wait_max=max(limits.retry_backoff_seconds * 8, limits.retry_backoff_seconds),
                 wait_jitter=limits.retry_backoff_seconds / 2,
@@ -556,12 +828,13 @@ class Capture:
                     if response.status_code in _RETRY_STATUS and not getattr(
                         response, "from_cache", False
                     ):
-                        self._honor_retry_after(response)
+                        if attempt.num < max_attempts:  # only when another attempt follows
+                            self._honor_retry_after(response)
                         raise _RetryableStatus(response)
         except _RetryableStatus as exc:
             return exc.response  # retries exhausted: a 429/5xx is still a capture
         except RateLimitTimeout as exc:
-            raise CaptureError(str(exc)) from exc
+            raise CaptureBudgetError(str(exc)) from exc
         except requests.RequestException as exc:
             raise CaptureError(
                 scrub_text(f"{redact_url(url, api=True)}: {type(exc).__name__}: {exc}")
