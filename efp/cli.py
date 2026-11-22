@@ -537,7 +537,13 @@ def court_docket_probe(
         )
         best = docket_probe.best_per_state(probed)
         per_state = Counter(p.seed.state for p in probed)
+        unjudged = {p.seed.state for p in probed if p.verdict is None}
         for code, verdict in best.items():
+            if code in unjudged:
+                # a portal of this state could not be judged (a transient failure): the best of the
+                # others must not replace what is recorded; the state is probed again next time
+                typer.echo(f"{code}: a portal was not judged; the recorded mode is kept")
+                continue
             cls = have.get(code)
             ag_sync.write(
                 conn,

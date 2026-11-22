@@ -33,6 +33,7 @@ class DocketPortal:
         self.ctx = ctx
         self.config = ctx.config
         self.search_capture_id: int | None = None  # the capture of the last search answer
+        self.search_truncated = False  # the answer says it holds more than it returned
 
     @property
     def adapter_module(self) -> str:

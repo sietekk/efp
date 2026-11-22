@@ -201,13 +201,39 @@ class CourtStateDocket:
             ):
                 continue
             matched.append((hit, named.initial_only))
-        cs.flags["state_docket"] = {"state": state, "hits": len(hits), "matched": len(matched)}
+        cap_hits = ctx.config.court.docket_max_hits
+        truncated = bool(getattr(adapter, "search_truncated", False))
+        over = len(matched) > cap_hits
+        cs.flags["state_docket"] = {
+            "state": state,
+            "hits": len(hits),
+            "matched": len(matched),
+            "truncated": truncated,
+            "over_cap": over,
+        }
+        if over:
+            cs.notes.append(
+                f"{state} docket: {len(matched)} dockets match the name; {cap_hits} recorded from "
+                "the search answer, no detail pages or documents fetched (a common name)"
+            )
+        if truncated:
+            cs.notes.append(f"{state} docket: the portal says its answer is incomplete (not paged)")
         any_case = False
-        for hit, initial_only in matched:
-            record = adapter.fetch(hit, row_id=task.row_id)  # type: ignore[attr-defined]
-            # a browser capture (WACZ) has no HTTP status of its own: its tool is the success
-            if not (record.ok or record.tool == "browsertrix"):
-                cs.notes.append(f"{state} docket page {hit.url}: HTTP {record.http_status}"[:200])
+        for position, (hit, initial_only) in enumerate(matched):
+            if position >= cap_hits:
+                break
+            source_id = getattr(adapter, "search_capture_id", None)
+            if over or source_id is None:
+                record = None  # a common name: the search answer alone is the evidence
+            else:
+                record = adapter.fetch(hit, row_id=task.row_id)  # type: ignore[attr-defined]
+                # a browser capture (WACZ) has no HTTP status of its own: its tool is the success
+                if not (record.ok or record.tool == "browsertrix"):
+                    cs.notes.append(
+                        f"{state} docket page {hit.url}: HTTP {record.http_status}"[:200]
+                    )
+                    continue
+            if record is None and source_id is None:
                 continue
             evidence = (
                 f"{hit.caption}\n{hit.court}\nCase No. {hit.case_number}\n"
@@ -215,7 +241,7 @@ class CourtStateDocket:
             )
             # The caption, number and date come from the search answer, so that capture is the
             # record's source; the detail page is kept beside it.
-            source_id = getattr(adapter, "search_capture_id", None) or record.capture_id
+            source_id = source_id or (record.capture_id if record else 0)
             text_id = store_text(
                 ctx,
                 task.row_id,
@@ -229,8 +255,8 @@ class CourtStateDocket:
                 for f in ident.extract_identifiers(evidence, cs.parts)
                 if f.kind == "case_number"
             ] or [hit.case_number]
-            documents = self._documents(adapter, task, hit, cs.notes)
-            weak = initial_only or len(matched) > 1
+            documents = [] if over else self._documents(adapter, task, hit, cs.notes)
+            weak = initial_only or len(matched) > 1 or truncated
             cs.located.append(
                 Located(
                     source_kind="state_docket",
@@ -246,7 +272,8 @@ class CourtStateDocket:
                     basis={
                         # the record's identity: case numbers repeat across counties
                         "release_uuid": f"{state}:{hit.court}:{hit.case_number}",
-                        "detail_capture": record.capture_id,
+                        "detail_capture": record.capture_id if record else None,
+                        "result_truncated": truncated,
                         "evidence": "composed from the fields of the search answer",
                         "initial_only": initial_only,
                         "several_hits": len(matched) > 1,

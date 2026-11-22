@@ -772,3 +772,80 @@ def test_an_unpinned_browser_image_and_an_oversized_wacz_are_refused(
             cap2.browser("https://example.test/s", row_id=1, stage="court")
     finally:
         cap2.close()
+
+
+# --- review: a common name is capped, a truncated answer is a candidate, a transient keeps the mode ------
+
+
+def _many(n: int) -> dict[str, Any]:
+    return {
+        "result": {
+            "cases": [
+                {
+                    "caseNo": f"2014CF{i:06d}",
+                    "caption": "State of Wisconsin vs. Alex Example",
+                    "countyName": "Dane",
+                    "countyNo": i,
+                    "filingDate": "2014-03-05",
+                }
+                for i in range(n)
+            ]
+        }
+    }
+
+
+def test_a_common_name_records_at_most_the_cap_from_the_search_answer_and_fetches_nothing_more(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    cfg = cleared(config, "WI")  # the fixture's docket_max_hits is 3
+    add_court_row(conn, 1, state="WI", details=STATE_COURT, year=2014)
+    record_portal(conn, "WI", "automated")
+    rsps.post(WI_SEARCH, json=_many(12))
+    summary = process(cfg, conn, 1).summary_json
+    assert not [c for c in rsps.calls if "caseDetail" in c.request.url]  # no detail page, no PDF
+    assert conn.execute("SELECT count(*) FROM court_records").fetchone()[0] == 3
+    assert conn.execute("SELECT count(*) FROM court_records WHERE weak = 0").fetchone()[0] == 0
+    assert summary["court_status"] == "candidate_only"  # type: ignore[index]
+    flags = summary["flags"]["state_docket"]  # type: ignore[index]
+    assert flags["matched"] == 12 and flags["over_cap"] is True
+    assert any("a common name" in n for n in summary["notes"])  # type: ignore[union-attr]
+
+
+def test_an_answer_that_says_it_has_more_is_never_treated_as_complete(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    cfg = cleared(config, "WI")
+    add_court_row(conn, 1, state="WI", details=STATE_COURT, year=2014)
+    record_portal(conn, "WI", "automated")
+    one = _many(1)
+    one["result"]["totalCount"] = 40  # more cases than came back; no pagination is implemented
+    rsps.post(WI_SEARCH, json=one)
+    rsps.get("https://wcca.wicourts.gov/caseDetail.html", body="<html>detail</html>")
+    summary = process(cfg, conn, 1).summary_json
+    assert summary["court_status"] == "candidate_only"  # one hit, but possibly not the only one
+    assert summary["flags"]["state_docket"]["truncated"] is True  # type: ignore[index]
+    assert wi_mod.result_truncated({"result": {"cases": [], "hasMore": True}})
+    assert not wi_mod.result_truncated({"result": {"cases": [{}], "totalCount": 1}})
+
+
+def test_a_transient_failure_of_a_states_portal_keeps_the_recorded_mode(
+    cli_config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seeds = tmp_path / "portals.csv"
+    seeds.write_text(
+        "state,portal,url,platform,scope,note\n"
+        "FL,Statewide,https://statewide.example/,other,statewide,\n"
+        "FL,Broward,https://broward.example/,county_clerks,county:Broward,\n"
+    )
+    monkeypatch.setattr(dp, "seeds_path", lambda: seeds)
+    record_portal(conn, "FL", "assisted", "challenge: previously recorded")
+    rsps.get("https://statewide.example/", status=503)  # transient: not judged
+    rsps.get("https://broward.example/", status=404)  # would win by default and read manual
+    result = _invoke("court", "docket", "probe")
+    assert result.exit_code == 0, result.output
+    assert "a portal was not judged; the recorded mode is kept" in result.output
+    assert sync.recorded(conn, "FL", "docket") == ("assisted", "challenge: previously recorded")

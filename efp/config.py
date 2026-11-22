@@ -262,6 +262,7 @@ class CourtCfg(_Section):
     # pipeline's own reading of a portal's terms).
     docket_terms_cleared: list[str]
     docket_assisted_limit: int = Field(gt=0)  # rows `efp review court --assisted` lists at once
+    docket_max_hits: int = Field(gt=0)  # dockets recorded per row; past it nothing more is fetched
 
     @field_validator("docket_terms_cleared")
     @classmethod

@@ -29,6 +29,22 @@ def _day(value: Any) -> date | None:
         return None
 
 
+def result_truncated(payload: Any) -> bool:
+    """Does the answer say there is more than it returned? (ASSUMED keys: ``more`` / ``hasMore``,
+    or a ``totalCount`` above the cases returned. No pagination is implemented: a result set that
+    says it is incomplete is never treated as complete.)"""
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return False
+    cases = result.get("cases") or []
+    total = result.get("totalCount")
+    return bool(
+        result.get("more")
+        or result.get("hasMore")
+        or (isinstance(total, int) and total > len(cases))
+    )
+
+
 def parse_cases(payload: Any) -> list[DocketHit]:
     """The hits in a WCCA search answer; an answer of another shape raises (never guesses)."""
     if not isinstance(payload, dict) or "result" not in payload:
@@ -77,4 +93,6 @@ class Wisconsin(DocketPortal):
             "includeMissingDob": True,
             "includeMissingMiddleName": True,
         }
-        return parse_cases(self.post_json(SEARCH, payload))
+        answer = self.post_json(SEARCH, payload)
+        self.search_truncated = result_truncated(answer)
+        return parse_cases(answer)
