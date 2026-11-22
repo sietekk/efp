@@ -4,32 +4,8 @@ from __future__ import annotations
 
 from efp.court import bulk, courtlistener, doj, pin, recap
 from efp.court.adapters.ag.module import CourtStateAg
-from efp.court.located import STAGE
-from efp.modules import Availability, ModuleResult, Outcome, Registry
-from efp.types import Context, Row
-
-
-class _NotBuilt:
-    stage = STAGE
-    name = ""
-    build = ""
-    what = ""
-
-    def available(self, ctx: Context) -> Availability:
-        return Availability.unavailable(f"not built until build {self.build} ({self.what})")
-
-    def applies(self, row: Row, ctx: Context) -> bool | str:
-        return True
-
-    def run(self, row: Row, ctx: Context) -> ModuleResult:  # never reached while unavailable
-        return ModuleResult(Outcome.miss)
-
-
-class CourtStateDocket(_NotBuilt):
-    name = "court.state_docket"
-    build = "09"
-    what = "state docket adapters"
-
+from efp.court.adapters.docket.module import CourtStateDocket
+from efp.modules import Registry
 
 MODULES = (
     doj.CourtDoj,

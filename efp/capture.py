@@ -24,9 +24,13 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -633,6 +637,78 @@ class Capture:
             response.close()
         raise CaptureError("no response received")  # unreachable
 
+    def browser(self, url: str, *, row_id: int | None, stage: str) -> CaptureRecord:
+        """Capture one JavaScript-heavy page with Browsertrix Crawler in Docker, as a WACZ.
+
+        For an ``automated`` docket portal that renders its results only in a browser and whose
+        terms the operator has cleared: never for a portal that is ``assisted`` or ``manual``.
+        Browsertrix (AGPL) runs as a separate container, not linked. The domain's budget is taken
+        first, the WACZ is stored content-addressed and a ``captures`` row names it in
+        ``wacz_path``. If Docker is not installed or not running this raises ``CaptureError``: the
+        caller records the row deferred, never as a negative.
+        """
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+            raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
+        docker = shutil.which("docker")
+        if docker is None:
+            raise CaptureError("docker is not available: the browser capture is deferred")
+        try:
+            running = subprocess.run(  # noqa: S603
+                [docker, "info"], capture_output=True, timeout=20, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise CaptureError(f"docker is not running: {type(exc).__name__}") from exc
+        if running.returncode != 0:
+            raise CaptureError("docker is not running: the browser capture is deferred")
+        try:
+            self.limiter.acquire(urlsplit(url).hostname or "", max_wait=None)
+        except RateLimitTimeout as exc:
+            raise CaptureBudgetError(str(exc)) from exc
+        image = self.config.court.docket_browser_image
+        name = f"efp-bt-{uuid.uuid4().hex[:12]}"
+        with tempfile.TemporaryDirectory(prefix="efp-wacz-") as scratch:
+            try:
+                done = subprocess.run(  # noqa: S603
+                    [
+                        docker, "run", "--rm", "--name", name, "-v", f"{scratch}:/crawls", image,
+                        "crawl", "--url", url, "--limit", "1", "--scopeType", "page",
+                        "--userAgent", self.user_agent, "--generateWACZ", "--collection", "efp",
+                    ],
+                    capture_output=True,
+                    timeout=self.config.capture.timeout_seconds * 10,
+                    check=False,
+                )  # fmt: skip
+            except subprocess.TimeoutExpired as exc:
+                # killing the client does not stop the container: remove it by name
+                subprocess.run(  # noqa: S603
+                    [docker, "rm", "-f", name], capture_output=True, timeout=30, check=False
+                )
+                raise CaptureError(f"{scrub_text(url)}: browser capture timed out") from exc
+            except OSError as exc:
+                raise CaptureError(f"{scrub_text(url)}: browser capture failed: {exc}") from exc
+            found = sorted(Path(scratch).rglob("*.wacz"))
+            if done.returncode != 0 or not found:
+                raise CaptureError(f"{scrub_text(url)}: the browser capture produced no WACZ")
+            data = found[0].read_bytes()
+        digest = write_body(self.config.paths.store, data)
+        return self._insert(
+            row_id=row_id,
+            stage=stage,
+            url_requested=redact_url(url, api=False),
+            url_final=redact_url(url, api=False),
+            http_status=None,
+            content_type="application/wacz",
+            digest=digest,
+            headers={"image": image},
+            warc_path=None,
+            wacz_path=body_relpath(digest),
+            tool="browsertrix",
+            tool_version=package_version(),
+            manual_source=None,
+            site_data_sha256=None,
+            from_cache=False,
+        )
+
     def store_bytes(
         self,
         data: bytes,
@@ -837,14 +913,15 @@ class Capture:
         site_data_sha256: str | None,
         from_cache: bool,
         retrieved_at: datetime | None = None,
+        wacz_path: str | None = None,
     ) -> CaptureRecord:
         stamp = (retrieved_at or self._clock()).astimezone(UTC).isoformat(timespec="seconds")
         body_path = body_relpath(digest)
         cursor = self._conn.execute(
             "INSERT INTO captures (row_id, stage, url_requested, url_final, retrieved_at, "
             "http_status, content_type, content_sha256, body_path, headers_json, warc_path, "
-            "tool, tool_version, site_data_sha256, manual_source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "tool, tool_version, site_data_sha256, manual_source, wacz_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row_id,
                 stage,
@@ -861,6 +938,7 @@ class Capture:
                 tool_version,
                 site_data_sha256,
                 manual_source,
+                wacz_path,
             ),
         )
         self._conn.commit()

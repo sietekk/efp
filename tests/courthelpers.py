@@ -37,6 +37,8 @@ HOSTS = (
     "www.ohioattorneygeneral.gov",
     "illinoisattorneygeneral.gov",
     "web.archive.org",
+    "wcca.wicourts.gov",
+    "portal.example",
 )
 COURT_CHAIN = (
     'modules = ["court.doj", "court.pin_reports", "court.state_ag", "court.courtlistener_bulk", '

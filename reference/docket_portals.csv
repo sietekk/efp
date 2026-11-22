@@ -1,0 +1,23 @@
+state,portal,url,platform,scope,note
+MN,Minnesota Court Records Online,https://publicaccess.courts.state.mn.us/,other,statewide,
+TX,Harris County District Clerk,https://www.hcdistrictclerk.com/,county_clerks,county:Harris,Texas courts are county by county
+TX,Dallas County District Clerk,https://www.dallascounty.org/departments/districtclerk/,county_clerks,county:Dallas,Texas courts are county by county
+FL,Miami-Dade Clerk of Courts,https://www2.miamidadeclerk.gov/ocs/,county_clerks,county:Miami-Dade,Florida clerks are county by county
+FL,Broward County Clerk of Courts,https://www.browardclerk.org/,county_clerks,county:Broward,Florida clerks are county by county
+NC,North Carolina Judicial Branch Portal,https://portal-nc.tylertech.cloud/Portal/,odyssey,statewide,
+CA,Los Angeles Superior Court,https://www.lacourt.ca.gov/pages/lp/case-summary-case-access,county_clerks,county:Los Angeles,California courts are county by county
+WI,Wisconsin Circuit Court Access (WCCA),https://wcca.wicourts.gov/,wcca,statewide,
+OH,Cuyahoga County Clerk of Courts,https://cpdocket.cp.cuyahogacounty.gov/,county_clerks,county:Cuyahoga,Ohio courts are county by county
+KY,Kentucky CourtNet,https://kcoj.kycourts.net/CourtNet/,other,statewide,
+IN,Indiana MyCase,https://public.courts.in.gov/mycase/,mycase,statewide,
+IL,Cook County Clerk of the Circuit Court,https://casesearch.cookcountyclerkofcourt.org/,odyssey,county:Cook,Illinois circuit clerks are county by county
+NJ,New Jersey Judiciary public portal,https://portal.njcourts.gov/,other,statewide,
+MS,Mississippi Electronic Courts,https://mec.courts.ms.gov/,other,statewide,
+AL,Alacourt,https://v2.alacourt.com/,other,statewide,
+AZ,Maricopa County Superior Court,https://www.superiorcourt.maricopa.gov/docket/,county_clerks,county:Maricopa,Arizona courts are county by county
+PA,Pennsylvania UJS Portal,https://ujsportal.pacourts.us/CaseSearch,ujs,statewide,
+WV,West Virginia Judiciary,https://www.courtswv.gov/,county_clerks,statewide,No statewide docket search by name was known when this list was written
+VA,Virginia Online Case Information System,https://eapps.courts.state.va.us/ocis/landing,other,statewide,
+MO,Missouri Case.net,https://www.courts.mo.gov/casenet/,casenet,statewide,
+IA,Iowa Courts Online,https://www.iowacourts.state.ia.us/ESAWebApp/,other,statewide,
+NH,New Hampshire Judicial Branch,https://www.courts.nh.gov/,other,statewide,

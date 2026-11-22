@@ -493,6 +493,95 @@ doj_app = typer.Typer(help="The DOJ press-release index.", no_args_is_help=True)
 court_app.add_typer(doj_app, name="doj")
 ag_app = typer.Typer(help="The state AG press-release harvester.", no_args_is_help=True)
 court_app.add_typer(ag_app, name="ag")
+docket_portal_app = typer.Typer(help="The state docket portals.", no_args_is_help=True)
+court_app.add_typer(docket_portal_app, name="docket")
+
+
+@docket_portal_app.command("probe")
+def court_docket_probe(
+    ctx: typer.Context,
+    state_code: str | None = typer.Option(None, "--state", help="Probe one state's portals."),
+    snapshot: bool = typer.Option(
+        False, "--snapshot", help="Also write reference/docket_probe.csv (the dated results)."
+    ),
+) -> None:
+    """Load each portal's search entry point once (never a search) and record its mode.
+
+    Writes a ``kind = 'docket'`` row per state to ``state_adapters`` (the most automatable portal
+    of the state, with the reason) and ``queues/portal_accounts.csv`` under the data directory."""
+    from collections import Counter
+
+    from efp.court.adapters.ag import sync as ag_sync
+    from efp.court.adapters.docket import adapters as docket_adapters
+    from efp.court.adapters.docket import probe as docket_probe
+    from efp.court.adapters.docket import queue as docket_queue
+    from efp.court.doj import normalize_state
+
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    seeds = [
+        s for s in docket_probe.load_seeds() if not state_code or s.state == state_code.upper()
+    ]
+    if not seeds:
+        typer.echo("no portals in reference/docket_portals.csv for that state", err=True)
+        raise typer.Exit(1)
+    conn = _open_db(state, migrate=True)
+    try:
+        have = docket_adapters()
+        run_ctx = runner.make_context(config, conn)
+        probed = docket_probe.probe_all(
+            run_ctx,
+            seeds,
+            cleared=config.court.docket_terms_cleared,
+            adapter_states=set(have),
+        )
+        best = docket_probe.best_per_state(probed)
+        per_state = Counter(p.seed.state for p in probed)
+        for code, verdict in best.items():
+            cls = have.get(code)
+            ag_sync.write(
+                conn,
+                code,
+                kind="docket",
+                mode=verdict.mode,
+                portal=verdict.seed.url,
+                adapter_module=cls.__module__ if cls else verdict.seed.platform,
+                reason=docket_probe.reason_text(verdict, per_state[code] - 1),
+            )
+        rows = Counter(
+            normalize_state(s) or "unknown"
+            for (s,) in conn.execute("SELECT state FROM rows WHERE in_scope = 1")
+        )
+        for p in probed:
+            v = p.verdict
+            tail = (
+                f"{v.mode:9} {v.wants or '-':18} {v.reason[:70]}" if v else "not judged (transient)"
+            )
+            typer.echo(f"{p.seed.state}  {p.seed.name[:38]:38}  {tail}")
+        # every portal probed, not one per state: a state's other portals are gated too
+        gated = [
+            {
+                "state": p.verdict.seed.state,
+                "portal": p.verdict.seed.name,
+                "url": p.verdict.seed.url,
+                "wants": p.verdict.wants,
+                "detail": p.verdict.reason,
+                "rows_affected": rows.get(p.verdict.seed.state, 0),
+            }
+            for p in probed
+            if p.verdict is not None and docket_probe.is_gated(p.verdict)
+        ]
+        target = docket_queue.queues_dir(config) / "portal_accounts.csv"
+        docket_queue.write_csv(target, docket_queue.PORTAL_COLUMNS, gated)
+        typer.echo(f"{len(gated)} portal(s) recorded as gated or manual in {target.name}")
+        root = repo_root()
+        if snapshot and root is not None:
+            snap = root / "reference" / "docket_probe.csv"
+            rows_out = docket_probe.snapshot_rows(probed)
+            docket_queue.write_csv(snap, list(rows_out[0]), rows_out)
+            typer.echo(f"wrote {snap.relative_to(root)}")
+    finally:
+        conn.close()
 
 
 @ag_app.command("verify")
@@ -736,11 +825,42 @@ def modules(
 
 @app.command()
 def review(
+    ctx: typer.Context,
     stage: str = typer.Argument(..., help="Stage whose needs_review rows to walk."),
     sample: int | None = typer.Option(None, "--sample", help="Review N random rows."),
+    assisted: bool = typer.Option(
+        False, "--assisted", help="court only: the rows waiting on your own docket-portal search."
+    ),
+    state_code: str | None = typer.Option(None, "--state", help="With --assisted: one state."),
 ) -> None:
-    """Interactive queue over needs_review rows."""
-    _not_built("04")
+    """Interactive queue over needs_review rows (``--assisted`` is built; the rest is not yet)."""
+    if not assisted:
+        _not_built("04")
+    if stage != "court":
+        typer.echo("--assisted applies to the court stage only", err=True)
+        raise typer.Exit(2)
+    from efp.court.adapters.docket import queue as docket_queue
+
+    app_state: AppState = ctx.obj
+    config = _need_config(app_state)
+    conn = _open_db(app_state)
+    try:
+        rows = docket_queue.assisted_rows(conn, state=state_code)
+    finally:
+        conn.close()
+    path = docket_queue.write_csv(
+        docket_queue.queues_dir(config) / "assisted_dockets.csv",
+        docket_queue.ASSISTED_COLUMNS,
+        rows,
+    )
+    shown = rows[: config.court.docket_assisted_limit]
+    for item in shown:
+        typer.echo(
+            f'row {item["row_id"]} ({item["state"]} {item["year"]}): search "{item["name"]}" '
+            f"filed {item['filed_from']} to {item['filed_to']} at {item['portal_url']}"
+        )
+        typer.echo(f"    then: {item['after']}")
+    typer.echo(f"{len(rows)} row(s) waiting; {len(shown)} shown; the full list is {path.name}")
 
 
 @app.command("import")

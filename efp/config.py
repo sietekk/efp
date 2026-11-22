@@ -257,6 +257,18 @@ class CourtCfg(_Section):
         gt=0
     )  # cap on the pages (or months) one state's index harvest walks in total
     ag_max_candidates: int = Field(gt=0)  # election-related releases read per row
+    # States whose docket-portal terms the operator has read and cleared for automated search: an
+    # automated docket adapter runs only for these (empty by default: nothing is automated on the
+    # pipeline's own reading of a portal's terms).
+    docket_terms_cleared: list[str]
+    docket_assisted_limit: int = Field(gt=0)  # rows `efp review court --assisted` lists at once
+
+    @field_validator("docket_terms_cleared")
+    @classmethod
+    def _cleared_states_upper(cls, v: list[str]) -> list[str]:
+        return [state.strip().upper() for state in v]
+
+    docket_browser_image: str  # the Browsertrix Crawler image run in Docker for JS-only portals
     pacer_queue: str  # where dockets whose documents are not in RECAP are listed
 
 
