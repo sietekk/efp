@@ -20,6 +20,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0009_court_records_identity.sql` | `court_records.docket_id` and `current`: a record is identified by its document, and one a later run no longer finds is marked not current |
 | `0010_court_records_views.sql` | views `court_records_current` (current = 1) and `court_records_confirmed` (current = 1 and weak = 0): later builds read these, not the table |
 | `0011_court_identifiers_current.sql` | `court_records.text_capture_id` and the view `court_identifiers_current`: identifiers read from a record that is still current (person-level kinds only from one that is not weak) |
+| `0012_court_filings_follow_docket.sql` | the two `court_records_*` views tie a filing to its parent docket record: a filing is current (and confirmed) only while its docket is |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 

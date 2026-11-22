@@ -228,6 +228,12 @@ A seventeenth review round:
 
 Both use new `CREATE TABLE IF NOT EXISTS` tables in the derived index files (`harvest_newest`, and a reader column on `indexed_urls`); the repository's database guard forbids altering a table from code. The once-per-run memory on the capture client is `Capture.once_per_run`, cleared with the throttles at the start of each run.
 
+An eighteenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| Filings are re-captured only for a docket that is not weak, so when a docket turned weak or was no longer found, its earlier filing rows kept `current = 1, weak = 0` and stayed in `court_records_confirmed` | Migration 0012 redefines both views: a filing is current only while its parent docket record (same row, same docket id) is current, and confirmed only while that docket is also not weak. The filing rows themselves are untouched, so they come back if the docket is confirmed again |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

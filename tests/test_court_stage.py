@@ -1337,3 +1337,35 @@ def test_a_failed_or_empty_pin_read_is_final_only_for_the_reader_that_tried_it(
         assert index.indexed(url, "whatever 9")  # it yielded entries: final for every reader
     finally:
         index.close()
+
+
+def test_a_filing_is_only_as_current_and_confirmed_as_its_docket(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.court.located import Located
+
+    add_court_row(conn, 1)
+    strategy = "court.courtlistener_api"
+
+    def filing() -> Located:
+        return Located(
+            source_kind="federal_docket", jurisdiction="US", court="D. Conn.",
+            case_number="3:14-cr-00045", document_kind="filing", url="https://s/f.pdf",
+            strategy=strategy, capture_id=None, basis={"recap_document_id": 9}, docket_id=4242,
+        )  # fmt: skip
+
+    def seen(view: str) -> set[str]:
+        return {r[0] for r in conn.execute(f"SELECT document_kind FROM {view}")}
+
+    docket = component._upsert_record(conn, 1, _docket_item(weak=False, strategy=strategy))
+    component._upsert_record(conn, 1, filing())
+    assert seen("court_records_confirmed") == {"docket", "filing"}
+    # a second candidate makes the docket ambiguous; the filing rows are not touched by the run
+    component._upsert_record(conn, 1, _docket_item(weak=True, strategy=strategy))
+    assert seen("court_records_confirmed") == set()  # the filing is no longer confirmed
+    assert seen("court_records_current") == {"docket", "filing"}  # still found, as a candidate
+    # confirmed again, then the docket is no longer found at all
+    component._upsert_record(conn, 1, _docket_item(weak=False, strategy=strategy))
+    assert seen("court_records_confirmed") == {"docket", "filing"}
+    component._supersede(conn, 1, {strategy}, set())
+    assert seen("court_records_current") == set() and docket
