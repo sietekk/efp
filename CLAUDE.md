@@ -7,9 +7,9 @@ Research instrument for Dr. Jeffrey Treistman (University of New Haven). It take
 1. `build/README.md` — the index of build prompts: the specification broken into units, their dependency order, and how the first-pass sessions bundle them. The prompt you were given is one of these files.
 2. `docs/plan.md` — the first-pass build plan. It is the authority on scope and source allowlist; where it narrows the spec, it wins for the first pass.
 3. `docs/spec.md` — the technical specification: requirements (1), architecture and gates (2), data model (3), component contracts (4), interface catalog (5), scrape targets and licensed sources (6), provenance (7), identity (8), extraction and coding (9), orchestration and CLI (10), testing and repo layout (11), licensing and open decisions (12). Each build prompt names the sections it implements and carries the contract inline.
-4. `docs/tasks.md` — the task list with gates (`GATE →`, `needs`). Build order is D1 through D12, including the social component D10 (build 15), now that the IRB determination is in hand.
+4. `docs/tasks.md` — the task list with gates (`GATE →`, `needs`). Build order is D1 through D12.
 5. `docs/research-plan.md` and `docs/tool-register.md` — the research design, the motive taxonomy and decision rules, the thirteen output columns, and every tool verified with version and license.
-6. `docs/summary.md` — what Dr. Treistman was told. Do not contradict it in code or reports. Its condition on the social stage ("not built until the IRB question is answered") has been met: the determination is recorded in `config.toml` `[irb]`.
+6. `docs/summary.md` — what Dr. Treistman was told. Do not contradict it in code or reports.
 7. `reports/NN-*.md` — what earlier builds did. Read the reports of every build the current prompt lists under "Needs".
 
 If a file in that list is missing, say so in the report and continue; do not invent its contents.
@@ -25,7 +25,7 @@ Use only the sources in the allowlist in `docs/plan.md` ("Source allowlist for t
 - Every value written carries its source capture and, for extractions, a verbatim span; abstain rather than guess.
 - The nine source columns are never written; `rows` is immutable; captures, decisions and the audit log are append-only.
 - Secrets live only in `~/.config/efp/.env`; the database and store live only in `~/efp-data/`; neither is ever in the repository.
-- Social stage (build 15): handles and emails enter only from captured records; nothing is ever looked up by a person's name; the stage runs only with `[irb].cleared = true` and within the IRB's `scope_notes`. (The plan's wording deferred this stage pending IRB; that condition was met on November 21, 2026.)
+- Social stage (build 15): handles and emails enter only from captured records; nothing is ever looked up by a person's name.
 - A source that needs an account, a fee, a form or a person is not worked around. It goes in the report as a gated source.
 
 Additional rules:

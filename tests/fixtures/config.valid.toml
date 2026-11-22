@@ -101,13 +101,6 @@ policy = "all"
 label_modules = ["validate.labels.none"]
 label_policy = "first_available"
 
-[irb]
-cleared = false
-determination = ""
-date = ""
-reference = ""
-scope_notes = ""
-
 [identity]
 confirm_threshold = 0.99
 review_threshold = 0.90

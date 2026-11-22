@@ -4,6 +4,8 @@ Prepared by Michael Conroy for Dr. Jeffrey Treistman · October 27, 2026
 
 (Copy of the Google Doc sent to Dr. Treistman. This is what he was told; the first pass must not contradict it.)
 
+IRB: resolved November 21, 2026; no determination is required at this time. The guidance paragraph and decision 4 below are kept as sent.
+
 ## The question for you
 
 I would like your decision on how deep to go with the election fraud research. The original scope was to read each of the 1,481 cases in the Heritage Foundation dataset (2000–2025), search online, and fill in the ideological motivation column. I can do that. But in planning the work I designed something more ambitious: a research pipeline that runs every case through court records, identity confirmation, news coverage and, narrowly, public social media, and records exactly which source supports every value entered in the spreadsheet.

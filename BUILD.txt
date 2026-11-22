@@ -74,10 +74,9 @@ open -e ~/.config/efp/.env
 cp config.example.toml config.toml
 open -e config.toml
 #  - replace YOUR-UNH-ADDRESS (two places) with your UNH email
-#  - fill [irb]: cleared = true, determination, date, reference, scope_notes
 #  - confirm [llm].model is the current Sonnet-class id
 git add config.toml
-git commit -m "Config: contact, IRB determination, model"
+git commit -m "Config: contact, model"
 git push
 
 ==================================================================

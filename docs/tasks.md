@@ -12,7 +12,6 @@ None of these need code and several have lead times of weeks. Send every email a
 
 - [ ] **Confirm the population**: all 1,481 dispositions or the 1,252 criminal convictions. **GATE →** codebook freeze (E1), ingest scope flag (D1)
 - [ ] **Define *independent*** in his dropdown: centrist, unaffiliated, or non-partisan in direction. **GATE →** codebook freeze (E1)
-- [ ] **IRB status**: ask whether the project has a determination; if not, who files and on what timeline. **GATE →** social component (D10), Reddit for Researchers (A17), Meta Content Library (A18)
 - [ ] **Companion columns placement**: in the deliverable workbook or a separate analysis file. **GATE →** export layout (D11)
 - [ ] **Ask him to code 50 rows** as a calibration set. Feeds E4
 
@@ -38,8 +37,8 @@ None of these need code and several have lead times of weeks. Send every email a
 ### External requests
 
 - [ ] **Email Ballotpedia** (`data@ballotpedia.org`): academic or non-commercial access, and historical candidate coverage back-year. Unknown price
-- [ ] **Reddit for Researchers** application — **needs** IRB determination; institutional email and sponsor. Only if stage 4 surfaces Reddit handles
-- [ ] **Meta Content Library** application via ICPSR/SOMAR — **needs** IRB; 2–6 week review; use the Meta Secure Research Environment route, which is free, not the ICPSR VDE, which now charges. Only if stage 4 surfaces Facebook or Instagram accounts
+- [ ] **Reddit for Researchers** application — **needs** institutional email and sponsor. Only if stage 4 surfaces Reddit handles
+- [ ] **Meta Content Library** application via ICPSR/SOMAR — 2–6 week review; use the Meta Secure Research Environment route, which is free, not the ICPSR VDE, which now charges. Only if stage 4 surfaces Facebook or Instagram accounts
 - [ ] **X API Basic** ($200/month) — decide only if stage 4 surfaces X handles at volume; default is not to buy
 
 ## B. Environment and repository
@@ -164,14 +163,14 @@ The order retires risk first. Each item produces something runnable on its own, 
 
 **GATE →** D11 export at volume, G4. **needs** E1 frozen codebook, D8.
 
-### D10. `social` — last, and blocked until IRB is answered
+### D10. `social` — after news
 
 - [ ] `allowlist.json` pre-registered with Treistman, hashed
 - [ ] Naminter wrapper with input type `Handle | Email` only; raw responses stored; `known`-username self-test at session start written as a calibration capture
 - [ ] Maigret with `ranked_sites_dict(names=allowlist)`, auto-update and recursion disabled
 - [ ] `atproto` client for Bluesky public reads; Reddit and Meta only through their approved research programmes if granted
 
-**needs** A IRB, C13, D5 confirmed identities, at least one handle in `identifiers`.
+**needs** C13, D5 confirmed identities, at least one handle in `identifiers`.
 
 ### D11. `export` at volume and D12. reporting
 
@@ -189,7 +188,7 @@ The pilot comes *before* automating stage 1, because it is what tells you which 
 - [ ] **E3. Identity labelled set** — 150 candidate pairs hand-adjudicated as match / non-match / unresolvable, oversampling common surnames. **GATE →** D5 `m`/`u` parameters and the stability chart
 - [ ] **E4. Gold set** — 200–300 rows stratified by year band, fraud type and evidence tier; double-coded by two humans; disagreements resolved by consensus; split 60/40 development / held-out; frozen and hashed **before any prompt is written**. **needs** E1. **GATE →** D8 validation, F4
 - [ ] **E5. Treistman calibration** — the 50 rows he agreed to code, compared to yours; any systematic difference feeds a codebook amendment before volume coding. **needs** A decision, E1
-- [ ] **E6. Site allowlist** for the social stage, pre-registered with Treistman and hashed. **needs** A IRB answer. **GATE →** D10
+- [ ] **E6. Site allowlist** for the social stage, pre-registered with Treistman and hashed. **GATE →** D10
 
 ## F. Verification checkpoints
 

@@ -109,7 +109,7 @@ Paste `build/NN-<name>.md`. The order and the session bundles are in `build/READ
 - If a build stalls on a gated source, that is expected: it is listed in the report and the run continues on other rows.
 - Nothing waits for you. Builds 12, 16, 17 and 21 each have a part that is yours (labeling 150 identity pairs, the 50-row extraction tally, double coding, the 100-row review); they build the tooling for it and run in provisional mode until you do it, then `efp identity refit`, `efp validate`, the fix cycle and a re-tag pick your input up and re-run only the rows it changes. If you want the extraction volume run held until you have looked at the sample, set `stages.extract.require_sample_approval = true` in `config.toml`.
 - If you have not merged the previous PR when you start the next build, Claude Code stacks the new branch on it and says so; merge in order.
-- Build 15 (social) is in the first pass (session S5). Before you run it, fill in `[irb]` in `config.toml` (determination, date, reference, and any conditions the IRB attached under `scope_notes`); the stage reports itself unavailable until that block is complete.
+- Build 15 (social) is in the first pass (session S5).
 
 ## 7. Where things land
 
