@@ -127,7 +127,7 @@ def parse_releases(payload: Any, capture_id: int | None) -> list[Release]:
 def honors_title(releases: list[Release], keyword: str) -> bool:
     """Did the server apply the title keyword? (It ignored ``topic``; do not assume ``title``.)"""
     if not releases:
-        return True  # nothing came back: no evidence either way, and nothing to filter
+        return False  # nothing came back: no evidence that the keyword was applied
     hits = sum(1 for r in releases if keyword.lower() in r.title.lower())
     return hits >= max(1, len(releases) // 2)
 
@@ -262,6 +262,11 @@ class DojClient:
             }
             releases = self._page(params, row_id)
             if page == 0:
+                if not releases:
+                    # An empty answer proves nothing about the parameter (the name may simply
+                    # be absent from titles): leave it undecided, and the caller reads the
+                    # harvest index instead of calling this an authoritative miss.
+                    return releases
                 if honors_title(releases, keyword):
                     self.title_search_works = True
                     cap(self.ctx)._doj_title_works = True
@@ -335,19 +340,22 @@ class DojClient:
                 capped = capped or self.title_capped
                 if self._title_ignored():
                     break
-            if self.title_search_works and not capped:
-                unique = {r.uuid: r for r in found}
-                in_window = [
-                    r for r in unique.values() if r.date and first_year <= r.date.year <= last_year
-                ]
+            unique = {r.uuid: r for r in found}
+            in_window = [
+                r for r in unique.values() if r.date and first_year <= r.date.year <= last_year
+            ]
+            if self.title_search_works and not capped and in_window:
                 return in_window, "title_search"
+            found = (
+                in_window if self.title_search_works else []
+            )  # an ignored keyword proves nothing
         # The server ignores the title parameter, or a common surname filled the title search's
         # pages before the window: page the date-sorted feed back to the window instead (the
         # index is shared by every row) and read only releases that mention the surname.
         self.harvest(first_year, row_id)
         local = self.index.between(first_year, last_year, keywords)
-        if capped:
-            merged = {r.uuid: r for r in found if r.date and first_year <= r.date.year <= last_year}
+        if found or capped:  # what the title search did return stays beside the harvest's
+            merged = {r.uuid: r for r in found}
             merged.update({r.uuid: r for r in local})
             return list(merged.values()), "title_search+harvest"
         return local, "harvest"

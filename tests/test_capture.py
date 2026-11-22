@@ -653,3 +653,16 @@ def test_a_resume_sends_if_range_and_restarts_when_the_file_was_replaced(
     gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
     assert gets[0].request.headers["If-Range"] == '"v1"'
     assert dest.read_bytes() == b"newnew" and not (tmp_path / "f.csv.part.etag").exists()
+
+
+def test_a_robots_blocked_download_is_recorded_under_the_blocked_url(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", body="User-agent: *\nDisallow: /bulk/\n")
+    url = "https://example.test/bulk/f.csv"
+    with pytest.raises(CaptureError, match="robots"):
+        cap.download(url, tmp_path / "f.csv", stage="bulk")
+    row = cap._conn.execute(
+        "SELECT url_requested, tool FROM captures WHERE tool = 'robots_disallow'"
+    ).fetchone()
+    assert row == (url, "robots_disallow")  # the provenance row names the file, not the verb

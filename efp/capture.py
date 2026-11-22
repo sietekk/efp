@@ -465,7 +465,7 @@ class Capture:
             status = 200  # a complete .part (killed before the rename): finalize without a request
         else:
             if self.config.rate_limits.honor_robots_txt:
-                blocked = self._robots_block(url, "GET", row_id=row_id, stage=stage)
+                blocked = self._robots_block(url, url, row_id=row_id, stage=stage)
                 if blocked is not None:  # recorded as a robots_disallow capture, never bypassed
                     raise CaptureError(f"{redact_url(url, api=True)}: disallowed by robots.txt")
             response = self._open_download(url, headers)

@@ -74,7 +74,8 @@ def test_a_server_that_ignored_the_title_is_detected() -> None:
     )
     assert not doj.honors_title(page, "Example")
     named = doj.parse_releases(doj_page(release("Alex Example pleads guilty", "x")), 1)
-    assert doj.honors_title(named, "Example") and doj.honors_title([], "Example")
+    assert doj.honors_title(named, "Example")
+    assert not doj.honors_title([], "Example")  # an empty page is no evidence either way
 
 
 def _match(title: str, body: str, *, date: str = "2014-03-05", state: str = "CT", slack: int = 1):  # type: ignore[no-untyped-def]
@@ -485,3 +486,28 @@ def test_the_harvest_reads_only_releases_that_mention_the_surname(
         client.close()
     finally:
         cap.close()
+
+
+def test_an_empty_title_result_is_not_taken_as_proof_the_server_honors_the_title(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    add_court_row(conn, 1)
+    _site(rsps)
+
+    # the title keyword returns nothing, but the same name sits in a release body on the feed
+    def feed(request):  # type: ignore[no-untyped-def]
+        import json as _json
+
+        if doj.TITLE_PARAM in request.url or "title" in request.url:
+            return (200, {}, _json.dumps(doj_page()))
+        page = doj_page(
+            release("Tax news", TARGET_BODY, date="2014-03-05", uuid="body-only"),
+            release("Old news", "x", date="2010-01-01", uuid="old"),
+        )
+        return (200, {}, _json.dumps(page))
+
+    rsps.add_callback(responses.GET, API, callback=feed, content_type="application/json")
+    result = process(config, conn, 1)
+    summary = result.summary_json
+    assert summary["flags"]["doj"]["found_by"] == "harvest"  # type: ignore[index]
+    assert summary["court_status"] == "press_release_only"  # found in the body via the harvest

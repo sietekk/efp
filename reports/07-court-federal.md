@@ -149,6 +149,13 @@ A ninth review round:
 | The harvest path parsed the HTML of every indexed release in the row's window, for every row | The local index is filtered in SQL on the surname (and its aliases) in the title or body before a `Release` is built, so only plausible releases are parsed |
 | `efp court bulk load` let a truncated `.bz2`/`.gz` (`EOFError`, `zlib.error`) or a malformed CSV (`csv.Error`) escape as a traceback | They are caught: "load failed", exit 1, audit row written, no half-built index left |
 
+A tenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| A robots-blocked bulk download was recorded with `url_requested = "GET"` (the verb was passed where the URL belongs), and captures cannot be corrected later | The blocked file's URL is passed; a test asserts the `robots_disallow` capture's `url_requested` |
+| An empty DOJ title result counted as "the server honors the title" and as an authoritative miss, so a name that appears only in a release body gave a silent `not_found` | An empty page leaves the parameter undecided (no miss counted, nothing cached). When the title search yields nothing usable in the window, the harvest index is read too (the harvest is shared by every row, bounded by `doj_harvest_max_pages`, and a short reach is the existing `deferred_coverage`); the hits are `title_search+harvest` or `harvest` |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)
