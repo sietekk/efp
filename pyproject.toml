@@ -104,6 +104,10 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 [tool.ruff.lint.per-file-ignores]
 # Tests: assert, dummy credentials, fixed-name f-string SQL, dummy /tmp paths, long SQL literals.
 "tests/**" = ["S101", "S105", "S106", "S108", "S608", "E501"]
+# The runner and status report build SQL from fixed fragments (population_sql, stage names from
+# a closed map, `?` placeholders); every value is bound, never interpolated.
+"efp/runner.py" = ["S608"]
+"efp/status.py" = ["S608"]
 
 [tool.mypy]
 strict = true

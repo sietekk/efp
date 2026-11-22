@@ -190,7 +190,7 @@ def test_a_changed_migration_file_is_caught(
 def test_an_unapplied_migration_is_reported(
     conn: sqlite3.Connection, config: Config, migrations_copy: Path
 ) -> None:
-    (migrations_copy / "0005_new.sql").write_text(
+    (migrations_copy / "0006_new.sql").write_text(
         "CREATE TABLE later (x INTEGER);", encoding="utf-8"
     )
     check = _by_name(run_db_checks(config))["migrations match files"]

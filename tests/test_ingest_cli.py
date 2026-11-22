@@ -168,18 +168,16 @@ def test_status_shows_every_stage_pending(
     _ingest(workbook, monkeypatch)
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0, result.output
-    assert "population: all (19 rows)" in result.output
-    lines = {line.split()[0]: line.split()[1:] for line in result.output.splitlines()[2:]}
+    assert "Stage status: all (19 rows)" in result.output
+    table = result.output.split("### Gate reasons")[0].splitlines()
+    cells = [
+        [c.strip() for c in line.strip("|").split("|")] for line in table if line.startswith("| ")
+    ]
+    lines = {row[0]: row[1:] for row in cells[1:]}
     assert set(lines) == {"resolve_links", "court"}
     for counts in lines.values():
-        assert counts == [
-            "19",
-            "0",
-            "0",
-            "0",
-            "0",
-            "0",
-        ]  # pending, running, done, failed, needs_review, skipped
+        # pending, running, done, failed, needs_review, skipped
+        assert counts == ["19", "0", "0", "0", "0", "0"]
 
 
 def test_status_filters(cfg_env: Path, workbook: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,7 +185,9 @@ def test_status_filters(cfg_env: Path, workbook: Path, monkeypatch: pytest.Monke
     only_court = runner.invoke(app, ["status", "--stage", "court"])
     assert "court" in only_court.output and "resolve_links" not in only_court.output
     ohio = runner.invoke(app, ["status", "--state", "oh"])
-    assert "population: all (2 rows)" in ohio.output  # 2004 and 2019; the 1998 row is out of scope
+    assert (
+        "Stage status: all (2 rows)" in ohio.output
+    )  # 2004 and 2019; the 1998 row is out of scope
 
 
 def test_status_applies_the_population_rule_at_query_time(
@@ -202,7 +202,7 @@ def test_status_applies_the_population_rule_at_query_time(
         for r in ROWS_20
         if 2000 <= int(r[0]) <= 2025 and str(r[3]).startswith("Criminal Conviction")
     )
-    assert f"population: convictions ({expected} rows)" in result.output
+    assert f"Stage status: convictions ({expected} rows)" in result.output
 
 
 # ---------------------------------------------------------------- export --dry-run

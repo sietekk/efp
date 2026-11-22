@@ -130,6 +130,7 @@ class Capture(_Section):
 class Runner(_Section):
     batch_size: int = Field(gt=0)
     max_attempts_per_stage: int = Field(gt=0)
+    stale_after_minutes: int = Field(gt=0)
     stages: list[str]
 
 

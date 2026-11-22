@@ -5,13 +5,15 @@ Numbered SQL files, applied in order by `efp db migrate` (and by `efp ingest` on
 (id, name, sha256, applied_at)`, so a failure leaves the database at the previous migration.
 
 **Migrations are append-only.** The SHA-256 of every applied file is recorded, and a later edit is
-refused (`MigrationError`). To change the schema add `0004_*.sql`; never edit an applied file.
+refused (`MigrationError`). To change the schema add the next numbered file; never edit an applied file.
 
 | File | Holds |
 | --- | --- |
 | `0001_core.sql` | The eight core tables, copied from `docs/spec.md` section 3, plus indexes (the only addition) |
 | `0002_supporting.sql` | `links`, `court_records`, `documents`, `articles`, `social_accounts`, `gold_set`, `state_adapters`, `audit_log` |
 | `0003_triggers.sql` | Append-only enforcement |
+| `0004_source_workbook.sql` | `source_workbook`: the ingested workbook's hash, immutable |
+| `0005_case_stage_summary.sql` | `case_stage.summary_json`: the runner's per-row outcome summary (module chain outcomes) |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 
