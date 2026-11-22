@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from efp.court import bulk, courtlistener, doj, pin, recap
+from efp.court.adapters.ag.module import CourtStateAg
 from efp.court.located import STAGE
 from efp.modules import Availability, ModuleResult, Outcome, Registry
 from efp.types import Context, Row
@@ -22,12 +23,6 @@ class _NotBuilt:
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:  # never reached while unavailable
         return ModuleResult(Outcome.miss)
-
-
-class CourtStateAg(_NotBuilt):
-    name = "court.state_ag"
-    build = "08"
-    what = "state attorney general and district attorney press releases"
 
 
 class CourtStateDocket(_NotBuilt):

@@ -173,7 +173,7 @@ def test_a_state_row_never_runs_a_federal_strategy(
     assert "classified as a state case" in _reason(
         summary, "court.courtlistener_bulk"
     ) or "not loaded" in _reason(summary, "court.courtlistener_bulk")
-    assert "not built until build 08" in _reason(summary, "court.state_ag")
+    assert "no state AG adapter for CT" in _reason(summary, "court.state_ag")
     assert "not built until build 09" in _reason(summary, "court.state_docket")
     assert summary["court_status"] == "not_found" and not rsps.calls
 

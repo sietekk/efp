@@ -79,3 +79,31 @@ Numbered. Each with the default the code currently takes.
 4. *"No file under the repository references `~/efp-data` or `~/.config/efp` except `config.example.toml`, `config.toml`, `RUNBOOK.md` and `CLAUDE.md`."* **Fails as written; holds for this build's own files** (decision 3).
 
 Independent review: `done-when-reviewer` graded the build and returned "not ready to report" with 13 findings. Acted on: the bare-pasted-key leak (HIGH, reproduced first; fixed with regression tests), audit column drift, exit codes for usage errors (Typer vendors its own Click), root-logger redaction, user-agent must contain the contact, rate ceilings, `row_id` and status types aligned to the spec, and the undocumented conflict reasons. Left to the operator or recorded above: decisions 2, 3, 5, 9, 10, 15. I did not re-run the reviewer after the fixes; the fixes are covered by new tests instead.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Superseded by the operator's maintenance 01. Decision: the `[irb]` block was removed. Source: `reports/m01-remove-irb.md`, Files changed: "`[irb]` block and comments" (for `config.toml` and `config.example.toml`) · Date: not recorded
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+11. Decision: ______ · Date: ______
+12. Decision: ______ · Date: ______
+13. Decision: ______ · Date: ______
+14. Resolved. Decision: the repository moved out of the iCloud-synced folder. Source: this report, after build 03: "**Resolved after build 03:** the repository moved to `~/dev/efp`, outside iCloud, and the virtual environment no longer sits in a synced folder; see the README "Developing" section." · Date: not recorded
+15. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 15, 16: the `social` and `extraction` extras cannot share one environment (`naminter` pins `rich==15.0.0`, `instructor` needs `rich<15`); stages 15 and 16 must run in separate invocations, `uv run --extra social ...` and `uv run --extra extraction ...`. The report leaves how the runner invokes them to build 04 or 15 (decision 4).
+- 15: the `social` extra (and `yt-dlp` through `maigret`) pulls in `curl-cffi` (browser TLS impersonation), and `archive-docker` pulls in `seleniumbase`; neither is on the excluded list. Build 15 must not turn impersonation on (decision 10).
+- 10, 16: the model id `claude-sonnet-5-5` is pinned in `config.toml` but could not be checked against the API in build 01; the first real use (build 10 or 16) is the check (decision 6).
+- 10-18 (any build that adds a dependency): the excluded-tool list is enforced by a test against `uv.lock`: newspaper3k, snscrape, twscrape, waybackpy, abydos, dedupe, recordlinkage, Name Match, court-scraper, Nougat, PyMuPDF, Blackbird, SpiderFoot, Recon-ng, OCCRP Aleph (decision 12).
+- 10-21: each component's `run` and `gate` stub raises `NotImplementedError` naming its build until that build replaces it; the "no stubs" rule in CLAUDE.md is about operator steps, not these (decision 13).

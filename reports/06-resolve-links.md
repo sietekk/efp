@@ -99,3 +99,25 @@ Link survival (the first of the nine numbers): of the rows with a source URL, li
 - *"`reports/first-pass/domains.md` exists and the report quotes link survival overall and by year band."* **Does not hold yet.** The file is produced by `uv run efp links report` after the real run, and the measured figures belong in this report then. The rendering and the arithmetic (row-level best status, pending rows, year bands, duplicates, shortener share, robots-blocked split) are tested: `tests/test_linkreport.py`.
 
 Review checkpoint (yours): the domain table and link survival, once the run has produced them.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 13, 20: the page-classification thresholds in `efp/resolve_links/classify.py` are judgment calls (200 characters of text for an HTML page, 512 bytes otherwise, error phrases trusted in titles and in bodies under 1,500 characters, a deep URL that lands on the site root is a soft 404); the sample run is where to check them (decision 3).
+- 13, 20: `first_pass.commoncrawl_enabled` and `first_pass.bitly_info_enabled` default to `true` although neither is on `plan.md`'s first-pass allowlist (the operator enabled them); the compliance review lists them, and flipping either to `false` makes its module report why it is skipped (decision 1). Bitly's `+` page markup could not be observed, so `bitly_info` may never help (decision 2).
+- 08, 09: the link-survival number and `reports/first-pass/domains.md` (the source-domain table) are not produced until `efp run resolve_links` and `efp links report` run on the real data; nothing was fetched in this build.
+- 19, 21: link survival is one of the nine numbers (overall and by year band, row-level best status with link-level counts beside it); it is not yet measured ("Numbers for the first-pass report").
+- 10, 13, 16: read links through `links.status` (`live`, `archived`, `dead`, `unresolved`) and `links.capture_id`; `expansion_method` records how the destination was learned and `status` how a body was obtained; a row with no URL has one `links` row with `note = 'no_url'` (decision 4, migration 0007).

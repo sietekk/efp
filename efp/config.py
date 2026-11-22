@@ -250,6 +250,13 @@ class CourtCfg(_Section):
     doj_harvest_pages_per_row: int = Field(
         gt=0
     )  # pages of the harvest one row may fetch; the rest is left to `efp court doj harvest`
+    ag_harvest_pages_per_row: int = Field(
+        gt=0
+    )  # pages of a state's release index one row may fetch; `efp court ag harvest` does the rest
+    ag_harvest_max_pages: int = Field(
+        gt=0
+    )  # cap on the pages (or months) one state's index harvest walks in total
+    ag_max_candidates: int = Field(gt=0)  # election-related releases read per row
     pacer_queue: str  # where dockets whose documents are not in RECAP are listed
 
 

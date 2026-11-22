@@ -76,6 +76,40 @@ def _doj_freshness(row: Row, ctx: Context, hosts: list[str]) -> str | None:
     return "past" if int(newest[:4]) > row.year + slack else newest
 
 
+def _ag_freshness(row: Row, ctx: Context, hosts: list[str]) -> str | None:
+    """The same idea as :func:`_doj_freshness` for the state AG index: only a state or unknown row
+    whose state has an automated adapter depends on it, and only while the index's newest release
+    is still inside the row's window."""
+    from efp.court.adapters.ag import adapters, sync
+    from efp.court.adapters.ag.base import AgIndex
+
+    state = doj.normalize_state(row.state)
+    cls = adapters().get(state) if state else None
+    if cls is None or not row.year:
+        return None
+    classification = classify(row.source.get("details"), row.source.get("source_raw"), hosts)
+    if classification.kind == "federal":
+        return None
+    if not parse_name(str(row.source.get("name") or "")).usable:
+        return None
+    mode = cls.mode
+    if ctx.db is not None and (found := sync.recorded(ctx.db, state or "")) is not None:
+        mode = found[0]  # a state recorded manual or broken (and later fixed) changes the answer
+    if mode != "automated":
+        return f"mode:{mode}"
+    path = ctx.config.paths.bulk / f"ag_{state.lower()}.sqlite"  # type: ignore[union-attr]
+    if not path.is_file():
+        return "no-index"
+    index = AgIndex(path)
+    try:
+        newest = index.newest()
+    finally:
+        index.close()
+    if newest is None:
+        return "no-index"
+    return "past" if int(newest[:4]) > row.year + ctx.config.court.doj_year_slack else newest
+
+
 def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     """The row's inputs, the modules that can run, and the bulk dataset: a new quarter or a newly
     enabled module changes it, so ``--recheck`` revisits exactly the rows that could change."""
@@ -92,6 +126,7 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
         info.dataset_date if info else None,
         ctx.config.court.pin_report_urls,
         _doj_freshness(row, ctx, hosts),
+        _ag_freshness(row, ctx, hosts),
     )
 
 
@@ -331,11 +366,13 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         evaluated -= {"court.courtlistener_api", "court.recap"}
     if state.flags.get("doj_coverage_gap"):  # nor does a harvest that did not reach the window
         evaluated.discard("court.doj")
+    if state.flags.get("ag_coverage_gap"):  # nor does a state index that has not reached it
+        evaluated.discard("court.state_ag")
     superseded = _supersede(conn, row.row_id, evaluated, seen)
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     errored = bool(run.errors)
-    coverage_gap = bool(state.flags.get("doj_coverage_gap"))
+    coverage_gap = bool(state.flags.get("doj_coverage_gap") or state.flags.get("ag_coverage_gap"))
     status = court_status(
         state.located, quota_exhausted=quota_hit, errored=errored, coverage_gap=coverage_gap
     )

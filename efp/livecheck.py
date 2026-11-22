@@ -74,6 +74,55 @@ def _court_live(capture: Capture, config: Config) -> list[Check]:
     return out
 
 
+def _ag_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> list[Check]:
+    """One listing page per automated state AG adapter. A failing adapter is recorded as ``broken``
+    in ``state_adapters`` (so the coverage matrix says so), never silently skipped."""
+    import logging
+
+    from efp.court.adapters.ag import adapters, sync
+    from efp.court.adapters.ag.base import SiteBlocked, is_transient
+    from efp.types import Context
+
+    ctx = Context(config=config, db=conn, capture=capture, log=logging.getLogger("efp.selftest"))
+    out: list[Check] = []
+    for state, cls in adapters().items():
+        if cls.mode != "automated":
+            continue
+        adapter = cls(ctx)
+        name = f"live: state ag {state}"
+        try:
+            found = adapter.probe()
+            ok = bool(found) and all(r.date for r in found)
+            detail = f"{len(found)} dated release(s) on the first page"
+            if ok:
+                sync.write(
+                    conn,
+                    state,
+                    mode="automated",
+                    portal=cls.portal,
+                    adapter_module=cls.__module__,
+                    reason=None,
+                )
+            else:
+                sync.mark(
+                    conn, state, "broken", "live smoke: the first page parsed to no dated release"
+                )
+        except SiteBlocked as exc:
+            # a refusal during a smoke test is reported, not recorded: `efp court ag verify` is
+            # where a state becomes manual
+            ok, detail = False, f"{exc} (not recorded)"
+        except CaptureError as exc:
+            ok, detail = False, str(exc)
+            if is_transient(exc):
+                detail += " (transient; not recorded)"
+            else:
+                sync.mark(conn, state, "broken", f"live smoke: {exc}"[:200])
+        finally:
+            adapter.close()
+        out.append(Check(name, ok, detail))
+    return out
+
+
 def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
     capture = Capture(config, conn)
     checks: list[Check] = []
@@ -90,6 +139,7 @@ def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
         except CaptureError as exc:
             checks.append(Check("live: wayback cdx", False, str(exc)))
         checks.extend(_court_live(capture, config))
+        checks.extend(_ag_live(capture, config, conn))
         digest = hashlib.sha256(b"efp selftest").digest()
         request = (
             TimestampRequestBuilder()

@@ -112,3 +112,32 @@ If `uv run efp` fails with `No module named 'efp'`, see decision 13. Open `tests
 2. *"`uv run efp export --dry-run` passes F1 on the real workbook and the report states the measured counts: rows in the year window, rows with a non-empty Source cell (expected 1,322), and the strata sizes of the frozen sample."* **Holds.** F1 PASS, 1,620 rows verified against `rows.row_sha256`. Rows in the window: 1,481. The expected 1,322 is the number of in-window rows whose Source **contains a URL**; rows with a *non-empty* Source cell number 1,480 in the window (1,619 overall), so the expectation was about links, not non-empty cells. Strata sizes are listed above.
 
 Independent review: `done-when-reviewer` (which was told not to touch the real data) returned "not ready to report" with 7 findings. Fixed: the federal classifier counting state agencies (and missing a few federal-court phrasings), formula cells being accepted (they can never survive F1), a race between concurrent ingests, raw tracebacks for a non-xlsx file or a failing sample write, the case-insensitive conviction match, the audit row being written last, the Unicode-digit year message, `status --stage` accepting nonsense, BOM manifests, and drift in `docs/row_hash.md`. Left as is: a skipped check reported as ok (decision 14) and the heuristic nature of the classifier (decision 4). I did not re-run the reviewer after the fixes; they are covered by 24 new tests (447 total) and by re-running `--check`, `ingest`, `status`, `export --dry-run` and `selftest --db` on the real workbook afterwards.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+11. Decision: ______ · Date: ______
+12. Decision: ______ · Date: ______
+13. Resolved. Decision: the repository moved out of the iCloud-synced folder. Source: this report, after build 03: "**Resolved after build 03:** the repository moved to `~/dev/efp`, outside iCloud, and the virtual environment no longer sits in a synced folder; see the README "Developing" section." · Date: not recorded
+14. Decision: ______ · Date: ______
+15. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 19: the Ideological Motivation dropdown is a list validation on `H5:H1624` (choices `Sheet1!$A$1:$A$5`, an Excel `x14` extension) that openpyxl drops on save; export must preserve it (the report's default is re-injecting the original `<extLst>` block and verifying the validation count), and the lookup sheet `Sheet1` must be kept (decision 2).
+- 19, 21: "begins with Criminal Conviction" counts 1,254 in-window rows against `research-plan.md`'s 1,252, because `Criminal Conviction?` (2 rows) is a different label (and `Diversion Program?` has 3); the rule is case-sensitive `GLOB` in `efp/scope.py` and switching to an exact match is a one-line change (decision 3).
+- 12, 19: 127 rows are exact duplicates of another row in all nine columns; `row_sha256` is not unique and is not a key, `row_id` is; nothing is merged, which matters for identity resolution and for counting incidences (decision 6).
+- 17, 18: the frozen 50-row sample (`tests/fixtures/sample_rows.json`, seed 20261027, `sample_sha256` `025a50c2…`) is never overwritten; redrawing means deleting the file and re-running ingest, and must happen only before anyone codes the 50 rows (decisions 4, 11).
+- 19: both ideological columns (Ideological Motivation and Ideological Source) are empty in every row, so the "as received" columns carry nothing (decision 7).
+- 19, 21: measured on the real workbook: 1,620 rows, 1,481 in the 2000-2025 window, 1,322 in-window rows with a source URL (159 without), 725 in-window rows with more than one URL (up to 8), and 17 rows classified federal by the conservative rule (decision 4).

@@ -98,3 +98,26 @@ None yet. This build supplies the provenance numbers later builds will cite: cap
 - *"`uv run efp manifest --timestamp` produces a manifest and two tokens that `--verify` accepts."* Holds with a fake TSA (`test_manifest_timestamp_verify_and_bag_through_the_cli`), including tamper detection. **Not run against the real TSAs;** see decision 2 for what `--verify` proves without pinned roots. The signature path itself is untested in CI. The one live test (`tests/test_live.py`, run by `efp selftest --live`) covers a real CDX query and a real RFC 3161 request.
 
 Also verified: no module other than `efp/capture.py` imports an HTTP library (`test_only_the_capture_layer_imports_an_http_library`); two real processes share one budget (`test_two_processes_share_one_budget`); secrets are absent from `headers_json`, URL columns, the WARC and the HTTP cache (`test_secrets_never_reach_headers_urls_the_warc_or_the_http_cache`, `test_a_cookie_the_server_sets_is_not_kept_in_the_cache_or_the_row`).
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Partly decided (Common Crawl only). Decision: Common Crawl is on, enabled by the operator although it is not on `plan.md`'s allowlist. Source: `reports/06-resolve-links.md`, decision 1: "**Common Crawl and Bitly `+` are on** (your instruction)." · Date: 2026-11-21. The Perma.cc and RFC 3161 TSA parts of this decision are still open.
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Superseded by the operator's maintenance 02. Decision: `robots.txt` is no longer read or honored. Source: `reports/m02-remove-robots.md`: "Decision: the operator's, deliberate (a project policy and research decision)." and "The project no longer reads or honors `robots.txt`, and no longer carries politeness rules beyond rate limiting." · Date: 2026-11-22
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 20: TSA trust anchors are not pinned: `efp manifest --verify` checks only that each token was granted and its message imprint equals the manifest's SHA-256 and prints "signature NOT checked"; the TSAs' root PEMs must be placed in `reference/tsa/` (see its README) before "verified" can mean the signature chain (decision 2).
+- 20: Common Crawl, Perma.cc and the RFC 3161 TSAs are in spec section 5 but not in `plan.md`'s first-pass allowlist; `efp manifest --timestamp` contacts the TSAs, and the compliance review must list them (decision 3).
+- 20: the BagIt bag leaves out the open day's WARC until its UTC day is over, so it lags by up to a day; WARC records are reconstructed from the prepared request and the response, not wire-exact (decision 5).
+- 19: Perma.cc is gated (the free tier needs a registrar affiliation) and applies to cited URLs only (build 19); without `IA_ACCESS`/`IA_SECRET` the Save Page Now queue accumulates and `efp spn status` shows it.
+- 06-16: every network call goes through `Capture.fetch`; `savepagenow`, `wayback` and `cdx-toolkit` stay in `pyproject.toml` but an import scan forbids using them, and no module other than `efp/capture.py` may import an HTTP library (decisions 4, 10).
