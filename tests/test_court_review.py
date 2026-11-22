@@ -25,6 +25,7 @@ from tests.courthelpers import (
     doj_page,
     make_ctx,
     process,
+    record_manifests,
     release,
     release_html,
     write_bulk_files,
@@ -301,12 +302,13 @@ def test_load_uses_one_complete_quarter_never_a_mix(
 ) -> None:
     monkeypatch.setenv("EFP_CONFIG", str(Path(config.paths.data_dir).parent / "config.toml"))
     folder = config.paths.bulk / "courtlistener"
-    write_bulk_files(folder, date="2026-06-30", compress=False)  # a complete older quarter
+    older = write_bulk_files(folder, date="2026-06-30", compress=False)  # a complete older quarter
+    record_manifests(config, conn, older)
     newer = write_bulk_files(folder, date="2026-09-30", compress=False)
     newer["parties"].unlink()  # the newer quarter is missing a file
     result = runner.invoke(app, ["court", "bulk", "load"])
     assert result.exit_code == 0 and "dataset 2026-06-30" in result.output  # the complete one
-    write_bulk_files(folder, date="2026-09-30", compress=False)
+    record_manifests(config, conn, write_bulk_files(folder, date="2026-09-30", compress=False))
     again = runner.invoke(app, ["court", "bulk", "load"])
     assert "dataset 2026-09-30" in again.output
 

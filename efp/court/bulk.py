@@ -187,6 +187,31 @@ def fetch_files(
     return out
 
 
+def verify_against_manifest(db: Any, config: Config, dest: Path) -> tuple[int | None, str]:
+    """(manifest capture id, "") when ``dest`` is exactly what its download recorded; otherwise
+    (None, why). The file's size and SHA-256 are compared with the manifest's."""
+    found = db.execute(
+        "SELECT capture_id, content_sha256 FROM captures WHERE tool = 'bulk_download' "
+        "AND url_requested LIKE ? ORDER BY capture_id DESC LIMIT 1",
+        (f"%{dest.name}",),
+    ).fetchone()
+    if found is None:
+        return None, "no download manifest is recorded for it"
+    try:
+        manifest = json.loads(read_verified(config.paths.store, found[1]))
+    except (OSError, ValueError):
+        return None, "its download manifest cannot be read"
+    if dest.stat().st_size != manifest.get("size"):
+        return None, "its size differs from the recorded download"
+    digest = hashlib.sha256()
+    with dest.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != manifest.get("sha256"):
+        return None, "its SHA-256 differs from the recorded download"
+    return int(found[0]), ""
+
+
 def _earlier_download(ctx: Context, dest: Path, item: BulkFile) -> int | None:
     """The manifest capture of a file already here, if the file is exactly what it recorded.
 
@@ -195,24 +220,8 @@ def _earlier_download(ctx: Context, dest: Path, item: BulkFile) -> int | None:
     must match the manifest the download recorded."""
     if not dest.is_file() or (item.size and dest.stat().st_size != item.size) or ctx.db is None:
         return None
-    found = ctx.db.execute(
-        "SELECT capture_id, content_sha256 FROM captures WHERE tool = 'bulk_download' "
-        "AND url_requested LIKE ? ORDER BY capture_id DESC LIMIT 1",
-        (f"%{dest.name}",),
-    ).fetchone()
-    if found is None:
-        return None
-    try:
-        manifest = json.loads(read_verified(ctx.config.paths.store, found[1]))
-    except (OSError, ValueError):
-        return None
-    if dest.stat().st_size != manifest.get("size"):
-        return None
-    digest = hashlib.sha256()
-    with dest.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return int(found[0]) if digest.hexdigest() == manifest.get("sha256") else None
+    capture_id, _why = verify_against_manifest(ctx.db, ctx.config, dest)
+    return capture_id
 
 
 # --- reading the CSVs -----------------------------------------------------------------------

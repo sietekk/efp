@@ -199,6 +199,13 @@ Two last review notes, handled:
 
 The value had flipped meaning during this build: accepted by the config and silently read by the limiter as "1 a day", then rejected by the config. It now has one meaning everywhere: **`rate_limits.daily_caps.<host> = 0` switches that domain off.** The config accepts 0 (it rejects only a negative number), `DomainLimiter.acquire` refuses a 0-cap domain at once (no waiting, no bucket, no request) with the same error as a spent budget, and a row that needs the domain is deferred (`deferred_quota` for CourtListener), not failed, and picked up by `--recheck` once the cap is raised. `config.example.toml` documents it; tests cover the config, the limiter and a capture fetch. Nothing changes for an operator config that already used 0.
 
+A fourteenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| `efp court doj harvest` defaulted to 2012, one year short for the earliest rows the DOJ module admits (a 2012 row's window starts in 2011 and needs the harvest to get past it), so those rows were still `deferred_coverage` after the documented harvest | The default is derived from the config: `COVERAGE_FROM - 2 * court.doj_year_slack` (2011 with the default slack of 1, which reaches releases from 2010). The RUNBOOK no longer hard-codes a year; `--until-year` still overrides |
+| `efp court bulk load` indexed whatever files were in the folder; a file with no download manifest made every bulk-derived record rest on capture id 0 | The load verifies each file's size and SHA-256 against its `bulk_download` manifest and refuses (naming the file and the reason) if a manifest is missing or differs; `efp court bulk fetch --yes` downloads and records them |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

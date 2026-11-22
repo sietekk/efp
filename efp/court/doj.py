@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from efp.capture import CaptureError
+from efp.config import Config
 from efp.court import identifiers as ident
 from efp.court.located import STAGE, CourtTask, Located, cap, store_text
 from efp.court.names import NameParts, match_name
@@ -36,6 +37,16 @@ from efp.types import Context, Row
 API = "https://www.justice.gov/api/v1/press_releases.json"
 TITLE_PARAM = "parameters[title]"  # the title-keyword parameter (spec section 4)
 COVERAGE_FROM = 2013  # the API is substantive from about 2013
+
+
+def harvest_target_year(config: Config) -> int:
+    """How far back the harvest must reach for every row the DOJ module admits.
+
+    The earliest row admitted has ``year + slack >= COVERAGE_FROM``, and its release window starts
+    ``slack`` years before its year, so the harvest has to get past that first year."""
+    return int(COVERAGE_FROM - 2 * config.court.doj_year_slack)
+
+
 ELECTION_TERMS = re.compile(
     r"\b(voter|voting|vote|ballot|election|registration|absentee|polling)\w*", re.I
 )

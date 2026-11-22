@@ -422,14 +422,19 @@ def court_bulk_load(ctx: typer.Context) -> None:
         found = by_date[chosen_date]
         dates = dict.fromkeys(found, chosen_date)
         captures: dict[str, int] = {}
+        problems: list[str] = []
         for kind, path in found.items():
-            row = conn.execute(
-                "SELECT capture_id FROM captures WHERE tool = 'bulk_download' "
-                "AND url_requested LIKE ? ORDER BY capture_id DESC LIMIT 1",
-                (f"%{path.name}",),
-            ).fetchone()
-            if row:
-                captures[kind] = int(row[0])
+            capture_id, problem = court_bulk.verify_against_manifest(conn, config, path)
+            if capture_id is None:
+                problems.append(f"{path.name}: {problem}")
+            else:
+                captures[kind] = capture_id
+        if problems:
+            # every record built from this index names its manifest capture: a file with none, or
+            # one that is not what was recorded, would break "every value traces to a source"
+            typer.echo("refusing to load: " + "; ".join(problems), err=True)
+            typer.echo("run efp court bulk fetch --yes to download and record them", err=True)
+            raise typer.Exit(1)
         try:
             result = court_bulk.load_index(
                 config,
@@ -474,8 +479,11 @@ court_app.add_typer(doj_app, name="doj")
 @doj_app.command("harvest")
 def court_doj_harvest(
     ctx: typer.Context,
-    until_year: int = typer.Option(
-        2012, "--until-year", help="Page the date-sorted feed back to this year."
+    until_year: int | None = typer.Option(
+        None,
+        "--until-year",
+        help="Page the date-sorted feed back past this year "
+        "(default: what the earliest row the DOJ module admits needs, from the config).",
     ),
 ) -> None:
     """Page the DOJ press-release feed into the local index in one go (resumable).
@@ -486,6 +494,8 @@ def court_doj_harvest(
 
     state: AppState = ctx.obj
     config = _need_config(state)
+    if until_year is None:
+        until_year = court_doj.harvest_target_year(config)
     conn = _open_db(state, migrate=True)
     try:
         run_ctx = runner.make_context(config, conn)

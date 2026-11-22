@@ -314,4 +314,35 @@ def s3_listing(entries: list[tuple[str, int]], *, token: str | None = None) -> s
     return f'<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">{items}{more}</ListBucketResult>'
 
 
+def record_manifests(config: Any, conn: Any, paths: dict[str, Path]) -> None:
+    """Record a bulk_download manifest capture for each file, as ``Capture.download`` would."""
+    import hashlib
+    import json as _json
+
+    from tests.capturehelpers import make_capture
+
+    capture = make_capture(config, conn)
+    try:
+        for path in paths.values():
+            if not path.is_file():
+                continue
+            body = path.read_bytes()
+            manifest = {
+                "url": f"https://bulk.example.test/bulk-data/{path.name}",
+                "path": str(path),
+                "size": len(body),
+                "sha256": hashlib.sha256(body).hexdigest(),
+            }
+            capture.store_bytes(
+                _json.dumps(manifest, sort_keys=True).encode(),
+                row_id=None,
+                stage="bulk",
+                url_requested=manifest["url"],
+                tool="bulk_download",
+                headers=manifest,
+            )
+    finally:
+        capture.close()
+
+
 __all__ = ["ZERO"]

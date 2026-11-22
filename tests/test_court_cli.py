@@ -12,7 +12,13 @@ from typer.testing import CliRunner
 from efp.cli import app
 from efp.config import Config
 from efp.court import bulk
-from tests.courthelpers import HEADERS, court_config, s3_listing, write_bulk_files
+from tests.courthelpers import (
+    HEADERS,
+    court_config,
+    record_manifests,
+    s3_listing,
+    write_bulk_files,
+)
 
 runner = CliRunner()
 
@@ -115,7 +121,8 @@ def test_load_reports_a_layout_mismatch_instead_of_guessing(
 ) -> None:
     headers = {k: list(v) for k, v in HEADERS.items()}
     headers["parties"] = ["id", "label"]  # no name column
-    write_bulk_files(config.paths.bulk / "courtlistener", compress=False, headers=headers)
+    paths = write_bulk_files(config.paths.bulk / "courtlistener", compress=False, headers=headers)
+    record_manifests(config, conn, paths)
     result = runner.invoke(app, ["court", "bulk", "load"])
     assert result.exit_code == 1 and "layout error" in result.output
     assert "'label'" in result.output and not bulk.index_path(config).exists()
@@ -146,7 +153,8 @@ def test_load_of_a_truncated_compressed_file_is_a_clean_failure_not_a_traceback(
 ) -> None:
     paths = write_bulk_files(config.paths.bulk / "courtlistener", compress=True)
     data = paths["dockets"].read_bytes()
-    paths["dockets"].write_bytes(data[: len(data) // 2])  # a download cut short
+    paths["dockets"].write_bytes(data[: len(data) // 2])  # a download cut short...
+    record_manifests(config, conn, paths)  # ...and recorded as it arrived, so the read fails
     result = runner.invoke(app, ["court", "bulk", "load"])
     assert result.exit_code == 1 and "load failed" in result.output
     assert not bulk.index_path(config).exists()
@@ -172,3 +180,29 @@ def test_doj_harvest_command_walks_the_feed_and_says_whether_it_reaches_the_year
     result = runner.invoke(app, ["court", "doj", "harvest", "--until-year", "2012"])
     assert result.exit_code == 0, result.output
     assert "covers 2012" in result.output and "2009" in result.output
+
+
+def test_load_refuses_a_file_with_no_manifest_or_one_that_differs_from_it(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    paths = write_bulk_files(config.paths.bulk / "courtlistener", compress=False)
+    result = runner.invoke(app, ["court", "bulk", "load"])
+    assert result.exit_code == 1 and "no download manifest is recorded" in result.output
+    record_manifests(config, conn, paths)
+    with paths["courts"].open("a") as handle:
+        handle.write("\n")  # the file no longer matches what was downloaded
+    changed = runner.invoke(app, ["court", "bulk", "load"])
+    assert (
+        changed.exit_code == 1 and "SHA-256 differs" in changed.output
+    ) or "size differs" in changed.output
+    assert not bulk.index_path(config).exists()
+
+
+def test_the_harvest_default_reaches_back_far_enough_for_the_earliest_admitted_row(
+    config: Config,
+) -> None:
+    from efp.court import doj
+
+    year = doj.harvest_target_year(config)
+    earliest_row = doj.COVERAGE_FROM - config.court.doj_year_slack  # the first row DOJ admits
+    assert year == earliest_row - config.court.doj_year_slack  # its release window starts here
