@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from efp.rowhash import CellError, canonical_cell, row_sha256
 
@@ -110,7 +110,7 @@ def parse_year(value: object) -> int:
         year = int(value)
     elif isinstance(value, str):
         text = value.strip()
-        if not text.isdigit():
+        if not (text.isascii() and text.isdigit()):
             raise ValueError(f"Year {value!r} is not a number")
         year = int(text)
     else:
@@ -271,6 +271,32 @@ def _sheet_rows(worksheet: Any) -> Iterator[tuple[object, ...]]:
         yield tuple(row)
 
 
+def _formula_problems(
+    path: Path, sheet_name: str, header_row: int, letters: Sequence[str]
+) -> list[str]:
+    """Rows whose nine source cells hold a formula.
+
+    A formula's cached value is what ingest hashes, but openpyxl discards cached values when it
+    saves, so such a row could never survive the F1 round trip. Refuse it rather than store a value
+    (or NULL) that export cannot reproduce.
+    """
+    wanted = {column_index_from_string(letter) for letter in letters}
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    problems: list[str] = []
+    try:
+        for row in workbook[sheet_name].iter_rows(min_row=header_row + 1):
+            for cell in row:
+                column = getattr(cell, "column", None)
+                if column in wanted and getattr(cell, "data_type", None) == "f":
+                    problems.append(
+                        f"row {cell.row}: column {get_column_letter(column)} holds a formula; "
+                        "formulas cannot survive the F1 round trip (saving drops the cached value)"
+                    )
+    finally:
+        workbook.close()
+    return problems
+
+
 def read_workbook(path: Path) -> WorkbookData:
     """Open ``path`` read-only, find the header and return every validated data row."""
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -299,7 +325,17 @@ def read_workbook(path: Path) -> WorkbookData:
                     f"({', '.join(n for n, _ in candidates)}); expected exactly one"
                 ]
             )
-        name = candidates[0][0]
-        return read_rows(_sheet_rows(workbook[name]), sheet_name=name)
+        name, head = candidates[0]
+        rows = list(_sheet_rows(workbook[name]))
     finally:
         workbook.close()
+    # Formulas first: a formula with no cached value would otherwise surface as "Name is empty".
+    found = find_header(head)
+    if found is not None:
+        indexes, header_problems = _check_header(found[1])
+        if not header_problems:
+            letters = [get_column_letter(i + 1) for i in indexes]
+            formulas = _formula_problems(path, name, found[0], letters)
+            if formulas:
+                raise WorkbookError(formulas)
+    return read_rows(rows, sheet_name=name)

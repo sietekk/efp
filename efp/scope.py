@@ -26,12 +26,13 @@ def population_sql(population: Population, *, alias: str = "r") -> str:
 
     ``all``          every in-scope row.
     ``convictions``  in-scope rows whose case type begins with "Criminal Conviction"
-                     (SQLite LIKE is case-insensitive for ASCII).
+                     (case-sensitive: a GLOB, not a LIKE).
     """
     if not alias.isidentifier():
         raise ValueError("alias must be a plain identifier")
     if population == "all":
         return f"{alias}.in_scope = 1"
     if population == "convictions":
-        return f"{alias}.in_scope = 1 AND {alias}.case_type LIKE '{CONVICTION_PREFIX}%'"
+        # GLOB is case-sensitive; LIKE is not. "Begins with" means exactly this capitalisation.
+        return f"{alias}.in_scope = 1 AND {alias}.case_type GLOB '{CONVICTION_PREFIX}*'"
     raise ValueError(f"unknown population {population!r}")

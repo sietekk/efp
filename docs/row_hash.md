@@ -23,8 +23,10 @@ The nine cells are, in this fixed logical order (not sheet order):
 | 8 | Ideological Motivation | `ideological_motivation` |
 | 9 | Ideological Source | `ideological_source` |
 
-Each cell is the value **exactly as openpyxl returns it** (`load_workbook(data_only=True)`), turned
-into text like this:
+Each cell is the value **exactly as openpyxl returns it** (`load_workbook(read_only=True,
+data_only=True)`), turned into text like this. The hash therefore depends on how openpyxl decodes
+cells: `uv.lock` pins the exact version, and ingest records the workbook's own SHA-256 beside the
+rows, so a decoding change shows up as a verification failure rather than a silent drift:
 
 | openpyxl value | Contributes |
 | --- | --- |
@@ -34,7 +36,11 @@ into text like this:
 | `float` | `U+001E` + `float:` + `repr(value)` |
 | `bool` | `U+001E` + `bool:` + `repr(value)` |
 | `datetime` / `date` / `time` | `U+001E` + `datetime:` / `date:` / `time:` + ISO-8601 |
+| `timedelta` | `U+001E` + `timedelta:` + `repr(value)` (openpyxl returns it for `[h]:mm:ss` cells) |
 | anything else | an error; ingest stops |
+
+A cell holding a **formula** is refused at ingest: openpyxl discards cached values when it saves, so
+such a cell could never survive the F1 round trip.
 
 ## Consequences (deliberate)
 

@@ -177,6 +177,10 @@ def ingest(
             sheet=prepared.data.sheet_name,
             header_row=prepared.data.header_row,
         )
+        # Written before any database change, so a crash during the load leaves a trace. (On the
+        # very first ingest there is no database yet, so the row is written afterwards instead.)
+        if state.audit_id is None:
+            state.audit_id = state.start_audit(extra)
         result = (
             loader.check_only(state.config, workbook)
             if check
@@ -190,6 +194,7 @@ def ingest(
         sqlite3.Error,
         database.MigrationError,
         database.DatabaseError,
+        OSError,
     ) as exc:
         typer.echo(f"ingest failed: {exc}", err=True)
         raise typer.Exit(1) from None
@@ -223,6 +228,12 @@ def status(
     if app_state.config is None:
         typer.echo(f"configuration error: {app_state.config_error}", err=True)
         raise typer.Exit(1)
+    if stage is not None and stage not in app_state.config.runner.stages:
+        typer.echo(
+            f"unknown stage {stage!r}; stages: {', '.join(app_state.config.runner.stages)}",
+            err=True,
+        )
+        raise typer.Exit(2)
     try:
         conn = database.connect(app_state.config, migrate=False, create=False)
     except (database.DatabaseError, sqlite3.Error):
@@ -317,9 +328,9 @@ def export(
     typer.echo(f"  data validations in the openpyxl copy : {outcome.validations_copy}")
     if outcome.validations_lost:
         typer.echo(
-            "WARNING: openpyxl dropped a data validation (the Ideological Motivation dropdown). "
-            "Cell values are intact (F1 holds), but export (build 19) cannot rely on openpyxl "
-            "load/save alone to keep the dropdown.",
+            "WARNING: openpyxl dropped a data validation (in the Heritage workbook, the "
+            "Ideological Motivation dropdown). Cell values are intact (F1 holds), but export "
+            "(build 19) cannot rely on openpyxl load/save alone to keep the dropdown.",
             err=True,
         )
 

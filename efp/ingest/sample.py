@@ -34,19 +34,23 @@ BLANK = "(blank)"
 TOP_N = 5
 FORMAT_VERSION = 1
 
-# "Federal" means the source or details name a U.S. Attorney, DOJ or a federal court. The bare
-# word "federal" is not enough (it also appears in "federal election").
+# "Federal" means the source or details name a U.S. Attorney, the U.S. Department of Justice, or a
+# federal court. Bare "Department of Justice" or "DOJ" is not enough: several states call their
+# attorney general's office a Department of Justice (Wisconsin, California, New Hampshire), and the
+# bare word "federal" also appears in "federal election". The "US" forms are case-sensitive so the
+# pronoun in "tell us attorney fees" does not match; the rest ignores case.
+_US = r"(?:(?-i:U\.?\s?S\.?)|United\s+States)"
 _FEDERAL = re.compile(
-    r"""
-      \bU\.?\s?S\.?\s+Attorney
-    | \bUnited\s+States\s+Attorney
-    | \bDepartment\s+of\s+Justice
-    | \bDOJ\b
+    rf"""
+      \b{_US}\s*Attorney
+    | \b{_US}\s+(?:Dept\.?|Department)\s+of\s+Justice
+    | \b(?-i:U\.?\s?S\.?)\s+(?-i:DOJ)\b
     | justice\.gov
     | \busao\b
-    | \bU\.?\s?S\.?\s+District\s+Court
-    | \bUnited\s+States\s+District\s+Court
-    | \bfederal\s+(district\s+)?court
+    | \b{_US}\s*District\s+Court
+    | \b{_US}\s+Court\s+of\s+Appeals
+    | \bUnited\s+States\s+v\.
+    | \bfederal\s+(?:district\s+)?court
     """,
     re.I | re.X,
 )

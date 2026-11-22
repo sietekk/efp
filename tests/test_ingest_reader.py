@@ -216,3 +216,37 @@ def test_plain_text_renderings() -> None:
     assert plain_text("x") == "x"
     assert plain_text(5) == "5"
     assert plain_text(dt.date(2020, 1, 2)) == "2020-01-02"
+
+
+def test_a_formula_cell_is_refused_because_it_cannot_survive_the_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "formula.xlsx"
+    make_workbook(path)
+    wb = openpyxl.load_workbook(path)
+    wb["Cases"]["F6"] = '="a"&"b"'  # a Details cell
+    wb["Cases"]["C9"] = "=B9"  # a Name cell
+    wb.save(path)
+    with pytest.raises(WorkbookError) as err:
+        read_workbook(path)
+    problems = " | ".join(err.value.problems)
+    assert "row 6: column F holds a formula" in problems
+    assert "row 9: column C holds a formula" in problems
+    assert "cached value" in problems
+
+
+def test_a_text_cell_that_merely_starts_with_an_equals_sign_is_not_a_formula(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "text.xlsx"
+    make_workbook(path)
+    wb = openpyxl.load_workbook(path)
+    cell = wb["Cases"]["F6"]
+    cell.value = "=not a formula"
+    cell.data_type = "s"  # stored as text, the way Excel stores a quoted leading "="
+    wb.save(path)
+    assert read_workbook(path).rows[1].values[5] == "=not a formula"
+
+
+def test_a_year_with_unicode_digits_is_a_clear_error() -> None:
+    for text in ("\u00b2004", "\u0662\u0660\u0661\u0666"):  # superscript two, Arabic-Indic digits
+        with pytest.raises(ValueError, match="is not a number"):
+            parse_year(text)

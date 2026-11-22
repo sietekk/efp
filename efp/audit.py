@@ -3,7 +3,9 @@
 ``args_json`` is an object: ``{"argv": [...redacted...], "population": <the rule in force>}``
 plus anything a command adds (ingest adds the workbook hash, sheet and header row).
 
-``start()`` inserts the row when the invocation begins (so a crashed run still leaves a trace);
+``start()`` inserts the row when the invocation begins (so a crashed run still leaves a trace;
+``efp ingest`` writes its row once it has read the workbook, so the row can carry the hash, and
+before it changes the database);
 ``finish()`` fills ``finished_at`` and ``exit_code`` at exit. The table is append-only by
 trigger, which permits exactly that one completion write and nothing else (migration 0003).
 Arguments are redacted before they are stored. Both functions are silent no-ops when the

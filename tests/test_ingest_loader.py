@@ -457,3 +457,94 @@ def test_exact_duplicate_rows_are_counted_and_kept(source_dir: Path, config: Con
     assert prepared.summary.duplicate_rows == 2
     loader.ingest(config, prepared)
     assert _count(config, "rows") == 4  # one row, one incidence: nothing is merged
+
+
+def test_a_file_that_is_not_an_xlsx_is_a_clear_error(source_dir: Path, config: Config) -> None:
+    path = source_dir / "fake.xlsx"
+    path.write_bytes(b"this is not a zip archive")
+    write_manifest(path)
+    with pytest.raises(IngestError, match=r"fake\.xlsx cannot be read as an \.xlsx file"):
+        loader.prepare(config, path)
+
+
+def test_a_manifest_with_a_byte_order_mark_is_accepted(workbook: Path) -> None:
+    manifest = workbook.parent / "MANIFEST.txt"
+    manifest.write_bytes(b"\xef\xbb\xbf" + manifest.read_bytes())
+    assert loader.check_manifest(workbook) == sha256_file(workbook)
+
+
+def test_two_ingests_at_once_load_once_and_the_other_is_a_no_op(
+    workbook: Path, config: Config
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    prepared = [loader.prepare(config, workbook) for _ in range(3)]
+    with ThreadPoolExecutor(3) as pool:
+        results = list(pool.map(lambda p: loader.ingest(config, p), prepared))
+    assert sorted(r.status for r in results) == ["ingested", "noop", "noop"]
+    assert _count(config, "rows") == 20 and _count(config, "case_stage") == 40
+
+
+def test_a_sample_write_failure_after_the_load_says_the_rows_are_loaded(
+    workbook: Path, config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from efp.ingest import sample as sampling
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise PermissionError("read-only directory")
+
+    monkeypatch.setattr(sampling, "write_sample", boom)
+    with pytest.raises(IngestError, match=r"The rows ARE loaded.*run `efp ingest` again"):
+        loader.ingest(config, loader.prepare(config, workbook))
+    assert _count(config, "rows") == 20
+    assert not (tmp_path / "sample_rows.json").exists()
+    monkeypatch.undo()
+    again = loader.ingest(config, loader.prepare(config, workbook))
+    assert again.status == "noop" and again.sample_file == "written"  # recovery just writes it
+
+
+def test_formula_workbooks_are_refused_before_anything_is_written(
+    source_dir: Path, config: Config, data_dir: Path
+) -> None:
+    path = source_dir / "formula.xlsx"
+    make_workbook(path)
+    wb = openpyxl.load_workbook(path)
+    wb["Cases"]["F6"] = "=1+1"
+    wb.save(path)
+    write_manifest(path)
+    with pytest.raises(IngestError, match="holds a formula"):
+        loader.prepare(config, path)
+    assert not data_dir.exists()
+
+
+def test_population_convictions_is_case_sensitive_and_includes_a_question_mark_variant(
+    source_dir: Path, config: Config
+) -> None:
+    """The prompt's rule is 'begins with Criminal Conviction'. The real workbook also has a
+    'Criminal Conviction?' variant, which this rule counts (the report flags it)."""
+    kinds = (
+        "Criminal Conviction",
+        "Criminal Conviction?",
+        "criminal conviction",
+        "Not a Criminal Conviction",
+        "Diversion Program",
+    )
+    rows = [
+        (2010 + i, "OH", f"P {i}", k, "Duplicate Voting", None, None, None, None)
+        for i, k in enumerate(kinds)
+    ]
+    path = source_dir / "kinds.xlsx"
+    make_workbook(path, rows=rows)
+    write_manifest(path)
+    loader.ingest(config, loader.prepare(config, path))
+    conn = database.connect(config, migrate=False, create=False)
+    try:
+        got = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT case_type FROM rows r WHERE {population_sql('convictions')} ORDER BY row_id"
+            )
+        ]
+    finally:
+        conn.close()
+    assert got == ["Criminal Conviction", "Criminal Conviction?"]

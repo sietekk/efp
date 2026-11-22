@@ -305,3 +305,43 @@ def test_export_dry_run_warns_when_openpyxl_loses_the_dropdown(
     assert "F1 round trip: PASS" in result.output
     assert "0 standard, 1 extension (x14)" in result.output
     assert "WARNING: openpyxl dropped a data validation" in result.output
+
+
+def test_status_rejects_an_unknown_stage(
+    cfg_env: Path, workbook: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ingest(workbook, monkeypatch)
+    result = runner.invoke(app, ["status", "--stage", "bogus"])
+    assert result.exit_code == 2 and "unknown stage 'bogus'" in result.output
+
+
+def test_a_crash_during_the_load_still_leaves_an_audit_row(
+    cfg_env: Path, workbook: Path, config: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row is written before the database is changed, once a database exists."""
+    from efp import db as database
+    from efp.cli import loader as cli_loader
+
+    database.migrate(config)
+
+    def crash(*_a: object, **_k: object) -> None:
+        raise RuntimeError("simulated crash mid-load")
+
+    monkeypatch.setattr(cli_loader, "ingest", crash)
+    result = _ingest(workbook, monkeypatch)
+    assert result.exit_code == 1
+    (row,) = _audit(config)
+    args = json.loads(row["args_json"])
+    assert args["workbook_sha256"] == sha256_file(workbook)
+    assert row["exit_code"] == 1 and row["finished_at"]
+
+
+def test_a_non_xlsx_file_prints_a_message_not_a_traceback(
+    cfg_env: Path, source_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = source_dir / "fake.xlsx"
+    path.write_bytes(b"not a zip")
+    write_manifest(path)
+    result = _ingest(path, monkeypatch)
+    assert result.exit_code == 1
+    assert "cannot be read as an .xlsx file" in result.output and "Traceback" not in result.output

@@ -12,10 +12,13 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
+import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+from openpyxl.utils.exceptions import InvalidFileException
 
 from efp import db
 from efp.config import Config
@@ -128,7 +131,7 @@ def check_manifest(workbook: Path) -> str:
             f"{actual}. Create it with: (cd {workbook.parent} && shasum -a 256 {workbook.name} "
             "> MANIFEST.txt)"
         )
-    entries = parse_manifest(manifest.read_text(encoding="utf-8"))
+    entries = parse_manifest(manifest.read_text(encoding="utf-8-sig"))  # tolerate a BOM
     expected = entries.get(workbook.name)
     if expected is None:
         raise IngestError(
@@ -195,6 +198,8 @@ def prepare(config: Config, workbook: Path) -> Prepared:
         data = read_workbook(workbook)
     except WorkbookError as exc:
         raise IngestError(str(exc)) from exc
+    except (zipfile.BadZipFile, InvalidFileException, KeyError, OSError) as exc:
+        raise IngestError(f"{workbook.name} cannot be read as an .xlsx file: {exc}") from exc
     drawn = sampling.draw(
         _candidates(data, config), seed=config.scope.sample_seed, size=config.scope.sample_size
     )
@@ -212,7 +217,13 @@ def _sample_action(prepared: Prepared, config: Config, *, write: bool) -> str:
     if state == "same":
         return "verified" if write else "would verify"
     if write:
-        sampling.write_sample(prepared.sample, path)
+        try:
+            sampling.write_sample(prepared.sample, path)
+        except (sampling.SampleError, OSError) as exc:
+            raise IngestError(
+                f"the sample file could not be written ({exc}). The rows ARE loaded; fix the "
+                "problem and run `efp ingest` again, which only writes the sample."
+            ) from exc
         return "written"
     return "would write"
 
@@ -259,25 +270,42 @@ def _existing_differences(
 
 
 def ingest(config: Config, prepared: Prepared) -> Result:
-    """Write the validated workbook, or confirm it is already loaded. Idempotent."""
+    """Write the validated workbook, or confirm it is already loaded. Idempotent and race-safe.
+
+    Whether ``rows`` is empty is decided inside the write transaction, so two ingests started at
+    once cannot both try to insert: the second waits, then takes the no-op path.
+    """
     conn = db.connect(config)
     try:
-        existing = conn.execute("SELECT count(*) FROM rows").fetchone()[0]
-        if existing:
-            problems = _existing_differences(conn, prepared, config)
-            if problems:
-                raise IngestRefused(
-                    "the database already holds rows and this workbook does not match them:\n  - "
-                    + "\n  - ".join(problems)
-                    + "\nrows is immutable; to start over, delete the database and ingest again."
-                )
-            notes = _stage_notes(conn, prepared, config)
-            return Result("noop", prepared, _sample_action(prepared, config, write=True), notes)
-        _sample_action(prepared, config, write=False)  # a conflicting sample file refuses first
-        _write_all(conn, prepared, config)
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            existing = conn.execute("SELECT count(*) FROM rows").fetchone()[0]
+            if existing:
+                conn.execute("ROLLBACK")  # nothing to write; release the lock
+                return _confirm_existing(conn, prepared, config)
+            # A fresh load: a conflicting sample file refuses before anything is written.
+            _sample_action(prepared, config, write=False)
+            _insert_all(conn, prepared, config)
+            conn.commit()
+        except BaseException:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         return Result("ingested", prepared, _sample_action(prepared, config, write=True))
     finally:
         conn.close()
+
+
+def _confirm_existing(conn: sqlite3.Connection, prepared: Prepared, config: Config) -> Result:
+    problems = _existing_differences(conn, prepared, config)
+    if problems:
+        raise IngestRefused(
+            "the database already holds rows and this workbook does not match them:\n  - "
+            + "\n  - ".join(problems)
+            + "\nrows is immutable; to start over, delete the database and ingest again."
+        )
+    notes = _stage_notes(conn, prepared, config)
+    return Result("noop", prepared, _sample_action(prepared, config, write=True), notes)
 
 
 def _stage_notes(conn: sqlite3.Connection, prepared: Prepared, config: Config) -> list[str]:
@@ -291,7 +319,7 @@ def _stage_notes(conn: sqlite3.Connection, prepared: Prepared, config: Config) -
     return []
 
 
-def _write_all(conn: sqlite3.Connection, prepared: Prepared, config: Config) -> None:
+def _insert_all(conn: sqlite3.Connection, prepared: Prepared, config: Config) -> None:
     now = datetime.now(UTC).isoformat()
     rows = [
         (
@@ -305,24 +333,18 @@ def _write_all(conn: sqlite3.Connection, prepared: Prepared, config: Config) -> 
         for r in prepared.data.rows
     ]
     stages = [(r.row_id, s) for r in prepared.data.rows for s in config.runner.stages]
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.executemany(INSERT_ROW, rows)
-        conn.executemany(INSERT_STAGE, stages)
-        conn.execute(
-            INSERT_WORKBOOK,
-            (
-                prepared.sha256,
-                prepared.path.name,
-                prepared.data.sheet_name,
-                prepared.data.header_row,
-                len(prepared.data.rows),
-                config.scope.year_from,
-                config.scope.year_to,
-                now,
-            ),
-        )
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
+    conn.executemany(INSERT_ROW, rows)
+    conn.executemany(INSERT_STAGE, stages)
+    conn.execute(
+        INSERT_WORKBOOK,
+        (
+            prepared.sha256,
+            prepared.path.name,
+            prepared.data.sheet_name,
+            prepared.data.header_row,
+            len(prepared.data.rows),
+            config.scope.year_from,
+            config.scope.year_to,
+            now,
+        ),
+    )

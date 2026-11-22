@@ -36,13 +36,19 @@ def bulk(source_dir: Path) -> Path:
     [
         "Prosecuted by the U.S. Attorney's Office.",
         "the US Attorney announced",
+        "the U.S.Attorney announced",
         "United States Attorney for the District",
-        "Department of Justice press release",
-        "a DOJ investigation",
+        "U.S. Department of Justice press release",
+        "United States Department of Justice",
+        "the U.S. Dept. of Justice",
+        "a U.S. DOJ investigation",
         "https://www.justice.gov/usao-xx/pr/example",
         "https://example.test/usao-example/9",
         "sentenced in U.S. District Court",
+        "sentenced in U.S.District Court",
         "United States District Court for the Northern District",
+        "appealed to the U.S. Court of Appeals",
+        "United States v. Example",
         "heard in federal court",
         "federal district court",
     ],
@@ -61,6 +67,12 @@ def test_federal_markers(text: str) -> None:
         "the DOJA office",
         "the state attorney general sued",
         "county attorney",
+        "Prosecuted by the Wisconsin Department of Justice",  # a state agency
+        "California DOJ investigation",
+        "New Hampshire Department of Justice",
+        "Department of Justice press release",  # ambiguous: counted as state, never guessed
+        "a DOJ investigation",
+        "they would give us attorney fees",  # the pronoun "us", not "US"
     ],
 )
 def test_state_otherwise(text: str) -> None:
