@@ -134,3 +134,38 @@ Two of the plan's nine numbers draw on this stage. Primary-record rate: rows wit
 - *"`queues/pacer.csv` lists every federal docket whose documents are not in RECAP."* The queue is written and de-duplicated (`test_a_docket_with_no_documents_in_recap_goes_to_the_pacer_queue_once`, `test_weak_candidates_are_neither_looked_up_in_recap_nor_queued_for_purchase`). Dockets whose documents were not checked (a non-federal classification, no token, a spent daily budget, or beyond the best candidate per row) are listed with that reason rather than as "missing". **The real queue does not exist until the run.**
 
 Review checkpoint (yours): the court-status distribution and the weak records, once the run has produced them.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+11. Decision: ______ · Date: ______
+12. Decision: ______ · Date: ______
+13. Decision: ______ · Date: ______
+14. Decision: ______ · Date: ______
+15. Decision: ______ · Date: ______
+16. Decision: ______ · Date: ______
+
+## Carried forward
+
+- operator; 10, 12: the CourtListener bulk-file details (S3 bucket address, file names, CSV columns), the DOJ `parameters[title]` parameter and the CourtListener v4 search parameters are assumed (listed in `docs/sources.md`); the first real run is the check, and the loader stops listing the columns it saw if one is missing (decision 2).
+- operator; 10, 12: `court.pin_report_urls` is empty (no project document lists the Public Integrity Section report URLs) and reading them needs `pdfplumber` or `pypdf` (the `documents` extra); until both are set, pre-2013 federal rows have no fallback (decision 3).
+- 09, 12, 19: builds 08 and later read `court_records_current`, `court_records_confirmed` and `court_identifiers_current`, never the tables; a filing is only as current and confirmed as its docket, and an identifier only as current as the record it was read from ("Records and readers").
+- 09: `court_status` has eight values; `gated_portal` is reserved for build 09, and `candidate_only`, `deferred_error`, `deferred_quota` and `deferred_coverage` mean the search did not finish or only candidates were found, never a negative.
+- 12: a record is `weak` when the state is not corroborated, only an initial and the surname matched, the document names several case numbers, the index returned several dockets, or the state is unknown; `summary_json.located` carries the basis, and the identity build decides what a weak record is worth. A weak record gives no person-level identifier, only its case number (decision 9).
+- 12, 19: the row's `state` column is free text; court code uses `efp.court.doj.normalize_state`, ingest does not normalize it, and the real values were not inspected (decision 16).
+- 10: filings already in RECAP are captured as PDFs (court records with `document_kind = 'filing'`) for the documents stage; nothing is fetched from PACER, and `court.recap_enabled` stays false with no purchase function (decision 8).
+- operator; 09: `queues/pacer.csv` resolves under `~/efp-data/queues/` and lists federal dockets whose filings are not in RECAP; a PACER purchase function is written only after the written answer on the fee exemption versus RECAP's public uploads exists (decisions 5, 8).
+- 08-16: `rate_limits.daily_caps` of 0 switches a domain off (no request is made and rows needing it are deferred), and a deferred row is revisited by `--recheck` through the suffix on its `input_hash` (`:quota`, `:error`, `:recap`, `:coverage`).
+- 19, 21: the primary-record rate and the identifier yield (two of the nine numbers) are not yet measured; they come from `efp run court` on the real data and `efp status`.
+- 20: the raw bulk files stay in `~/efp-data/bulk/` (excluded from backup) and each download is recorded as a manifest capture, which `efp court bulk load` verifies by size and SHA-256 (decision 12).

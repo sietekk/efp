@@ -90,3 +90,15 @@ Without `--strict`, `efp selftest` reports the same `[MISSING] config` line but 
 ```
 
 The `done-when-reviewer` subagent was not run: the change is mechanical and its acceptance test is the grep above.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 15, 20: there is no IRB gate; the social stage runs only when `first_pass.social_enabled` is true, and the compliance review (build 20) reads that setting.
+- All: the strict config loader rejects an `[irb]` table in any config file (`irb: Extra inputs are not permitted`); `docs/summary.md` is the record of what Dr. Treistman received and carries only the one added note ("Files changed", "Decisions needed").

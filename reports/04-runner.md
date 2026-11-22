@@ -86,3 +86,26 @@ None yet. `efp status` is the renderer later builds extend: stage × status matr
 - *"An interrupted run (kill the process mid-batch in a test) resumes without duplicate work."* Holds: `test_a_killed_run_resumes_without_duplicate_work` hard-exits a real worker process mid-batch, then a second process with `--recover` finishes; every row is processed exactly once and the interrupted claim is not counted as an attempt. `test_two_processes_never_claim_the_same_row` runs two real processes behind a start barrier and checks both claimed rows and no row was claimed twice.
 
 Independent review (`done-when-reviewer`) found no high-severity issues. It found three medium ones, all fixed with tests: the dry run applied a migration (M1), error text reached `case_stage` unredacted (M2, now passed through `efp.logging.redact`), and `--reset` ignored `--limit` (M3, now rejected). Also fixed: the concurrency test could pass without contention (now has a start barrier), `efp modules` omitted the `import`, `archive` and `validate` chains (now listed), and `--dry-run --reset` now reports how many rows it would reset.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 12, 13, 15, 16: the gate cascade is narrowed: an `identity` failure skips `news` and `social`; `news` and `social` failures cascade nowhere; `extract` and `code` are never cascaded; the `code` gate passes when `extract` is `done` or `skipped` (decision 1).
+- 12, 13, 15, 16: the gate reason names are `court_not_done`, `identity_not_done`, `identity_unresolved`, `news_not_done`, `social_disabled`, `identity_not_confirmed`, `no_handle`, `extract_not_done`; a missing identity decision is treated as `unresolved`, never as a pass; `gate_news` blocks only `unresolved` or no decision (decision 4).
+- 12, 13: a predecessor in `needs_review` or `failed` blocks downstream stages, so a row waiting in the identity review band does not reach `news` until a decision is recorded (decision 5).
+- 12, 13, 15, 16: `runner.stale_after_minutes = 120`: a stage row still `running` after that long is reset to `pending` without counting an attempt (decision 3).
+- 09-18: the runner has no generic stage wrapper; each component's `run(batch, ctx)` loops its rows and calls `modules.run_stage` itself, so components own batching (decision 8). A stage result carries `input_hash`; `--recheck` revisits `done` rows whose hash changed and `--force` ignores the hash.

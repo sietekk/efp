@@ -84,3 +84,35 @@ Numbered. Each with the default the code currently takes.
 3. *"No code path can write to `rows` after ingest or update `captures`, `decisions` or `audit_log`."* **Holds for code and for any connection, with the schema-change caveat in decision 10.** Triggers reject UPDATE, DELETE and REPLACE on all four tables, shown on a raw `sqlite3` connection with `recursive_triggers = 0` (`tests/test_db_triggers.py::test_a_raw_connection_cannot_replace_protected_rows`, and directly from the fresh clone: `replace into rows`, `insert or replace into rows`, `update rows`, `delete from rows` all refused, the row unchanged). `tests/test_db_guard.py` fails if anything under `efp/` (code only, docstrings and comments ignored) deletes from or updates those tables, inserts into `rows` outside `efp/ingest/`, uses REPLACE semantics, or drops or alters schema; I confirmed it fails on a deliberately offending file. The one allowed UPDATE is `audit.COMPLETE_SQL`, filling the completion fields once.
 
 Independent review: `done-when-reviewer` graded the build and returned "not ready to report" with 11 findings. Fixed: the raw-connection REPLACE bypass (insert triggers), DuckDB auto-install, non-atomic migrations with transaction control and the unterminated-comment case, concurrent `migrate` (lock plus re-read, clear error), redaction of URL credentials, query secrets, headers and `-p`, an unescaped database URI, a database outside `paths.data_dir` and mode 0644, `write_body` trusting a dangling symlink or corrupt entry, a guard that skipped migrations, vacuous pragma checks, the short git SHA, and `db migrate` showing a traceback on a SQLite error. I did not re-run the reviewer after the fixes; they are covered by new tests (274 pass) and the fresh-clone run above.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+9. Decision: ______ · Date: ______
+10. Decision: ______ · Date: ______
+11. Decision: ______ · Date: ______
+12. Decision: ______ · Date: ______
+13. Decision: ______ · Date: ______
+14. Resolved. Decision: the repository moved out of the iCloud-synced folder. Source: this report, after build 03: "**Resolved after build 03:** the repository moved to `~/dev/efp`, outside iCloud, and the virtual environment no longer sits in a synced folder; see the README "Developing" section." · Date: not recorded
+15. Decision: ______ · Date: ______
+16. Decision: ______ · Date: ______
+17. Decision: ______ · Date: ______
+
+## Carried forward
+
+- All: migrations are append-only from build 02 on; a schema change is a new numbered file, never an edit of an applied one (decision 7). A static test (`tests/test_db_guard.py`) keeps `DROP`/`ALTER` of schema, REPLACE semantics, and writes to the protected tables out of `efp/` and later migrations.
+- 08, 09: `state_adapters` uses `mode` with the value `assisted` (not the spec's prose `status`/`semi`), primary key `(state, kind)` (decision 2).
+- 11: the `ref_*` tables are not created; the names are in `migrations/README.md` and build 11 creates them as new numbered migrations (decision 6).
+- 06-18: columns made `NOT NULL` beyond the prompt, which every writer must supply: `links.url_raw`/`status`, `court_records.source_kind`/`found_at`, `articles.source_kind`, `social_accounts.platform`/`handle`, `gold_set.field`/`split`/`set_version`/`set_sha256`, `state_adapters.kind`/`mode`, `audit_log.command`/`args_json`/`invoked_at`, and `documents.ocr_applied` (0 or 1) (decision 9).
+- 19: a run that crashes leaves `audit_log.finished_at` NULL (the one allowed UPDATE fills `finished_at` and `exit_code` once) (decision 1).
+- 12, 19: `efp/analysis.py` `open_readonly` never auto-installs DuckDB's `sqlite` extension; if it is missing it raises with the one-line manual `INSTALL sqlite` instruction (decision 11).
+- 20: the weekly manifest is what makes silent tampering with `captures` detectable, since a raw SQLite client can remove the triggers (decision 10); migrations are read from the repository checkout, so a wheel install would not include `migrations/` (decision 16).

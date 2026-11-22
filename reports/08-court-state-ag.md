@@ -116,9 +116,9 @@ Gated-source demand (one of the nine numbers): of the 798 rows in the ten first-
 3. **IL reaches back only to 2024** on the page the adapter reads; older IL rows are reported out of reach. An older archive, if the site has one, would be a second cursor.
 4. **Candidate selection uses title and summary only** (listings have no body), with election terms or the surname; the matching itself reads the full release text. Widen `ELECTION_TERMS` use if the first run shows misses.
 5. **`docs/coverage_matrix.md` is provisional**: ten states, the prompt's row counts, no located counts. `efp status --coverage --write` regenerates it with every state (including those with no adapter, as `none`) from the real database.
+6. **Cassettes are real recordings** of unrelated current releases (a settlement, a coalition filing, a company), trimmed to a few listing items; re-record with `efp court ag record <state>` when a site changes. A site redesign shows up first as a failing live smoke (state marked `broken`).
 7. **Terms of use were not read.** The prompt and the plan keep the rule that a source whose terms forbid automation is not scraped. This build did not read the terms of the TX, CA, OH or IL sites; please confirm them before the full run. The probes made a handful of requests per site through the capture layer.
 8. **The year window is the DOJ one.** `search(..., window=2)` is the protocol's default, but the module passes `court.doj_year_slack` (1), the same window the DOJ releases use; there is no separate `court.ag_*` window key. Add one if the two should differ.
-6. **Cassettes are real recordings** of unrelated current releases (a settlement, a coalition filing, a company), trimmed to a few listing items; re-record with `efp court ag record <state>` when a site changes. A site redesign shows up first as a failing live smoke (state marked `broken`).
 
 ## Done-when check
 
@@ -127,3 +127,27 @@ Gated-source demand (one of the nine numbers): of the 798 rows in the ten first-
 - *"All ten cassettes pass in CI; the live smoke results are in the report with the date."* **Holds for the four automated states**: four cassettes pass in CI (`test_each_state_cassette_parses_to_dated_releases_and_the_release_text_extracts`); the six manual states have no site to record and instead have their probed reasons asserted (`test_the_ten_first_pass_states_are_registered_with_a_mode_and_every_manual_has_a_reason`). Live smoke 2026-11-22: all four ok (above).
 
 Review checkpoint (yours): the matrix and the manual list, then the located-record rates once the run has produced them.
+
+## Operator decisions
+
+Filled in by the operator at merge time. Pre-filled only where a later report explicitly records the decision (quoted, with its source); every other item is blank.
+
+1. Decision: ______ · Date: ______
+2. Decision: ______ · Date: ______
+3. Decision: ______ · Date: ______
+4. Decision: ______ · Date: ______
+5. Decision: ______ · Date: ______
+6. Decision: ______ · Date: ______
+7. Decision: ______ · Date: ______
+8. Decision: ______ · Date: ______
+
+## Carried forward
+
+- 09: `state_adapters` has `kind = 'ag'` rows for the ten first-pass states: automated TX, CA, OH, IL; manual FL, NC (HTTP 403 to automated requests), MN (no archive or search index), WI (PDF files only), KY and IN (lists loaded by script); `mode = 'broken'` is now allowed (migration 0009) and is set by a failed live smoke. `kind = 'docket'` rows are build 09's.
+- 09: `docs/coverage_matrix.md` exists and is provisional (the ten states, the prompt's row counts, no located counts); `efp status --coverage --write` regenerates it with every state from the real database, and build 09 extends it with the docket adapters and the gated list.
+- 09, 14: the six manual AG states carry 498 of the ten states' 798 rows; their rows keep the rest of the court chain and the manual import path (decision 1). Each AG site's address is in `state_adapters.portal`.
+- 08, 09: the DA and county-attorney modules are not built; they wait on `reports/first-pass/domains.md`, which the real `resolve_links` run produces. `Release.office` already carries `DA:<county>` and the record kind `da_release` is wired (decision 2).
+- 12: state AG records are `court_records` with `source_kind` `state_ag_release` or `da_release` and `strategy = 'court.state_ag'`, read through the views; a record is weak when only an initial matched, the text names several case numbers, or several releases matched.
+- 09: the harvester's walk-and-reach pattern is reusable: a persistent per-state index under `paths.bulk`, a resumable harvest with a per-row page budget, a freshness walk once per run, `deferred_coverage` when the archive has not reached the row's window, and an out-of-reach skip when the archive ends before it.
+- operator; 09: the terms of use of the TX, CA, OH and IL sites were not read in this build; confirm them before the full run (decision 7). California's published Crawl-delay is 10 seconds, so `rate_limits."oag.ca.gov"` is 0.08.
+- 19, 21: located-record rates by state and strategy are not yet measured; they come from `efp run court` on the real rows and `efp status --coverage`.
