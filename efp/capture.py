@@ -453,6 +453,11 @@ class Capture:
             part.unlink()  # longer than the file can be: not a prefix of it, start over
             digest, have = hashlib.sha256(), 0
         headers = {"Range": f"bytes={have}-"} if have else {}
+        tag_file = part.with_name(part.name + ".etag")  # the validator the part was started under
+        if have and tag_file.is_file():
+            tag = tag_file.read_text(encoding="utf-8").strip()
+            if tag and not tag.startswith("W/"):  # a weak validator cannot be used for If-Range
+                headers["If-Range"] = tag  # file replaced since: the server answers 200, in full
         etag: str | None = None
         modified: str | None = None
         status = 0
@@ -494,6 +499,10 @@ class Capture:
                         f"{dest.name}: the server resumed at a different offset; the partial "
                         "file was removed, run the download again"
                     )
+                if response.headers.get("ETag"):
+                    tag_file.write_text(response.headers["ETag"], encoding="utf-8")
+                else:
+                    tag_file.unlink(missing_ok=True)
                 try:
                     with part.open("ab") as out:
                         for chunk in response.iter_content(chunk_size=1 << 20):
@@ -526,6 +535,7 @@ class Capture:
             part.unlink(missing_ok=True)  # a wrong-sized part can never be resumed into the file
             raise CaptureError(f"{dest.name}: got {have} bytes, expected {expected_size}")
         part.replace(dest)
+        tag_file.unlink(missing_ok=True)
         manifest = {
             "url": redact_url(url, api=True),
             "path": str(dest),

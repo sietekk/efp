@@ -126,6 +126,13 @@ A seventh review round:
 | The DOJ title-probe miss counter was cumulative and could switch off a title search that had been shown to work | Misses are consecutive: a success resets the count, and a server that has honored the parameter once is never switched off |
 | A capped DOJ harvest that stopped before the row's window gave a clean `not_found` for older rows | The row gets `court_status = deferred_coverage`, a `doj_coverage_gap` flag with the oldest harvested date, a note naming `court.doj_harvest_max_pages`, and `:coverage` on its hash, so `--recheck` revisits it after the cap is raised |
 
+Low-confidence review notes, handled:
+
+- **Daily cap 0 now fails to load** (`rate_limits.daily_caps.<host>` must be at least 1). Intentional; `config.toml` has no zero caps, and the PR description says so.
+- **Resume validator:** a resumed download keeps the ETag it started under beside the `.part` file and sends `If-Range`; if the file was replaced the server answers 200 in full and the download restarts instead of stitching two files. A weak ETag, or a part begun before this change, resumes as before.
+- **Coverage gap and supersede:** `court.doj` is not counted as evaluated when the harvest did not reach the window, so an earlier DOJ record stays current.
+- **Known, accepted:** `_upsert_record` overwrites a record's `capture_id` with the latest capture of the same document; the earlier capture remains in `captures` but the record no longer points to it.
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

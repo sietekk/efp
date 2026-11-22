@@ -638,3 +638,18 @@ def test_download_that_keeps_breaking_ends_as_a_capture_error_with_the_part_kept
     monkeypatch.setattr(requests.Response, "iter_content", broken)
     with pytest.raises(CaptureError, match="run the download again"):
         cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk")
+
+
+def test_a_resume_sends_if_range_and_restarts_when_the_file_was_replaced(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    dest = tmp_path / "f.csv"
+    (tmp_path / "f.csv.part").write_bytes(b"old")
+    (tmp_path / "f.csv.part.etag").write_text('"v1"')
+    # the server's file changed (a new ETag): it ignores the range and sends the new file whole
+    rsps.get("https://example.test/f.csv", body=b"newnew", headers={"ETag": '"v2"'})
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert gets[0].request.headers["If-Range"] == '"v1"'
+    assert dest.read_bytes() == b"newnew" and not (tmp_path / "f.csv.part.etag").exists()

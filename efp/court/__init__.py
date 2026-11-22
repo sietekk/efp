@@ -282,6 +282,8 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     evaluated = {m["name"] for m in run.records if m["status"] in ("hit", "miss")}
     if quota_hit:  # a spent budget says nothing about what the API found before
         evaluated -= {"court.courtlistener_api", "court.recap"}
+    if state.flags.get("doj_coverage_gap"):  # nor does a harvest that did not reach the window
+        evaluated.discard("court.doj")
     superseded = _supersede(conn, row.row_id, evaluated, seen)
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
