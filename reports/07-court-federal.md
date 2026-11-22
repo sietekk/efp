@@ -213,6 +213,12 @@ A fifteenth review round:
 | Person-level identifiers written from a record outlived it: after the record turned weak or was superseded, its age, city, birth date and the like stayed in `identifiers` | `court_records` now names the text capture it was read from (`text_capture_id`), and migration 0011 adds the view `court_identifiers_current`: identifiers whose source record is still current, person-level kinds only if that record is also not weak (a case number from any current record). Later builds read the view, not `identifiers`; a test re-runs a record through confirmed, weak, confirmed and no-longer-found and checks what the view shows at each step. This replaces the "known, accepted" note above |
 | A PIN report URL that failed to fetch was requested again for every pre-2013 row | A failed fetch is remembered per run on the capture client (cleared at the start of each run, never persisted), so it is tried once per run. Checked first: the response cache already spares the network a repeat of a 404 (one request for three rows), but without the memory each row still wrote its own capture row, and a connection error is not cached at all |
 
+A sixteenth review round:
+
+| Issue | Fix |
+| --- | --- |
+| Filings that RECAP listed as available but whose download failed (a 5xx, a spent budget, a robots block) were skipped silently, so a docket with no filing fetched was reported "not in the RECAP archive" and queued for PACER purchase, and `--recheck` never retried it | Failed downloads are counted. If none succeeded and at least one failed, the outcome is `documents not fetched (n listed): ...`, transient (`:recap` on the hash, never queued), and a spent budget also sets the quota flag. Only an empty listing, or one whose entries are all unavailable, is reported as absent from RECAP and queued |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

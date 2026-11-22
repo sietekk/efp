@@ -295,6 +295,9 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
         )
     documents = [d for found in dockets for d in found.documents]
     taken = 0
+    failed = 0  # listed and available, but the fetch did not give a filing
+    failure = ""
+    quota = False
     for doc in documents:
         path = doc.get("filepath_local")
         if not path or not doc.get("is_available", True):
@@ -303,9 +306,14 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
             record = cap(ctx).fetch(
                 STORAGE + str(path).lstrip("/"), row_id=task.row_id, stage=STAGE, kind="page"
             )
-        except CaptureError:
+        except CaptureError as exc:
+            failed += 1
+            failure = f"{exc}"
+            quota = quota or isinstance(exc, CaptureBudgetError)
             continue
         if not record.ok:
+            failed += 1
+            failure = f"HTTP {record.http_status}" if record.http_status else f"{record.tool}"
             continue
         cs.located.append(
             Located(
@@ -324,6 +332,17 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
         taken += 1
         if taken >= MAX_RECAP_DOCS:
             break
+    if not taken and failed:
+        # The filings are listed, but none could be fetched (a 5xx, a spent budget, a robots
+        # block): they are unknown, not absent, so this is neither "checked" nor a purchase
+        # candidate, and the row is retried.
+        return RecapOutcome(
+            False,
+            0,
+            f"documents not fetched ({failed} listed): {failure}"[:200],
+            transient=True,
+            quota=quota,
+        )
     return RecapOutcome(
         True, taken, "" if taken else "the docket has no filings in the RECAP archive"
     )

@@ -1252,3 +1252,69 @@ def test_a_pin_report_that_failed_to_fetch_is_tried_once_per_run_not_per_row(
     finally:
         index.close()
         cap.close()
+
+
+def _recap_setup(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    docs: list[dict[str, Any]],
+):  # type: ignore[no-untyped-def]
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="Charged in U.S. District Court")
+    _quiet_doj(rsps)
+    mine = _docket(recap_documents=docs, party=["Quinn Absent"], caseName="United States v. Absent")
+    rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("party_name")])
+    rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("docket_id")])
+    rsps.get("https://storage.courtlistener.com/robots.txt", status=404)
+
+
+_LISTED = {
+    "id": 9,
+    "description": "Indictment",
+    "filepath_local": PDF_URL.removeprefix("https://storage.courtlistener.com/"),
+    "is_available": True,
+}
+
+
+def test_filings_that_were_listed_but_failed_to_download_are_not_queued_as_missing(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _recap_setup(config, conn, rsps, [_LISTED])
+    rsps.get(PDF_URL, status=503)  # the archive lists it but the storage host fails
+    result = process(config, conn, 1)
+    summary = result.summary_json
+    assert summary["pacer_queued"] == 0 and not Path(config.court.pacer_queue).exists()
+    assert "documents not fetched" in json.dumps(summary["recap"])
+    assert result.input_hash and result.input_hash.endswith(":recap")  # --recheck retries it
+
+
+def test_an_empty_listing_or_only_unavailable_filings_is_absent_from_recap_and_queued(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _recap_setup(config, conn, rsps, [{**_LISTED, "is_available": False}])
+    result = process(config, conn, 1)
+    assert result.summary_json["pacer_queued"] == 1  # genuinely not in RECAP: for the operator
+    assert not (result.input_hash or "").endswith(":recap")
+
+
+def test_a_spent_budget_while_fetching_a_filing_is_a_quota_deferral(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _recap_setup(config, conn, rsps, [_LISTED])
+    from efp.capture import Capture, CaptureBudgetError
+
+    real = Capture.fetch
+
+    def fetch(self, url, **kwargs):  # type: ignore[no-untyped-def]
+        if url == PDF_URL:
+            raise CaptureBudgetError("budget not available")
+        return real(self, url, **kwargs)
+
+    monkeypatch.setattr(Capture, "fetch", fetch)
+    summary = process(config, conn, 1).summary_json
+    assert summary["flags"]["api_quota_exhausted"] is True  # type: ignore[index]
+    assert summary["pacer_queued"] == 0
