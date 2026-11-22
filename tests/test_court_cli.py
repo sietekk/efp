@@ -150,3 +150,25 @@ def test_load_of_a_truncated_compressed_file_is_a_clean_failure_not_a_traceback(
     result = runner.invoke(app, ["court", "bulk", "load"])
     assert result.exit_code == 1 and "load failed" in result.output
     assert not bulk.index_path(config).exists()
+
+
+def test_doj_harvest_command_walks_the_feed_and_says_whether_it_reaches_the_year(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get("https://www.justice.gov/robots.txt", status=404)
+    old = {
+        "metadata": {"resultset": {"count": 1, "pagesize": 50}},
+        "results": [
+            {
+                "uuid": "o",
+                "title": "Old",
+                "url": "https://www.justice.gov/o",
+                "date": "1230768000",
+                "body": "<p>x</p>",
+            }
+        ],
+    }  # 2009-01-01
+    rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=old)
+    result = runner.invoke(app, ["court", "doj", "harvest", "--until-year", "2012"])
+    assert result.exit_code == 0, result.output
+    assert "covers 2012" in result.output and "2009" in result.output

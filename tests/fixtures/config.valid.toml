@@ -49,6 +49,7 @@ top_candidates = 5
 doj_year_slack = 1
 doj_pagesize = 50
 doj_harvest_max_pages = 10
+doj_harvest_pages_per_row = 5
 pacer_queue = "queues/pacer.csv"
 
 [rate_limits]

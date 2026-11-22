@@ -303,13 +303,18 @@ class DojClient:
         # coverage of this one's, so only the oldest date reached counts besides that
         return exhausted or bool(oldest and int(oldest[:4]) < first_year)
 
-    def harvest(self, until_year: int, row_id: int | None) -> int:
-        """Page the date-sorted feed (newest first) into the index back to ``until_year``."""
+    def harvest(self, until_year: int, row_id: int | None, *, max_pages: int | None = None) -> int:
+        """Page the date-sorted feed (newest first) into the index back to ``until_year``.
+
+        Inside a row this fetches at most ``doj_harvest_pages_per_row`` pages (so no row holds the
+        stage for hours: progress is kept and the next call carries on); ``efp court doj harvest``
+        passes a larger budget to do the whole walk in one go."""
         page, oldest, exhausted = self.index.progress()
         if exhausted or (oldest and int(oldest[:4]) < until_year):
             return 0
         fetched = 0
-        while page < self.config.court.doj_harvest_max_pages:
+        budget = max_pages if max_pages is not None else self.config.court.doj_harvest_pages_per_row
+        while page < self.config.court.doj_harvest_max_pages and fetched < budget:
             params = {
                 "pagesize": str(self.config.court.doj_pagesize),
                 "sort": "date",
@@ -497,7 +502,7 @@ class CourtDoj:
             cs.flags["doj"]["oldest_harvested"] = oldest
             cs.notes.append(
                 f"DOJ harvest reaches back only to {oldest or 'nothing'}; the row's window starts "
-                f"{year - slack}: raise court.doj_harvest_max_pages and run --recheck"
+                f"{year - slack}: run `efp court doj harvest`, then `efp run court --recheck`"
             )
         if not matches:
             return ModuleResult(Outcome.miss, wrote={"candidates": len(releases)})

@@ -59,6 +59,7 @@ top_candidates = 5                # dockets kept per row from the bulk index
 doj_year_slack = 1                # DOJ releases within this many years of the row's year
 doj_pagesize = 50                 # the API maximum
 doj_harvest_max_pages = 4000      # cap on the date-sorted harvest used if the server ignores the title search
+doj_harvest_pages_per_row = 25    # pages of that harvest one row may fetch (~1 minute); `efp court doj harvest` does the rest in one go
 pacer_queue = "queues/pacer.csv"  # federal dockets whose documents are not in RECAP; a relative path is under paths.data_dir (it names row ids and case numbers)
 
 [rate_limits]

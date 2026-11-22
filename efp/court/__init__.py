@@ -269,6 +269,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
             "documents": outcome.documents,
             "reason": outcome.reason,
             "transient": outcome.transient,
+            "skipped": outcome.skipped,
         }
         recap_transient = recap_transient or outcome.transient
         if outcome.quota:  # the same flag the docket search sets, so the row is retried
@@ -279,6 +280,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
             "checked": False,
             "documents": 0,
             "reason": "documents not checked: only the best candidate per row is looked up",
+            "skipped": True,  # never asked, so never "absent from RECAP"
         }
     queued = append_queue(ctx.config, _queue_items(task, recap))
 

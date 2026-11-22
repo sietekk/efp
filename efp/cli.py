@@ -467,6 +467,49 @@ def court_bulk_status(ctx: typer.Context) -> None:
     )
 
 
+doj_app = typer.Typer(help="The DOJ press-release index.", no_args_is_help=True)
+court_app.add_typer(doj_app, name="doj")
+
+
+@doj_app.command("harvest")
+def court_doj_harvest(
+    ctx: typer.Context,
+    until_year: int = typer.Option(
+        2012, "--until-year", help="Page the date-sorted feed back to this year."
+    ),
+) -> None:
+    """Page the DOJ press-release feed into the local index in one go (resumable).
+
+    The court stage only fetches a few pages per row; this walks the whole range, at the domain's
+    rate limit, so a long harvest does not sit inside one row's processing."""
+    from efp.court import doj as court_doj
+
+    state: AppState = ctx.obj
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    try:
+        run_ctx = runner.make_context(config, conn)
+        client = court_doj.DojClient(run_ctx)
+        try:
+            pages = client.harvest(until_year, None, max_pages=config.court.doj_harvest_max_pages)
+            covered = client.covered(until_year)
+            reached = client.index.progress()[1]
+        except capture_mod.CaptureError as exc:
+            typer.echo(f"harvest stopped: {exc}", err=True)
+            raise typer.Exit(1) from None
+        finally:
+            client.close()
+        typer.echo(
+            f"fetched {pages} pages; oldest release indexed: {reached or 'none'}; "
+            + ("covers" if covered else "does not yet cover")
+            + f" {until_year}"
+        )
+        if not covered:
+            raise typer.Exit(2)
+    finally:
+        conn.close()
+
+
 @links_app.command("report")
 def links_report(
     ctx: typer.Context,

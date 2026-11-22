@@ -262,9 +262,8 @@ def test_documents_are_not_checked_for_a_row_that_is_not_positively_federal(
     assert summary["court_status"] == "primary_record"
     assert not [c for c in rsps.calls if "courtlistener.com/api" in c.request.url]
     assert "not positively federal" in json.dumps(summary["recap"])
-    with Path(config.court.pacer_queue).open() as handle:
-        queued = list(csv.reader(handle))
-    assert "not positively federal" in queued[1][4]
+    # RECAP was never asked, so the docket is not "absent from RECAP": it is not queued to buy
+    assert summary["pacer_queued"] == 0 and not Path(config.court.pacer_queue).exists()
 
 
 def test_recap_fetch_is_gated_and_never_calls_pacer(
@@ -1017,3 +1016,57 @@ def test_a_pin_report_with_no_entries_or_that_cannot_be_read_is_not_fetched_for_
         assert index.indexed("https://example.test/scan.pdf")  # read once, never again
     finally:
         index.close()
+
+
+def test_a_429_is_not_retried_and_the_rest_of_the_run_does_not_ask_again(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    _index_without(config)
+    add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
+    add_court_row(conn, 2, name="Pat Absent", details="U.S. District Court", sha="2" * 64)
+    _quiet_doj(rsps)
+    rsps.get(SEARCH, status=429, headers={"Retry-After": "250"})
+    ctx, cap, registry = make_ctx(config, conn)
+    first = component.process_row(row_of(conn, 1), ctx, registry)
+    second = component.process_row(row_of(conn, 2), ctx, registry)
+    cap.close()
+    assert first.summary_json["court_status"] == second.summary_json["court_status"]
+    assert first.summary_json["court_status"] == "deferred_quota"
+    asked = [c for c in rsps.calls if "courtlistener.com/api" in c.request.url]
+    assert len(asked) == 1  # one request, no retries, and nothing for the second row
+
+
+def test_the_harvest_inside_a_row_stops_after_its_page_budget_and_leaves_a_gap(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp.court import doj
+
+    tight = config.model_copy(
+        update={
+            "court": config.court.model_copy(
+                update={"doj_harvest_pages_per_row": 2, "doj_harvest_max_pages": 50}
+            )
+        }
+    )
+    page = {
+        "metadata": {"resultset": {"count": 1, "pagesize": 50}},
+        "results": [
+            {
+                "uuid": "n",
+                "title": "News",
+                "url": "https://www.justice.gov/n",
+                "date": "1735689600",
+                "body": "<p>x</p>",
+            }
+        ],
+    }
+    rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=page)
+    ctx, cap, _ = make_ctx(tight, conn)
+    try:
+        client = doj.DojClient(ctx)
+        assert client.harvest(2010, None) == 2  # the row's budget, not the 50-page cap
+        assert not client.covered(2010)
+        assert client.harvest(2010, None, max_pages=10) == 10  # the explicit step goes on
+        client.close()
+    finally:
+        cap.close()

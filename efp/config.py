@@ -258,6 +258,9 @@ class CourtCfg(_Section):
     doj_harvest_max_pages: int = Field(
         gt=0
     )  # cap on the date-sorted harvest used when the title search is ignored
+    doj_harvest_pages_per_row: int = Field(
+        gt=0
+    )  # pages of the harvest one row may fetch; the rest is left to `efp court doj harvest`
     pacer_queue: str  # where dockets whose documents are not in RECAP are listed
 
 

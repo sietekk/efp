@@ -164,6 +164,16 @@ Minor review items, handled:
 - **Contract change for operator-local configs:** `rate_limits.daily_caps.<host>` of 0 no longer loads (decision 1 of the PR description); change any local zero to at least 1.
 - **For later builds:** nothing reads `court_records.current` yet. Whichever build reads the table (identity, export) must filter on `current = 1`, or superseded candidates will look live.
 
+An eleventh review round:
+
+| Issue | Fix |
+| --- | --- |
+| The CourtListener "fail fast" still retried a 429 (sleeping `Retry-After`, up to 300 s, and spending another token each time), and every later row repeated it | The request is made with `retry=False`, so a 429 is the answer and maps to the budget error at once; the throttled state is remembered on the capture client, so the rest of the run does not ask again (each such row is `deferred_quota`) |
+| A docket for a row classified `unknown`, or any non-best candidate, was queued for PACER as "not found in RECAP" although RECAP was never asked | Those outcomes are `skipped`, and only a docket that was actually checked and found absent is queued |
+| The DOJ harvest ran inside one row's processing (thousands of requests at 0.5 per second, past the 120-minute stale limit) | A row fetches at most `court.doj_harvest_pages_per_row` pages (25, about a minute); progress is kept, a short reach is `deferred_coverage`, and the new `efp court doj harvest --until-year 2012` walks the whole range in one resumable step. Run it once before `efp run court`; it exits 2 if the cap stopped it short of the year |
+
+New config key: `court.doj_harvest_pages_per_row` (documented in `config.example.toml`).
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

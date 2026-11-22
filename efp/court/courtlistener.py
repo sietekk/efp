@@ -95,6 +95,9 @@ def parse_dockets(payload: Any) -> list[ApiDocket]:
 def _search(
     ctx: Context, secret: str, params: dict[str, str], row_id: int
 ) -> tuple[list[ApiDocket], int]:
+    if getattr(cap(ctx), "_courtlistener_throttled", False):
+        # a 429 earlier in this run: do not spend more of the day's tokens asking again
+        raise CaptureBudgetError("CourtListener throttled this run earlier (HTTP 429)")
     with cap(ctx).wait_limit(QUOTA_WAIT):
         record = cap(ctx).fetch(
             SEARCH,
@@ -103,8 +106,10 @@ def _search(
             kind="api",
             params=params,
             headers={"Authorization": f"Token {secret}"},
+            retry=False,  # a 429 is the answer: no retry, no Retry-After sleep, no second token
         )
     if record.http_status == 429:
+        cap(ctx)._courtlistener_throttled = True
         raise CaptureBudgetError("CourtListener throttled the request (HTTP 429)")
     if not record.ok:
         raise CaptureError(f"CourtListener answered HTTP {record.http_status}")
@@ -245,6 +250,7 @@ class RecapOutcome:
     # retried by --recheck.
     transient: bool = False
     quota: bool = False  # the daily budget was the reason
+    skipped: bool = False  # not asked, by design (not federal, no id): never queued for purchase
 
 
 def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> RecapOutcome:
@@ -252,10 +258,13 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
     cs = task.cs
     secret = token(ctx)
     if docket.docket_id is None:
-        return RecapOutcome(False, 0, "no CourtListener docket id")
+        return RecapOutcome(False, 0, "no CourtListener docket id", skipped=True)
     if cs.classification.kind != "federal":
         return RecapOutcome(
-            False, 0, "documents not checked: classification is not positively federal"
+            False,
+            0,
+            "documents not checked: classification is not positively federal",
+            skipped=True,  # RECAP was never asked: not a docket confirmed absent from it
         )
     if not secret:
         return RecapOutcome(
