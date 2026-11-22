@@ -40,6 +40,7 @@ HOST = "https://www.courtlistener.com"
 MAX_RECAP_DOCS = 5  # PDFs captured per docket: enough for build 10 to read the charging documents
 # The per-request gap (0.8/s is 1.25 s) must fit inside this wait, so only a spent *daily* budget,
 # which would take hours, fails fast; a quota is not worth waiting for.
+THROTTLE_KEY = "courtlistener"
 QUOTA_WAIT = 5.0
 
 
@@ -95,7 +96,7 @@ def parse_dockets(payload: Any) -> list[ApiDocket]:
 def _search(
     ctx: Context, secret: str, params: dict[str, str], row_id: int
 ) -> tuple[list[ApiDocket], int]:
-    if getattr(cap(ctx), "_courtlistener_throttled", False):
+    if cap(ctx).is_throttled(THROTTLE_KEY):
         # a 429 earlier in this run: do not spend more of the day's tokens asking again
         raise CaptureBudgetError("CourtListener throttled this run earlier (HTTP 429)")
     with cap(ctx).wait_limit(QUOTA_WAIT):
@@ -109,7 +110,7 @@ def _search(
             retry=False,  # a 429 is the answer: no retry, no Retry-After sleep, no second token
         )
     if record.http_status == 429:
-        cap(ctx)._courtlistener_throttled = True
+        cap(ctx).mark_throttled(THROTTLE_KEY)
         raise CaptureBudgetError("CourtListener throttled the request (HTTP 429)")
     if not record.ok:
         raise CaptureError(f"CourtListener answered HTTP {record.http_status}")

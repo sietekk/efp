@@ -18,6 +18,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0007_links_resolution.sql` | `links` rebuilt: `bitly_info` and `commoncrawl` methods, a `note` column, unique per row and URL |
 | `0008_court_records_weak.sql` | `court_records.weak` and `basis_json`: a candidate match is marked, with its evidence |
 | `0009_court_records_identity.sql` | `court_records.docket_id` and `current`: a record is identified by its document, and one a later run no longer finds is marked not current |
+| `0010_court_records_views.sql` | views `court_records_current` (current = 1) and `court_records_confirmed` (current = 1 and weak = 0): later builds read these, not the table |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 

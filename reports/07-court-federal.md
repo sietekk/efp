@@ -191,6 +191,11 @@ A thirteenth review round:
 | A row whose only record was a weak report paragraph (or a weak release) was labelled the finished `press_release_only` | `press_release_only` needs a record that is not weak; weak-only or report-only rows are `candidate_only` |
 | The weak rule counted candidates after truncation to `top_candidates`, so `top_candidates = 1` made an ambiguous name look settled | `search_dockets_all` and `search_party_all` return every match; the modules count before truncating (the truncating wrappers remain for callers that want the best few) |
 
+Two last review notes, handled:
+
+- **`current` and `weak` are now enforced for readers.** Migration 0010 adds two views: `court_records_current` (`current = 1`) and `court_records_confirmed` (`current = 1 AND weak = 0`). Builds 08 and later read these, never the table, or they would treat superseded rows and candidates as findings. (Nothing in `efp/` reads `court_records` yet.)
+- **The 429 memory is typed and run-scoped.** `Capture.mark_throttled` / `is_throttled` / `clear_throttles` replace the dynamic attribute, and `run_stage` clears the memory at the start of every run, so a long-lived process that reuses one client is not deferred by an old 429.
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

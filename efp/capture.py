@@ -260,6 +260,7 @@ class Capture:
         self.limiter = limiter or DomainLimiter(config)
         self.warcs = WarcStore(config.paths.warc, software=f"efp/{package_version()}")
         self._robots: dict[str, _Robots] = {}
+        self._throttled: set[str] = set()  # services that answered 429 in this run
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
         self._ua_token = self.user_agent.split("/")[0].split()[0]
@@ -409,6 +410,19 @@ class Capture:
         from efp import perma
 
         return perma.archive(self, url, secrets)
+
+    # --- throttle memory ---------------------------------------------------------------------
+
+    def mark_throttled(self, name: str) -> None:
+        """Remember that ``name`` (a service) answered 429, so the rest of this run does not ask."""
+        self._throttled.add(name)
+
+    def is_throttled(self, name: str) -> bool:
+        return name in self._throttled
+
+    def clear_throttles(self) -> None:
+        """Forget every throttle; the runner calls this at the start of each run."""
+        self._throttled.clear()
 
     @contextmanager
     def wait_limit(self, seconds: float) -> Iterator[None]:

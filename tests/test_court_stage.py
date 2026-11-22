@@ -1143,3 +1143,32 @@ def test_top_candidates_does_not_hide_an_ambiguity_from_the_weak_rule(
     docket = [i for i in result.summary_json["located"] if i["source_kind"] == "federal_docket"]  # type: ignore[union-attr]
     assert docket and all(i["weak"] for i in docket)
     assert result.summary_json["court_status"] == "candidate_only"
+
+
+def test_the_views_hide_superseded_records_and_candidates(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1)
+    confirmed = component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=1))
+    candidate = component._upsert_record(conn, 1, _docket_item(weak=True, docket_id=2))
+    component._upsert_record(conn, 1, _docket_item(weak=False, docket_id=3))  # found no more
+    component._supersede(conn, 1, {"court.courtlistener_bulk"}, {confirmed, candidate})
+    current = {r[0] for r in conn.execute("SELECT docket_id FROM court_records_current")}
+    sure = {r[0] for r in conn.execute("SELECT docket_id FROM court_records_confirmed")}
+    assert current == {1, 2} and sure == {1}  # 3 was superseded; 2 is only a candidate
+
+
+def test_a_throttle_is_a_typed_run_scoped_memory_that_a_new_run_clears(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp import runner as rn
+
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        assert not cap.is_throttled("courtlistener")
+        cap.mark_throttled("courtlistener")
+        assert cap.is_throttled("courtlistener")
+        rn.run_stage(conn, config, rn.RunOptions("court"), ctx, component=component)
+        assert not cap.is_throttled("courtlistener")  # the start of a run forgets it
+    finally:
+        cap.close()
