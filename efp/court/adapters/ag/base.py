@@ -311,12 +311,15 @@ class StateAdapter:
         if self.index.count() == 0 or cap(self.ctx).ran_this_run(key):
             return 0
         fetched = 0
+        verified = True  # did the walk actually see the newest page?
         cursor: str | None = self.first_cursor()
         self._fresh = True
         try:
             while cursor is not None and fetched < self.config.court.ag_harvest_max_pages:
                 releases, following = self.list_page(cursor)
                 fetched += 1
+                if fetched == 1 and not releases and following is None:
+                    verified = False  # no first page (an edge 404): nothing was checked
                 known = any(self.index.has(r.url) for r in releases)
                 self.index.add(releases)
                 self.index.note_newest(releases)
@@ -325,7 +328,8 @@ class StateAdapter:
                 cursor = following
         finally:
             self._fresh = False
-        cap(self.ctx).mark_ran(key)  # only a walk that finished counts: a failed one is retried
+        if verified:  # only a walk that finished counts: a failed or empty one is retried
+            cap(self.ctx).mark_ran(key)
         return fetched
 
     def covered(self, first_year: int) -> bool:

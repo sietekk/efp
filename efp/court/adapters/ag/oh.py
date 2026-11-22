@@ -72,11 +72,12 @@ class Ohio(StateAdapter):
         if page is None:
             # A month with no page has no releases, but an edge can answer 404 for a page that
             # exists: ask once more, past the cache, before accepting the month as empty.
-            self._fresh = True
+            # (restore the caller's setting: a freshness walk or probe keeps bypassing the cache)
+            before, self._fresh = self._fresh, True
             try:
                 page = self.listing(url)
             finally:
-                self._fresh = False
+                self._fresh = before
         releases = self.parse(page) if page else []
         year, month = (year - 1, 12) if month == 1 else (year, month - 1)
         return releases, (f"{year}-{month:02d}" if year >= FLOOR_YEAR else None)

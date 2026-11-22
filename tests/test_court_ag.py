@@ -38,6 +38,7 @@ PARSERS: dict[str, tuple[Callable[[str, str], list[Release]], str]] = {
     "il": (il_mod.parse_listing, "https://illinoisattorneygeneral.gov"),
 }
 TX = "https://www.texasattorneygeneral.gov"
+OH = "https://www.ohioattorneygeneral.gov"
 
 
 @pytest.fixture(autouse=True)
@@ -1041,3 +1042,72 @@ def test_applies_notes_a_failed_walk_and_lets_run_report_it(
     result = process(config, conn, 1)
     assert any("walk failed in applies" in n for n in result.summary_json["notes"])  # type: ignore[union-attr]
     assert result.summary_json["court_status"] == "deferred_error"  # type: ignore[index]
+
+
+def test_an_oh_month_re_probe_keeps_the_freshness_walk_bypassing_the_cache(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(oh_mod.Ohio, "first_cursor", lambda self: "2026-11")
+    _oh_month(rsps, "November-2026", status=404)  # the re-probe path
+    _oh_month(
+        rsps,
+        "October-2026",
+        ("new", "New release", "10/20/2026"),
+        ("seed", "Seed", "09/01/2026"),
+    )
+    ctx, cap, _ = make_ctx(config, conn)
+    seen: list[tuple[str, bool]] = []
+    real = cap.fetch
+
+    def spy(url: str, *args: Any, **kwargs: Any) -> Any:
+        seen.append((url, bool(kwargs.get("no_cache"))))
+        return real(url, *args, **kwargs)
+
+    monkeypatch.setattr(cap, "fetch", spy)
+    try:
+        oh = adapters()["OH"](ctx)
+        oh.index.add(
+            [
+                Release(
+                    f"{OH}/Media/News-Releases/October-2026/seed",
+                    "Seed",
+                    date(2026, 9, 1),
+                    "AG",
+                    "",
+                )
+            ]
+        )
+        oh.refresh_newest()
+        october = [flag for url, flag in seen if url.endswith("October-2026")]
+        assert october and all(october)  # still no_cache after November's re-probe
+        assert oh._fresh is False  # and restored when the walk ends
+        seen.clear()
+        assert oh.probe()
+        assert all(flag for url, flag in seen if url.endswith("October-2026"))
+        oh.close()
+    finally:
+        cap.close()
+
+
+def test_a_missing_first_page_does_not_count_as_a_finished_freshness_walk(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        tx = adapters()["TX"](ctx)
+        tx.index.add([Release(f"{TX}/news/releases/known", "Known", date(2026, 5, 1), "AG", "")])
+        tx.index.save_progress("1", "2026-05-01", False, 1)
+        rsps.get(f"{TX}/news/releases", status=404)  # an edge answers 404 for page 0
+        rsps.get(re.compile(r"https://web\.archive\.org/.*"), status=404)  # no copy either
+        tx.refresh_newest()
+        assert not cap.ran_this_run("ag-refresh-TX")  # not consumed: the next row tries again
+        rsps.replace(
+            responses.GET, f"{TX}/news/releases", body=tx_page(("known", "Known", "May 01, 2026"))
+        )
+        assert tx.refresh_newest() == 1 and cap.ran_this_run("ag-refresh-TX")
+        tx.close()
+    finally:
+        cap.close()
