@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 
+from efp.capture import CaptureError
 from efp.court.adapters.ag import Release, register
 from efp.court.adapters.ag.base import StateAdapter, clean, parse_date
 
@@ -48,6 +49,17 @@ class California(StateAdapter):
         return parse_listing(html_text, self.portal)
 
     def list_page(self, cursor: str) -> tuple[list[Release], str | None]:
-        page = self.listing(self.listing_url(cursor))
-        releases = self.parse(page) if page else []
-        return releases, (str(int(cursor) + 1) if releases else None)
+        url = self.listing_url(cursor)
+        page = self.listing(url)
+        if page is None:
+            return [], None  # 404/410: the page is gone, which is the end
+        releases = self.parse(page)
+        if not releases:
+            raise CaptureError(
+                f"{url}: parsed to no releases (a layout change or a challenge page?)"
+            )
+        if "pager-next" in page:
+            return releases, str(int(cursor) + 1)
+        if "pager" not in page:
+            raise CaptureError(f"{url}: no pager found, so the end of the archive cannot be told")
+        return releases, None  # a pager with no next link: the last page

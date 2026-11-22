@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from datetime import date
@@ -64,10 +65,13 @@ def tx_page(*items: tuple[str, str, str]) -> str:
         "Release\n</p>\n</div>\n"
         for slug, title, day in items
     )
-    return f"<html><body>{blocks}</body></html>"
+    pager = '<nav class="pager"><a href="?page=9" rel="next">next</a></nav>'
+    return f"<html><body>{blocks}{pager}</body></html>"
 
 
 def serve_tx(rsps: responses.RequestsMock, pages: list[str]) -> None:
+    """Serve the pages; the last one has a pager with no next link (the end of the archive)."""
+    pages = [*pages[:-1], pages[-1].replace(' rel="next"', "")]
     for number, body in enumerate(pages):
         rsps.get(
             f"{TX}/news/releases",
@@ -149,7 +153,8 @@ def test_the_harvest_pages_newest_first_resumes_and_a_state_index_is_fetched_onc
     try:
         tx = adapters()["TX"](ctx)
         assert tx.harvest(2013, None) == 3  # newest first, until older than 2013
-        assert tx.index.count() == 3 and tx.covered(2013) and not tx.covered(2005)
+        assert tx.index.count() == 3 and tx.covered(2013)
+        assert "reaches back only to 2009" in (tx.out_of_reach(2005) or "")  # the archive ended
         assert tx.harvest(2013, None) == 0  # nothing more is needed
         first = tx.search("Alex Example", 2014, window=1)  # the run's one freshness check
         fetched = len([c for c in rsps.calls if "/news/releases" in c.request.url])
@@ -170,15 +175,15 @@ def test_a_page_budget_inside_a_row_stops_and_the_rest_resumes_where_it_left_off
 ) -> None:
     serve_tx(
         rsps,
-        [tx_page((f"r{n}", f"Release {n}", f"January 0{n + 1}, 20{25 - n}")) for n in range(6)]
-        + [tx_page()],  # the archive ends
+        [tx_page((f"r{n}", f"Release {n}", f"January 0{n + 1}, 20{25 - n}")) for n in range(6)],
+        # the sixth page has a pager with no next link: the archive ends there
     )
     ctx, cap, _ = make_ctx(config, conn)
     try:
         tx = adapters()["TX"](ctx)
         assert tx.harvest(2010, None) == config.court.ag_harvest_pages_per_row == 3
         assert not tx.covered(2010)
-        assert tx.harvest(2010, None, max_pages=10) == 4  # pages 3-5 and the empty end, not 0 again
+        assert tx.harvest(2010, None, max_pages=10) == 3  # pages 3-5, not page 0 again
         assert tx.index.count() == 6
         tx.close()
     finally:
@@ -837,7 +842,88 @@ def test_a_throttle_or_a_refusal_during_a_smoke_test_is_reported_not_recorded(
     assert sync.recorded(conn, "IL") is None  # one refusal is reported, not recorded
     assert sync.recorded(conn, "OH") is None
     mode, reason = sync.recorded(conn, "CA") or ("", "")
-    assert mode == "broken" and "no dated release" in (
+    assert mode == "broken" and "parsed to no releases" in (
         reason or ""
-    )  # a page that loaded and parsed to nothing
+    )  # loaded, parsed to nothing
     assert "transient" in checks["live: state ag TX"].detail
+
+
+def test_a_mid_walk_empty_page_is_an_error_a_404_is_the_end_and_a_pager_page_is_the_last(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(
+        f"{TX}/news/releases",
+        body=tx_page(("a", "Voting 2026", "May 01, 2026")),
+        match=[responses.matchers.query_param_matcher({"page": "0"})],
+    )
+    rsps.get(
+        f"{TX}/news/releases",
+        body="<html><body>Checking your browser before accessing...</body></html>",
+        match=[responses.matchers.query_param_matcher({"page": "1"})],
+    )
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        tx = adapters()["TX"](ctx)
+        with pytest.raises(CaptureError, match="parsed to no releases"):
+            tx.harvest(2000, None, max_pages=10)
+        assert tx.index.count() == 1  # page 0 is kept...
+        cursor, _oldest, done, _pages = tx.index.progress()
+        assert done is False and cursor == "1"  # ...and the walk can resume at the bad page
+        assert not tx.covered(2000)  # so rows are not told the archive is exhausted
+        tx.close()
+    finally:
+        cap.close()
+
+
+def test_a_404_page_is_the_end_of_the_archive_and_a_layout_without_a_pager_is_an_error(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(
+        f"{TX}/news/releases",
+        body=tx_page(("a", "Voting 2026", "May 01, 2026")),
+        match=[responses.matchers.query_param_matcher({"page": "0"})],
+    )
+    rsps.get(
+        f"{TX}/news/releases",
+        status=404,
+        match=[responses.matchers.query_param_matcher({"page": "1"})],
+    )
+    rsps.add(
+        responses.GET, re.compile(r"https://web\.archive\.org/.*"), status=404
+    )  # no copy either
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        tx = adapters()["TX"](ctx)
+        tx.harvest(2000, None, max_pages=10)
+        assert tx.index.progress()[2] is True  # a 404 past the last page is a positive end
+        tx.close()
+    finally:
+        cap.close()
+    no_pager = "".join(
+        '<div class="m-b-3"><h4><a href="/news/releases/x">Voting</a></h4><p>s</p>'
+        '<p class="meta m-b-0">May 01, 2026 | Press Release</p></div>'
+        for _ in range(1)
+    )
+    page = f"<html><body>{no_pager}</body></html>"
+    rsps.replace(
+        responses.GET,
+        f"{TX}/news/releases",
+        body=page,
+        match=[responses.matchers.query_param_matcher({"page": "0"})],
+    )
+    ctx2, cap2, _ = make_ctx(config, conn)
+    try:
+        fresh = adapters()["CA"](ctx2)  # a state whose listing has releases but no pager at all
+        rsps.get("https://oag.ca.gov/media/news", body=ca_page_without_pager())
+        with pytest.raises(CaptureError, match="no pager"):
+            fresh.list_page("0")
+        fresh.close()
+    finally:
+        cap2.close()
+
+
+def ca_page_without_pager() -> str:
+    return (
+        '<div class="views-row views-row-1"><a href="/news/press-releases/x">A settlement</a>'
+        '<span content="2026-05-01T00:00:00-08:00"></span></div>'
+    )
