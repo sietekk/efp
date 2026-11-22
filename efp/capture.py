@@ -729,10 +729,14 @@ class Capture:
                     check=False,
                 )  # fmt: skip
             except subprocess.TimeoutExpired as exc:
-                # killing the client does not stop the container: remove it by name
-                subprocess.run(  # noqa: S603
-                    [docker, "rm", "-f", name], capture_output=True, timeout=30, check=False
-                )
+                # killing the client does not stop the container: remove it by name (and if even
+                # that fails the capture is still only deferred, never an unhandled error)
+                try:
+                    subprocess.run(  # noqa: S603
+                        [docker, "rm", "-f", name], capture_output=True, timeout=30, check=False
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    log.warning("could not remove the timed-out container %s", name)
                 raise CaptureError(f"{scrub_text(url)}: browser capture timed out") from exc
             except OSError as exc:
                 raise CaptureError(f"{scrub_text(url)}: browser capture failed: {exc}") from exc

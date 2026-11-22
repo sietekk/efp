@@ -17,6 +17,8 @@ A state with no probed portal is skipped with the reason and the chain goes on.
 
 from __future__ import annotations
 
+import csv
+import logging
 import sqlite3
 
 from efp.capture import CaptureError
@@ -36,12 +38,16 @@ _SEEDS: list[Seed] | None = None
 
 
 def seeds() -> list[Seed]:
+    """The seed portal list, cached once it has been read. A failure to read it is not cached
+    (a later call tries again) and is logged: without the list a county-level state would lose its
+    county logic and silently take the statewide path."""
     global _SEEDS
     if _SEEDS is None:
         try:
             _SEEDS = load_seeds()
-        except OSError:
-            _SEEDS = []
+        except (OSError, KeyError, csv.Error) as exc:
+            log.warning("reference/docket_portals.csv could not be read: %s", exc)
+            return []
     return _SEEDS
 
 
@@ -67,6 +73,7 @@ def platform_of(portal_url: str) -> str:
     return "portal"
 
 
+log = logging.getLogger("efp.docket")
 BLOCK_LIMIT = 3  # refusals within one run before a state's portal is recorded as blocked
 MAX_DOCUMENTS = 5
 GATING_WANTS = ("account", "fee")
@@ -129,6 +136,8 @@ class CourtStateDocket:
             return ModuleResult(Outcome.miss)
         mode, reason, portal = found
         cfg = ctx.config.court
+        if mode in ("assisted", "manual") and not seeds():
+            cs.notes.append("the docket portal list could not be read: county logic not applied")
         if mode in ("assisted", "manual"):
             only_counties = bool([s for s in seeds() if s.state == state]) and not any(
                 s.scope == "statewide" for s in seeds() if s.state == state

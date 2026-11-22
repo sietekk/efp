@@ -63,6 +63,9 @@ def assisted_rows(
         "SELECT cs.row_id, r.state, r.year, cs.summary_json FROM case_stage cs "
         "JOIN rows r ON r.row_id = cs.row_id WHERE cs.stage = 'court' "
         "AND json_extract(cs.summary_json, '$.assisted') IS NOT NULL "
+        # a row some other module resolved is not waiting on anyone (the query stays on the row
+        # for gated, candidate and deferred ones, which still need the operator)
+        "AND coalesce(json_extract(cs.summary_json, '$.court_status'), '') != 'primary_record' "
         "ORDER BY r.state, r.year, cs.row_id"
     )
     for row_id, row_state, year, summary in cursor:

@@ -1010,3 +1010,73 @@ def test_an_unreachable_manual_portal_is_a_gap_and_only_a_verified_no_online_sea
     )  # revisited when the seed is fixed
     record_portal(conn, "WI", "manual", "no-online-search: county clerk by phone")
     assert process(config, conn, 1).summary_json["court_status"] == "not_found"  # type: ignore[index]
+
+
+# --- review: cleanup failures, resolved rows in the assisted list, an unreadable seed list ------------
+
+
+def test_a_container_that_cannot_be_removed_after_a_timeout_is_still_only_a_deferred_capture(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.dbhelpers import insert_row
+
+    insert_row(conn, 1)
+    conn.commit()
+    cap = make_capture(config, conn)
+    monkeypatch.setattr("shutil.which", lambda _n: "/usr/bin/docker")
+
+    def fake_run(args: list[str], **_kw: Any) -> subprocess.CompletedProcess[bytes]:
+        if args[1] == "info":
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        if args[1] == "run":
+            raise subprocess.TimeoutExpired(args, 1)
+        raise OSError("docker went away")  # `docker rm -f` itself fails
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
+        with pytest.raises(CaptureError, match="timed out"):  # a CaptureError, not an OSError
+            cap.browser("https://example.test/search", row_id=1, stage="court")
+    finally:
+        cap.close()
+
+
+def test_the_assisted_list_leaves_out_a_row_another_module_resolved(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.court.adapters.docket import queue as dq
+
+    query = {
+        "portal_url": "u",
+        "name": "Example, Alex",
+        "filed_from": "2006-01-01",
+        "filed_to": "2017-12-31",
+        "after": "efp import --row 1 --source portal <file>",
+    }
+    for row_id, status in ((1, "primary_record"), (2, "gated_portal"), (3, "deferred_coverage")):
+        add_court_row(conn, row_id, state="WI", sha=f"{row_id:064d}")
+        conn.execute(
+            "UPDATE case_stage SET status = 'done', summary_json = ? "
+            "WHERE row_id = ? AND stage = 'court'",
+            (json.dumps({"court_status": status, "assisted": query}), row_id),
+        )
+    conn.commit()
+    assert [r["row_id"] for r in dq.assisted_rows(conn)] == [2, 3]  # not the resolved row
+
+
+def test_an_unreadable_seed_list_is_logged_and_not_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from efp.court.adapters.docket import module as dm
+
+    monkeypatch.setattr(dm, "_SEEDS", None)
+    monkeypatch.setattr(dp, "seeds_path", lambda: tmp_path / "missing.csv")
+    with caplog.at_level("WARNING", logger="efp.docket"):
+        assert dm.seeds() == []
+    assert "could not be read" in caplog.text and dm._SEEDS is None  # not remembered
+    good = tmp_path / "portals.csv"
+    good.write_text(
+        "state,portal,url,platform,scope,note\nFL,A,https://a.example/,other,statewide,\n"
+    )
+    monkeypatch.setattr(dp, "seeds_path", lambda: good)
+    assert [s.state for s in dm.seeds()] == ["FL"]  # the next call reads it
+    monkeypatch.setattr(dm, "_SEEDS", None)  # leave no state behind for other tests
