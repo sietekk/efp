@@ -54,21 +54,44 @@ def _available(ctx: Context, registry: Registry) -> list[str]:
     return sorted(m.name for m in chain.describe(ctx.config, ctx, registry, STAGE) if m.ok)
 
 
+def _doj_freshness(row: Row, ctx: Context, hosts: list[str]) -> str | None:
+    """What of the DOJ feed's fresh end can change this row's answer.
+
+    Only a row the DOJ module can apply to depends on the feed at all, and a new release changes
+    its answer only while the feed's newest date is still inside the row's release window: once
+    the newest release is past the window's end, later releases cannot fall in it. So the date is
+    part of the hash for those rows only, and it stops mattering ("past") once it leaves the
+    window, instead of making every court row look changed whenever the feed moves."""
+    slack = ctx.config.court.doj_year_slack
+    if not row.year or row.year + slack < doj.COVERAGE_FROM:
+        return None
+    classification = classify(row.source.get("details"), row.source.get("source_raw"), hosts)
+    if not classification.federal_strategies_apply:
+        return None
+    if not parse_name(str(row.source.get("name") or "")).usable:
+        return None
+    newest = doj.newest_indexed(ctx.config)
+    if newest is None:
+        return "no-index"
+    return "past" if int(newest[:4]) > row.year + slack else newest
+
+
 def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     """The row's inputs, the modules that can run, and the bulk dataset: a new quarter or a newly
     enabled module changes it, so ``--recheck`` revisits exactly the rows that could change."""
     info = index_info(ctx.config)
+    hosts = link_hosts(ctx.db, row.row_id) if ctx.db is not None else []
     return hash_values(
         row.source.get("name"),
         row.year,
         row.state,
         row.source.get("details"),
         row.source.get("source_raw"),
-        link_hosts(ctx.db, row.row_id) if ctx.db is not None else [],
+        hosts,
         _available(ctx, registry),
         info.dataset_date if info else None,
         ctx.config.court.pin_report_urls,
-        doj.newest_indexed(ctx.config),  # the feed's fresh end: a refresh revisits recent rows
+        _doj_freshness(row, ctx, hosts),
     )
 
 

@@ -567,32 +567,53 @@ def test_the_fresh_end_of_the_feed_is_refreshed_once_per_run_and_changes_the_inp
     from efp import court as component
 
     old = doj_page(
-        release("Older news", "x", date="2020-01-10", uuid="a"),
-        release("Oldest news", "x", date="2019-12-01", uuid="b"),
+        release("Older news", "x", date="2014-01-10", uuid="a"),
+        release("Oldest news", "x", date="2013-12-01", uuid="b"),
     )
     new = doj_page(
-        release("Brand new release", "x", date="2020-06-01", uuid="c"),
-        release("Older news", "x", date="2020-01-10", uuid="a"),  # back at what the index holds
+        release("Brand new release", "x", date="2014-06-01", uuid="c"),
+        release("Older news", "x", date="2014-01-10", uuid="a"),  # back at what the index holds
     )
     ctx, cap, registry = make_ctx(config, conn)
     try:
         rsps.get(API, json=old)
         first = doj.DojClient(ctx)
-        first.harvest(2019, None)  # the initial walk
+        first.harvest(2013, None)  # the initial walk
         first.close()
         before = doj.newest_indexed(config)
         add_court_row(conn, 1)
         hash_before = component.input_hash(row_of(conn, 1), ctx, registry)
-        assert before is not None and before.startswith("2020-01-10")
+        assert before is not None and before.startswith("2014-01-10")
         rsps.replace(responses.GET, API, json=new)  # a release was published since
         cap.clear_throttles()  # a new run
         again = doj.DojClient(ctx)
         assert again.refresh_newest(None) >= 1
         assert again.refresh_newest(None) == 0  # once per run
-        assert {r.uuid for r in again.index.between(2020, 2020)} >= {"a", "c"}
+        assert {r.uuid for r in again.index.between(2014, 2014)} >= {"a", "c"}
         again.close()
         after = doj.newest_indexed(config)
-        assert after is not None and after.startswith("2020-06-01")
+        assert after is not None and after.startswith("2014-06-01")
         assert component.input_hash(row_of(conn, 1), ctx, registry) != hash_before  # recheck
+        # only rows the DOJ module can apply to, and whose window the feed has not passed, depend
+        # on the fresh end: a pre-2013 row, a state row and a row from long before are unchanged
+        from tests.courthelpers import add_court_row as add
+
+        add(conn, 2, year=2000)
+        add(conn, 3, details="Charged in Superior Court by the state", sha="3" * 64)
+        add(conn, 4, year=2010, sha="4" * 64)  # window ended 2011: the feed is far past it
+        unchanged = {n: component.input_hash(row_of(conn, n), ctx, registry) for n in (2, 3, 4)}
+        rsps.replace(
+            responses.GET,
+            API,
+            json=doj_page(release("Later news", "x", date="2014-09-01", uuid="d")),
+        )
+        cap.clear_throttles()
+        later = doj.DojClient(ctx)
+        later.refresh_newest(None)
+        later.close()
+        assert {n: component.input_hash(row_of(conn, n), ctx, registry) for n in (2, 3, 4)} == (
+            unchanged
+        )
+        assert component.input_hash(row_of(conn, 1), ctx, registry) != hash_before
     finally:
         cap.close()

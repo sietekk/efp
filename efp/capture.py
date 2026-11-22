@@ -104,6 +104,19 @@ class CaptureBudgetError(CaptureError):
     """The domain's rate budget did not free up in time (a spent daily quota, typically)."""
 
 
+def _unsatisfied_total(content_range: str) -> int | None:
+    """N from a 416's ``Content-Range: bytes */N`` (the length of the server's file)."""
+    found = re.match(r"bytes\s+\*/(\d+)", content_range.strip())
+    return int(found.group(1)) if found else None
+
+
+def _validator(etag: str | None, modified: str | None) -> str | None:
+    """What a resume sends as If-Range: a strong ETag, else the Last-Modified date."""
+    if etag and not etag.startswith("W/"):
+        return etag
+    return modified or None
+
+
 def _range_starts_at(content_range: str, offset: int) -> bool:
     found = re.match(r"bytes\s+(\d+)-", content_range.strip())
     return found is not None and int(found.group(1)) == offset
@@ -486,10 +499,21 @@ class Capture:
             digest, have = hashlib.sha256(), 0
         headers = {"Range": f"bytes={have}-"} if have else {}
         tag_file = part.with_name(part.name + ".etag")  # the validator the part was started under
+        tag = ""
         if have and tag_file.is_file():
             tag = tag_file.read_text(encoding="utf-8").strip()
-            if tag and not tag.startswith("W/"):  # a weak validator cannot be used for If-Range
-                headers["If-Range"] = tag  # file replaced since: the server answers 200, in full
+            if tag.startswith("W/"):  # a weak validator cannot be used for If-Range
+                tag = ""
+        whole_part = expected_size is not None and have == expected_size
+        if have and not tag and not whole_part:
+            # Nothing says the server's file is still the one this part came from (the part was
+            # begun without a strong ETag or a Last-Modified date): resuming could splice two
+            # files into one that then hashes as if it were genuine. Start again.
+            part.unlink()
+            digest, have = hashlib.sha256(), 0
+            headers = {}
+        elif have and tag:
+            headers["If-Range"] = tag  # file replaced since: the server answers 200, in full
         etag: str | None = None
         modified: str | None = None
         status = 0
@@ -503,66 +527,79 @@ class Capture:
             response = self._open_download(url, headers)
             with response:
                 status = response.status_code
-                if status == 416 and have:  # asked for bytes past the end: the part is stale
-                    part.unlink()  # (a complete one was finalized above without a request)
-                    return self.download(
-                        url,
-                        dest,
-                        stage=stage,
-                        row_id=row_id,
-                        expected_size=expected_size,
-                        _resumes=_resumes,
-                    )  # start again from zero; with no part left this cannot loop
-                if status == 200 and have:  # the server ignored the range: start over
-                    digest, have = hashlib.sha256(), 0
-                    part.unlink()
-                elif status in _REDIRECT_STATUS:
-                    raise CaptureError(
-                        f"{redact_url(url, api=True)}: redirected; not followed (no robots check "
-                        "on a new host): download the final address deliberately"
-                    )
-                elif status not in (200, 206):
-                    raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")
-                elif status == 206 and not _range_starts_at(
-                    response.headers.get("Content-Range", ""), have
-                ):
-                    part.unlink()
-                    raise CaptureError(
-                        f"{dest.name}: the server resumed at a different offset; the partial "
-                        "file was removed, run the download again"
-                    )
-                if response.headers.get("ETag"):
-                    tag_file.write_text(response.headers["ETag"], encoding="utf-8")
+                if status == 416 and have:
+                    # "bytes */N": the server's file is N long. N == what we hold means the part
+                    # is the whole file (killed before the rename, size not known beforehand):
+                    # finish it. Anything else means the part is stale: start again from zero.
+                    total = _unsatisfied_total(response.headers.get("Content-Range", ""))
+                    if total == have:
+                        status = 200
+                        etag = response.headers.get("ETag")
+                        modified = response.headers.get("Last-Modified")
+                    else:
+                        part.unlink()
+                        return self.download(
+                            url,
+                            dest,
+                            stage=stage,
+                            row_id=row_id,
+                            expected_size=expected_size,
+                            _resumes=_resumes,
+                        )  # with no part left this cannot loop
                 else:
-                    tag_file.unlink(missing_ok=True)
-                try:
-                    with part.open("ab") as out:
-                        for chunk in response.iter_content(chunk_size=1 << 20):
-                            out.write(chunk)
-                            digest.update(chunk)
-                            have += len(chunk)
-                except requests.RequestException as exc:
-                    # The connection broke mid-stream: what arrived is in the .part file, so
-                    # ask again for the rest (a bounded number of times), then give up cleanly.
-                    limits = self.config.rate_limits
-                    if _resumes >= limits.retry_attempts:
+                    if status == 200 and have:  # the server ignored the range: start over
+                        digest, have = hashlib.sha256(), 0
+                        part.unlink()
+                    elif status in _REDIRECT_STATUS:
                         raise CaptureError(
-                            scrub_text(
-                                f"{dest.name}: the connection broke after {have} bytes "
-                                f"({type(exc).__name__}); run the download again to resume"
-                            )
-                        ) from exc
-                    self._sleep(limits.retry_backoff_seconds * 2.0 ** (_resumes + 1))
-                    return self.download(
-                        url,
-                        dest,
-                        stage=stage,
-                        row_id=row_id,
-                        expected_size=expected_size,
-                        _resumes=_resumes + 1,
+                            f"{redact_url(url, api=True)}: redirected; not followed (no "
+                            "robots check on a new host): download the final address deliberately"
+                        )
+                    elif status not in (200, 206):
+                        raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")
+                    elif status == 206 and not _range_starts_at(
+                        response.headers.get("Content-Range", ""), have
+                    ):
+                        part.unlink()
+                        raise CaptureError(
+                            f"{dest.name}: the server resumed at a different offset; the partial "
+                            "file was removed, run the download again"
+                        )
+                    validator = _validator(
+                        response.headers.get("ETag"), response.headers.get("Last-Modified")
                     )
-                etag = response.headers.get("ETag")
-                modified = response.headers.get("Last-Modified")
+                    if validator:
+                        tag_file.write_text(validator, encoding="utf-8")
+                    else:
+                        tag_file.unlink(missing_ok=True)
+                    try:
+                        with part.open("ab") as out:
+                            for chunk in response.iter_content(chunk_size=1 << 20):
+                                out.write(chunk)
+                                digest.update(chunk)
+                                have += len(chunk)
+                    except requests.RequestException as exc:
+                        # The connection broke mid-stream: what arrived is in the .part file, so
+                        # ask again for the rest (a bounded number of times), then give up cleanly.
+                        limits = self.config.rate_limits
+                        if _resumes >= limits.retry_attempts:
+                            raise CaptureError(
+                                scrub_text(
+                                    f"{dest.name}: the connection broke after {have} bytes "
+                                    f"({type(exc).__name__}); run the download again to resume"
+                                )
+                            ) from exc
+                        self._sleep(limits.retry_backoff_seconds * 2.0 ** (_resumes + 1))
+                        return self.download(
+                            url,
+                            dest,
+                            stage=stage,
+                            row_id=row_id,
+                            expected_size=expected_size,
+                            _resumes=_resumes + 1,
+                        )
+                    etag = response.headers.get("ETag")
+                    modified = response.headers.get("Last-Modified")
         if expected_size is not None and have != expected_size:
             part.unlink(missing_ok=True)  # a wrong-sized part can never be resumed into the file
             raise CaptureError(f"{dest.name}: got {have} bytes, expected {expected_size}")

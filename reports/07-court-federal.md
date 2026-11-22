@@ -240,6 +240,14 @@ A nineteenth review round:
 | --- | --- |
 | `retry=False` still slept on `Retry-After` for a 429 (up to `capture.max_wait_seconds`) before returning it, so the CourtListener "no retry, no sleep" fail-fast still lost minutes per throttled row; the final attempt of a retried fetch slept too | `Capture._send` honors `Retry-After` only when another attempt follows. Two tests assert on the sleep stub (no sleep for `retry=False`; `attempts - 1` sleeps for a retried fetch, none after the last) and both fail on the old code. Note for test authors: `tests/test_capture.py`'s fixture puts stamina in testing mode with 4 attempts, which overrides `retry=False`; the test sets 1 attempt itself |
 
+A twentieth review round:
+
+| Issue | Fix |
+| --- | --- |
+| The DOJ feed's newest date was in every court row's input hash, so any new DOJ release made `efp run court --recheck` re-run every row (each federal re-run spends CourtListener quota) | The date is part of the hash only for rows the DOJ module can apply to (federal or unknown classification, usable name, year in range), and only while the feed's newest date is inside the row's release window; once it is past the window's end it reads "past" and stops mattering. Pre-2013, state-classified and long-past rows keep their hash when the feed moves |
+| A resumed download with no strong validator could splice a changed file and record the splice as trusted | The sidecar keeps a strong ETag, else the `Last-Modified` date, and a resume sends it as `If-Range`. A part that began with neither is not resumed: it restarts from zero (a part already the expected size is still finished). Nothing is spliced across files |
+| A 416 deleted a complete `.part` and restarted a multi-GB download when the size was not known beforehand | A 416's `Content-Range: bytes */N` is read: N equal to the part's length means it is the whole file and it is finished; anything else is stale and restarts |
+
 `court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

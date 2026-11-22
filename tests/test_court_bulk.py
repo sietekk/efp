@@ -328,6 +328,7 @@ def test_an_interrupted_download_resumes_from_the_part_file(
     dest = config.paths.bulk / "courtlistener" / "courts-2026-09-30.csv"
     dest.parent.mkdir(parents=True)
     dest.with_name(dest.name + ".part").write_bytes(payload[:3000])
+    dest.with_name(dest.name + ".part.etag").write_text('"v1"')  # the validator it began under
     rsps.get(
         url,
         body=payload[3000:],

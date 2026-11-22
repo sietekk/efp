@@ -16,11 +16,7 @@ refused (`MigrationError`). To change the schema add the next numbered file; nev
 | `0005_case_stage_summary.sql` | `case_stage.summary_json`: the runner's per-row outcome summary (module chain outcomes) |
 | `0006_capture_support.sql` | Capture layer: `captures` may set `wayback_url` and `tsa_token_path` once from NULL (nothing else); `spn_queue`, `manifests`, `manifest_tokens`, `manifest_captures` |
 | `0007_links_resolution.sql` | `links` rebuilt: `bitly_info` and `commoncrawl` methods, a `note` column, unique per row and URL |
-| `0008_court_records_weak.sql` | `court_records.weak` and `basis_json`: a candidate match is marked, with its evidence |
-| `0009_court_records_identity.sql` | `court_records.docket_id` and `current`: a record is identified by its document, and one a later run no longer finds is marked not current |
-| `0010_court_records_views.sql` | views `court_records_current` (current = 1) and `court_records_confirmed` (current = 1 and weak = 0): later builds read these, not the table |
-| `0011_court_identifiers_current.sql` | `court_records.text_capture_id` and the view `court_identifiers_current`: identifiers read from a record that is still current (person-level kinds only from one that is not weak) |
-| `0012_court_filings_follow_docket.sql` | the two `court_records_*` views tie a filing to its parent docket record: a filing is current (and confirmed) only while its docket is |
+| `0008_court_records.sql` | `court_records` gains `weak`, `basis_json`, `docket_id`, `current`, `text_capture_id`; views `court_records_current`, `court_records_confirmed` (a filing is only as current and confirmed as its docket) and `court_identifiers_current`: later builds read the views, never the table |
 
 `schema_migrations` itself is created by `efp/db.py` before the first migration runs.
 
