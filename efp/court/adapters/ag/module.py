@@ -96,7 +96,18 @@ class CourtStateAg:
         slack = ctx.config.court.doj_year_slack
         adapter = cls(ctx)
         try:
-            why = adapter.out_of_reach(row.year - slack)
+            # Whether the archive can ever cover this window is only known once it has been
+            # walked, so the first row of a state walks it (bounded; shared by every later row)
+            # before the question is asked: a row the archive cannot reach is skipped with that
+            # reason, never recorded as a miss.
+            if (why := adapter.out_of_reach(row.year - slack)) is None:
+                try:
+                    adapter.refresh_newest()
+                    adapter.harvest(row.year - slack)
+                except CaptureError:
+                    return True  # the run reports the failure; it is not a reason to skip
+                cap(ctx).run_state[f"ag-walked-{adapter.state}"] = True  # this row's budget is used
+                why = adapter.out_of_reach(row.year - slack)
         finally:
             adapter.close()
         return why or True
@@ -127,6 +138,7 @@ class CourtStateAg:
             return ModuleResult(Outcome.error, error=f"state AG {state}: {exc}"[:200])
         finally:
             adapter.close()
+            cap(ctx).run_state.pop(f"ag-walked-{state}", None)  # never leaks into the next row
 
     def _run(
         self,

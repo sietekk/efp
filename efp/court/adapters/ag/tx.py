@@ -46,7 +46,13 @@ class Texas(StateAdapter):
         url = self.listing_url(cursor)
         page = self.listing(url)
         if page is None:
-            return [], None  # 404/410: the page is gone, which is the end
+            if cursor == self.first_cursor():
+                return [], None  # no first page: the caller decides what an empty archive means
+            # A 404 in the middle of a walk is not the end of an archive (an edge or CDN can
+            # answer one for any page): only the pager says where an archive ends.
+            raise CaptureError(
+                f"{url}: HTTP 404 in the middle of the walk (the pager showed a next page)"
+            )
         releases = self.parse(page)
         if not releases:
             # a 200 that holds no release is not the end of an archive: it is a layout change or

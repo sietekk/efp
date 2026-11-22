@@ -875,7 +875,7 @@ def test_a_mid_walk_empty_page_is_an_error_a_404_is_the_end_and_a_pager_page_is_
         cap.close()
 
 
-def test_a_404_page_is_the_end_of_the_archive_and_a_layout_without_a_pager_is_an_error(
+def test_a_mid_walk_404_is_an_error_not_the_end_and_a_layout_without_a_pager_is_an_error(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     rsps.get(
@@ -888,14 +888,14 @@ def test_a_404_page_is_the_end_of_the_archive_and_a_layout_without_a_pager_is_an
         status=404,
         match=[responses.matchers.query_param_matcher({"page": "1"})],
     )
-    rsps.add(
-        responses.GET, re.compile(r"https://web\.archive\.org/.*"), status=404
-    )  # no copy either
+    rsps.add(responses.GET, re.compile(r"https://web\.archive\.org/.*"), status=404)  # no copy
     ctx, cap, _ = make_ctx(config, conn)
     try:
         tx = adapters()["TX"](ctx)
-        tx.harvest(2000, None, max_pages=10)
-        assert tx.index.progress()[2] is True  # a 404 past the last page is a positive end
+        with pytest.raises(CaptureError, match="404 in the middle"):
+            tx.harvest(2000, None, max_pages=10)
+        cursor, _oldest, done, _pages = tx.index.progress()
+        assert done is False and cursor == "1"  # an edge 404 does not finish the archive
         tx.close()
     finally:
         cap.close()
@@ -927,3 +927,17 @@ def ca_page_without_pager() -> str:
         '<div class="views-row views-row-1"><a href="/news/press-releases/x">A settlement</a>'
         '<span content="2026-05-01T00:00:00-08:00"></span></div>'
     )
+
+
+def test_the_first_row_of_a_state_the_archive_cannot_reach_is_skipped_not_recorded_as_a_miss(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    add_court_row(conn, 1, state="IL", details="Charged in an Illinois state court", year=2010)
+    rsps.get(
+        "https://illinoisattorneygeneral.gov/news-room/",
+        body=(CASSETTES / "il" / "index.html").read_text(encoding="utf-8"),
+    )
+    summary = process(config, conn, 1).summary_json
+    module = next(m for m in summary["modules"] if m["name"] == "court.state_ag")  # type: ignore[index]
+    assert module["status"] == "skipped" and "reaches back only to 202" in module["reason"]
+    assert summary["court_status"] == "not_found"  # nothing found by the chain; no AG negative

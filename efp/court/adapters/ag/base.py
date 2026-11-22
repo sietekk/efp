@@ -363,8 +363,10 @@ class StateAdapter:
         its title or snippet has election wording or the surname; the caller reads and matches the
         full text."""
         first, last = year - window, year + window
-        self.refresh_newest()
-        self.harvest(first)
+        # ``applies`` already walked for this row (its page budget is spent): do not walk twice
+        if not cap(self.ctx).run_state.pop(f"ag-walked-{self.state}", False):
+            self.refresh_newest()
+            self.harvest(first)
         surname = (name.split()[-1] if name.split() else "").lower()
         out = []
         for release in self.index.between(first, last):
