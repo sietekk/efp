@@ -996,3 +996,17 @@ def test_a_portal_the_seed_marks_human_check_is_assisted_even_with_an_adapter_an
     assert verdict == ("assisted", "challenge", "gated by a CAPTCHA")  # never automated
     wi = next(s for s in dp.load_seeds() if s.state == "WI")
     assert wi.note.startswith("human-check:")  # the committed seed list carries the finding
+
+
+def test_an_unreachable_manual_portal_is_a_gap_and_only_a_verified_no_online_search_is_not_found(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    add_court_row(conn, 1, state="WI", details=STATE_COURT)
+    record_portal(conn, "WI", "manual", "unreachable: the entry point answered HTTP 404")
+    gap = process(config, conn, 1)
+    assert gap.summary_json["court_status"] == "deferred_coverage"  # type: ignore[index]
+    assert gap.input_hash and gap.input_hash.endswith(
+        ":coverage"
+    )  # revisited when the seed is fixed
+    record_portal(conn, "WI", "manual", "no-online-search: county clerk by phone")
+    assert process(config, conn, 1).summary_json["court_status"] == "not_found"  # type: ignore[index]

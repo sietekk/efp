@@ -23,8 +23,8 @@ Changes the approved plan made to the prompt (both operator-approved at planning
 - Reference data: `reference/docket_portals.csv` (the seed list: twenty states, 22 portals, unverified addresses) and `reference/docket_probe.csv` (the 2026-11-22 probe).
 - Config (documented in `config.example.toml`): `court.docket_terms_cleared`, `court.docket_assisted_limit`, `court.docket_max_hits`, `court.docket_browser_image`.
 - Docs: `docs/sources.md` (probe, assumptions), `queues/README.md`, `RUNBOOK.md`.
-- Tests: `tests/test_court_docket.py` (57 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
-- Results: `uv run pytest -m "not live"`: 996 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_court_docket.py` (58 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
+- Results: `uv run pytest -m "not live"`: 997 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
@@ -85,6 +85,7 @@ None in the build's own runs.
 | A truncated answer whose returned hits all failed name/date matching ended `not_found` (a negative drawn from a partial result set) | It is a coverage gap: `deferred_coverage` with the assisted query attached, so the operator can run the whole search |
 | `gated_portal` was ignored when a press release was located, so the row read as the finished `press_release_only` though the docket search never ran | `gated_portal` wins over a press release or other non-docket record (after the deferrals); a found docket still gives `primary_record` / `candidate_only` |
 | Portal-supplied values went into the WCCA detail URL unquoted; the docket evidence text is composed from JSON fields, not verbatim; a root-owned WACZ could break temp-dir cleanup | Values are quoted; the text capture is marked `derived` with the search capture it came from (a later stage must treat it as a derived artifact); cleanup errors are ignored |
+| A manual portal recorded `unreachable` (a dead seed address) or any other non-verified reason ended `not_found`, though the docket search never ran | It is a coverage gap (`deferred_coverage`, `:coverage` on the hash), revisited when the seed is fixed. Only `no-online-search` (the seed says the state has no online search by name) stays `not_found`: a statement about the world, not about the probe; decision 11 |
 | Low: the assisted query's `platform` held the probe's "wants"; record identity ignored the county; two different filing windows; shallow heuristics (any `$5` was a fee, a `javascript:` terms link); the cleared list was case-sensitive | The query uses the portal's platform; identity includes the court; both paths use `court.window_years_after`; the fee rule needs a per-search price, script and anchor links are skipped, the cleared list is upper-cased |
 | Low: gated versus assisted counted differently | `gated_portal` is set for every assisted or account/fee portal, and the gated list now lists every non-automated portal, so they agree |
 | Low: the queue files sit under the data directory, not `queues/` | Deliberate (they hold names; `pacer.csv` is the precedent); stated in `queues/README.md` |
@@ -129,6 +130,7 @@ Gated-source demand (one of the nine numbers): all of the ten largest states' do
 8. **`efp review` is built for `court --assisted` only**; the rest of `review` still prints "not built yet" (belongs to a later build).
 9. **What a second run adds:** portals whose terms you clear; adapters for newly cleared platforms; the other ten states' row counts and costs once the real database exists (the matrix shows 0 for them now); imported assisted results (build 14); re-probes of the unreachable and transient portals.
 10. **The court chain stops at the first document with a case number**, so a row with a press-release hit never reaches the docket module and cannot move from `press_release_only` to `primary_record`. That is the spec's chain ("stops at the first document that yields a case number"). Say so if the docket module should also run after a press-release hit.
+11. **`no-online-search` stays `not_found`.** A state whose seed entry says it has no online docket search by name (county clerk by phone) has nothing for the docket strategy to search, so its rows are `not_found` rather than waiting. No seed uses it yet; say so if such rows should be deferred instead.
 
 ## Done-when check
 
@@ -152,6 +154,7 @@ Filled in by the operator at merge time. Pre-filled only where a later report ex
 8. Decision: ______ · Date: ______
 9. Decision: ______ · Date: ______
 10. Decision: ______ · Date: ______
+11. Decision: ______ · Date: ______
 
 ## Carried forward
 

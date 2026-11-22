@@ -70,6 +70,11 @@ def platform_of(portal_url: str) -> str:
 BLOCK_LIMIT = 3  # refusals within one run before a state's portal is recorded as blocked
 MAX_DOCUMENTS = 5
 GATING_WANTS = ("account", "fee")
+# The one manual reason that is a statement about the world rather than about our probe: the seed
+# says the state has no online docket search by name (county clerk by phone). The strategy has
+# nothing to search, so the row stays ``not_found`` instead of waiting on a portal that is not
+# there.
+NO_ONLINE_SEARCH = "no-online-search"
 
 
 def recorded_portal(conn: sqlite3.Connection | None, state: str) -> tuple[str, str, str] | None:
@@ -149,8 +154,14 @@ class CourtStateDocket:
                     return ModuleResult(Outcome.miss)
                 portal = chosen.url  # this county's portal, not the state's best one
         if mode == "manual":
-            if wants_of(reason) in GATING_WANTS:
+            wants = wants_of(reason)
+            if wants in GATING_WANTS:
                 cs.flags["gated_portal"] = True  # an account or a fee stands between the row and it
+            elif wants != NO_ONLINE_SEARCH:
+                # an entry point that is not there (a dead seed address) or any reason that is not a
+                # verified "there is no online search": the docket search never ran, which is not
+                # an absence, so the row is a coverage gap, never a recorded negative
+                cs.flags["docket_coverage_gap"] = True
             cs.notes.append(f"{state} docket portal is manual: {reason}"[:200])
             return ModuleResult(Outcome.miss)
         adapter_cls = adapters().get(state)
