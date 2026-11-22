@@ -579,8 +579,17 @@ def court_ag_harvest(
             code = normalize_state(raw)
             if code and year is not None:
                 earliest[code] = min(earliest.get(code, year), year)
+        from efp.court.adapters.ag import sync as ag_sync
+
         for name, cls in ag_adapters().items():
-            if cls.mode != "automated" or (state_code and name != state_code.upper()):
+            if state_code and name != state_code.upper():
+                continue
+            mode, reason = cls.mode, cls.reason
+            if (found := ag_sync.recorded(conn, name)) is not None:
+                mode, reason = found[0], found[1] or reason  # what was recorded wins
+            if mode != "automated":
+                if state_code:
+                    typer.echo(f"{name}: skipped, {mode}: {reason}")
                 continue
             target = until_year or (earliest.get(name, 2000) - config.court.doj_year_slack)
             adapter = cls(run_ctx)

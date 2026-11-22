@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 import responses
@@ -941,3 +942,102 @@ def test_the_first_row_of_a_state_the_archive_cannot_reach_is_skipped_not_record
     module = next(m for m in summary["modules"] if m["name"] == "court.state_ag")  # type: ignore[index]
     assert module["status"] == "skipped" and "reaches back only to 202" in module["reason"]
     assert summary["court_status"] == "not_found"  # nothing found by the chain; no AG negative
+
+
+# --- review: recorded modes are honoured by the CLI; 404 re-probe; failed walks are retried -----------
+
+
+@pytest.fixture
+def cli_config(config: Config, monkeypatch: pytest.MonkeyPatch) -> Config:
+    monkeypatch.setenv("EFP_CONFIG", str(Path(config.paths.data_dir).parent / "config.toml"))
+    return config
+
+
+def _invoke(*args: str) -> Any:
+    from typer.testing import CliRunner
+
+    from efp.cli import app
+
+    return CliRunner().invoke(app, list(args))
+
+
+def test_the_harvest_command_skips_a_state_recorded_as_manual_with_its_reason(
+    cli_config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    sync.seed(conn)
+    sync.mark(conn, "TX", "manual", "HTTP 403 (3 refusals in one run)")
+    result = _invoke("court", "ag", "harvest", "--state", "TX")
+    assert result.exit_code == 0, result.output
+    assert "TX: skipped, manual: HTTP 403" in result.output
+    assert not [c for c in rsps.calls if "texasattorneygeneral" in c.request.url]  # no request
+
+
+def test_verify_keeps_a_recorded_manual_mode_when_the_probe_fails_transiently(
+    cli_config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    sync.seed(conn)
+    sync.mark(conn, "TX", "manual", "HTTP 403 (3 refusals in one run)")
+    rsps.get(f"{TX}/news/releases", status=503)
+    rsps.get("https://illinoisattorneygeneral.gov/news-room/", status=503)
+    rsps.get("https://oag.ca.gov/media/news", status=503)
+    rsps.add(
+        responses.GET,
+        re.compile(r"https://www\.ohioattorneygeneral\.gov/Media/News-Releases/.*"),
+        status=503,
+    )
+    result = _invoke("court", "ag", "verify")
+    assert result.exit_code == 0, result.output
+    assert "retry" in result.output and "transient" in result.output
+    mode, _reason = sync.recorded(conn, "TX") or ("", "")
+    assert mode == "manual"  # the seed did not reset it and the failed probe did not either
+    assert (sync.recorded(conn, "OH") or ("",))[0] == "automated"
+
+
+def test_a_month_that_404s_once_is_asked_again_before_it_is_accepted_as_empty(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    month = "https://www.ohioattorneygeneral.gov/Media/News-Releases/March-2026"
+    rsps.get(month, status=404)  # an edge answers 404 once...
+    _oh_month(rsps, "March-2026", ("real", "A real release", "03/05/2026"))  # ...then the page
+    rsps.get("https://www.ohioattorneygeneral.gov/Media/News-Releases/February-2026", status=404)
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        oh = adapters()["OH"](ctx)
+        assert [r.title for r in oh.list_page("2026-03")[0]] == ["A real release"]
+        assert oh.list_page("2026-02")[0] == []  # a month that 404s both times is empty
+        oh.close()
+    finally:
+        cap.close()
+
+
+def test_a_failed_freshness_walk_is_noted_and_retried_not_consumed(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        tx = adapters()["TX"](ctx)
+        tx.index.add([Release(f"{TX}/news/releases/known", "Known", date(2026, 5, 1), "AG", "")])
+        tx.index.save_progress("1", "2026-05-01", False, 1)
+        rsps.get(f"{TX}/news/releases", status=503)
+        with pytest.raises(CaptureError):
+            tx.refresh_newest()
+        assert not cap.ran_this_run("ag-refresh-TX")  # not consumed: the next row tries again
+        rsps.replace(
+            responses.GET,
+            f"{TX}/news/releases",
+            body=tx_page(("known", "Known", "May 01, 2026")),
+        )
+        assert tx.refresh_newest() == 1 and cap.ran_this_run("ag-refresh-TX")
+        tx.close()
+    finally:
+        cap.close()
+
+
+def test_applies_notes_a_failed_walk_and_lets_run_report_it(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    add_court_row(conn, 1, state="TX", details="Charged in a Texas state court", year=2014)
+    rsps.get(f"{TX}/news/releases", status=503)
+    result = process(config, conn, 1)
+    assert any("walk failed in applies" in n for n in result.summary_json["notes"])  # type: ignore[union-attr]
+    assert result.summary_json["court_status"] == "deferred_error"  # type: ignore[index]

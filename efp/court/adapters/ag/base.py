@@ -307,7 +307,8 @@ class StateAdapter:
         """Pick up releases published since the harvest began (once per run): walk from the newest
         page until a page holds a release the index already has (an empty page, such as a month
         with no releases yet, does not end the walk)."""
-        if self.index.count() == 0 or not cap(self.ctx).once_per_run(f"ag-refresh-{self.state}"):
+        key = f"ag-refresh-{self.state}"
+        if self.index.count() == 0 or cap(self.ctx).ran_this_run(key):
             return 0
         fetched = 0
         cursor: str | None = self.first_cursor()
@@ -324,6 +325,7 @@ class StateAdapter:
                 cursor = following
         finally:
             self._fresh = False
+        cap(self.ctx).mark_ran(key)  # only a walk that finished counts: a failed one is retried
         return fetched
 
     def covered(self, first_year: int) -> bool:

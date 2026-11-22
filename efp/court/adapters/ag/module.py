@@ -104,8 +104,11 @@ class CourtStateAg:
                 try:
                     adapter.refresh_newest()
                     adapter.harvest(row.year - slack)
-                except CaptureError:
-                    return True  # the run reports the failure; it is not a reason to skip
+                except CaptureError as exc:
+                    # not a reason to skip: run() reports the failure; the freshness walk, which
+                    # did not finish, is tried again on the next row
+                    cs.notes.append(f"{state} AG index walk failed in applies: {exc}"[:200])
+                    return True
                 cap(ctx).run_state[f"ag-walked-{adapter.state}"] = True  # this row's budget is used
                 why = adapter.out_of_reach(row.year - slack)
         finally:

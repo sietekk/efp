@@ -419,6 +419,14 @@ class Capture:
     def failed_this_run(self, url: str) -> bool:
         return url in self._failed
 
+    def ran_this_run(self, key: str) -> bool:
+        """Has ``key`` been marked done in this run? (See :meth:`mark_ran`.)"""
+        return key in self._once
+
+    def mark_ran(self, key: str) -> None:
+        """Mark ``key`` done for this run: for work that must not be skipped when it failed."""
+        self._once.add(key)
+
     def once_per_run(self, key: str) -> bool:
         """True the first time ``key`` is asked in a run, False after (for a refresh done once)."""
         if key in self._once:

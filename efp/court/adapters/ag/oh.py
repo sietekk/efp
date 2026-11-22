@@ -67,7 +67,16 @@ class Ohio(StateAdapter):
 
     def list_page(self, cursor: str) -> tuple[list[Release], str | None]:
         year, month = (int(part) for part in cursor.split("-"))
-        page = self.listing(self.listing_url(cursor))  # 404: a month with no page, no releases
+        url = self.listing_url(cursor)
+        page = self.listing(url)
+        if page is None:
+            # A month with no page has no releases, but an edge can answer 404 for a page that
+            # exists: ask once more, past the cache, before accepting the month as empty.
+            self._fresh = True
+            try:
+                page = self.listing(url)
+            finally:
+                self._fresh = False
         releases = self.parse(page) if page else []
         year, month = (year - 1, 12) if month == 1 else (year, month - 1)
         return releases, (f"{year}-{month:02d}" if year >= FLOOR_YEAR else None)

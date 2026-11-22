@@ -56,8 +56,14 @@ def mark(conn: sqlite3.Connection, state: str, mode: str, reason: str) -> None:
 
 
 def seed(conn: sqlite3.Connection) -> int:
-    """Record every registered adapter as declared (its mode and reason); returns how many."""
+    """Record every registered adapter as declared (its mode and reason); returns how many.
+
+    A state that is already recorded keeps what was recorded (a state turned ``manual`` after
+    repeated refusals, or ``broken`` by a smoke test, stays so until a probe says otherwise),
+    unless its adapter is declared ``manual``: those facts are the code's, so they are refreshed."""
     for state, cls in adapters().items():
+        if cls.mode != "manual" and recorded(conn, state) is not None:
+            continue
         write(
             conn,
             state,
