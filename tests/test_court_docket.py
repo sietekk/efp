@@ -849,3 +849,20 @@ def test_a_transient_failure_of_a_states_portal_keeps_the_recorded_mode(
     assert result.exit_code == 0, result.output
     assert "a portal was not judged; the recorded mode is kept" in result.output
     assert sync.recorded(conn, "FL", "docket") == ("assisted", "challenge: previously recorded")
+
+
+def test_a_surname_only_row_is_assisted_and_no_search_is_sent_to_the_portal(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    cfg = cleared(config, "WI")
+    add_court_row(conn, 1, state="WI", details=STATE_COURT, year=2014, name="Example")
+    record_portal(conn, "WI", "automated")
+    summary = process(cfg, conn, 1).summary_json
+    assert not [c for c in rsps.calls if "wicourts" in c.request.url]  # no empty exact match sent
+    assert summary["court_status"] == "gated_portal" and summary["assisted"]["name"] == "Example"  # type: ignore[index]
+    assert any("no given name" in n for n in summary["notes"])  # type: ignore[union-attr]
+    ctx, cap, _ = make_ctx(cfg, conn)
+    try:
+        assert adapters()["WI"](ctx).search("Example", 2014) == []  # and the adapter refuses too
+    finally:
+        cap.close()

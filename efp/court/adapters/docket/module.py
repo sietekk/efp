@@ -148,8 +148,15 @@ class CourtStateDocket:
             return ModuleResult(Outcome.miss)
         adapter_cls = adapters().get(state)
         cleared = state in cfg.docket_terms_cleared
-        if mode == "assisted" or adapter_cls is None or not cleared:
+        # A surname alone is not a search an automated adapter can make (the portals match on a
+        # given name too): the operator runs it, with the query constructed from what the row has.
+        needs_person = bool(adapter_cls) and not cs.parts.given
+        if mode == "assisted" or adapter_cls is None or not cleared or needs_person:
             cs.flags["gated_portal"] = True
+            if needs_person:
+                cs.notes.append(
+                    f"{state} docket: the row has no given name; assisted, not searched"
+                )
             cs.flags["assisted"] = build_query(
                 portal_url=portal,
                 platform=platform_of(portal),

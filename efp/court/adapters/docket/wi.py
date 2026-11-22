@@ -81,8 +81,9 @@ class Wisconsin(DocketPortal):
 
     def search(self, name: str, year: int, window: int = 2) -> list[DocketHit]:
         parts = parse_name(name)
-        if not parts.usable:
-            return []
+        if not parts.usable or not parts.given:
+            return []  # never an empty exact match (its meaning to WCCA is unknown); the module
+            # sends a surname-only row down the assisted path instead of calling this
         payload = {
             "lastName": {"equalTo": parts.surname},
             "firstName": {"equalTo": parts.given},
