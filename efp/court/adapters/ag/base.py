@@ -36,6 +36,25 @@ _TAGS = re.compile(r"<[^>]+>")
 _INVISIBLE = dict.fromkeys(map(ord, "­​‌‍﻿"))
 
 
+class ListingFailed(CaptureError):
+    """A listing page that answered with an error status (after the capture layer's retries)."""
+
+    def __init__(self, message: str, status: int | None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+_TRANSIENT = re.compile(r"ConnectionError|Timeout|timed out|reset|budget", re.I)
+
+
+def is_transient(exc: Exception) -> bool:
+    """Is this a failure that says nothing lasting about the site (a throttle, a 5xx, a dropped
+    connection, a spent budget)? Such a failure is retried; it never changes a state's mode."""
+    if isinstance(exc, ListingFailed) and exc.status is not None:
+        return exc.status == 429 or exc.status >= 500
+    return bool(_TRANSIENT.search(str(exc)))
+
+
 class SiteBlocked(CaptureError):
     """The site refuses automated requests (HTTP 401 or 403). Recorded as ``manual`` with the
     reason; the harvester does not try to get around it."""
@@ -156,6 +175,10 @@ class StateAdapter:
     office: ClassVar[str] = "AG"
     wayback_fallback: ClassVar[bool] = True
     trim_marker: ClassVar[str] = ""  # what starts one item in a listing (for recorded cassettes)
+    # Consecutive empty pages tolerated while nothing at all is indexed. Beyond it the archive is
+    # not "empty": the page layout changed, or a challenge page stands in front (OH walks months,
+    # so a run of empty ones is normal for a while).
+    empty_limit: ClassVar[int] = 1
 
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
@@ -220,7 +243,7 @@ class StateAdapter:
             return self.body(record)
         if record.http_status in (404, 410):
             return None
-        raise CaptureError(f"{url}: HTTP {record.http_status}")
+        raise ListingFailed(f"{url}: HTTP {record.http_status}", record.http_status)
 
     def body(self, record: CaptureRecord) -> str:
         return str(cap(self.ctx).read_body(record).decode("utf-8", errors="replace"))
@@ -253,10 +276,23 @@ class StateAdapter:
         cfg = self.config.court
         budget = max_pages if max_pages is not None else cfg.ag_harvest_pages_per_row
         fetched = 0
+        empty = 0
         while cursor is not None and fetched < budget and pages < cfg.ag_harvest_max_pages:
             releases, following = self._walk(cursor, row_id)
             fetched += 1
             pages += 1
+            if releases:
+                empty = 0
+            elif self.index.count() == 0:
+                empty += 1
+                if empty >= self.empty_limit or following is None:
+                    # Nothing indexed and nothing on the page: not an archive that has ended but a
+                    # page that did not parse (a layout change, an interstitial). Never recorded
+                    # as finished.
+                    raise CaptureError(
+                        f"{self.state}: {self.listing_url(cursor)} parsed to no releases and "
+                        "nothing is indexed yet (did the page layout change?)"
+                    )
             self.index.note_newest(releases)
             dated = [r.date.isoformat() for r in releases if r.date]
             if dated:
@@ -271,7 +307,7 @@ class StateAdapter:
         """Pick up releases published since the harvest began (once per run): walk from the newest
         page until a page holds a release the index already has (an empty page, such as a month
         with no releases yet, does not end the walk)."""
-        if not self.index.started() or not cap(self.ctx).once_per_run(f"ag-refresh-{self.state}"):
+        if self.index.count() == 0 or not cap(self.ctx).once_per_run(f"ag-refresh-{self.state}"):
             return 0
         fetched = 0
         cursor: str | None = self.first_cursor()

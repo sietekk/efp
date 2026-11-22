@@ -49,6 +49,9 @@ def _adapter_for(ctx: Context, state: str) -> type[StateAdapter] | None:
     return found
 
 
+BLOCK_LIMIT = 3  # refusals within one run before a state is recorded as manual
+
+
 @dataclass
 class _Hit:
     release: Release
@@ -111,10 +114,14 @@ class CourtStateAg:
         try:
             return self._run(adapter, task, ctx, state, year, slack)
         except SiteBlocked as exc:
-            if ctx.db is not None:
-                sync.mark(ctx.db, state, "manual", str(exc)[:200])
+            # One refusal says little (a CDN throttle answers 403 too): the row is retried, and the
+            # state is recorded as manual only once the site has refused repeatedly in this run.
+            refusals = cap(ctx).run_state.get(f"ag-refused-{state}", 0) + 1
+            cap(ctx).run_state[f"ag-refused-{state}"] = refusals
+            if refusals >= BLOCK_LIMIT and ctx.db is not None:
+                sync.mark(ctx.db, state, "manual", f"{exc} ({refusals} refusals in one run)"[:200])
             cs.notes.append(f"state AG {state}: {exc}"[:200])
-            return ModuleResult(Outcome.miss)
+            return ModuleResult(Outcome.error, error=f"state AG {state}: {exc}"[:200])
         except CaptureError as exc:
             cs.notes.append(f"state AG {state}: {exc}"[:200])
             return ModuleResult(Outcome.error, error=f"state AG {state}: {exc}"[:200])

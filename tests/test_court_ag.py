@@ -253,19 +253,29 @@ def test_a_gone_listing_falls_back_to_the_wayback_copy(
         cap.close()
 
 
-def test_a_403_is_a_blocked_site_recorded_as_manual_and_skipped_from_then_on(
+def test_repeated_refusals_in_one_run_record_the_state_as_manual_one_refusal_does_not(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    add_court_row(conn, 1, state="TX", details="Pleaded guilty in a Texas state court")
+    for n in (1, 2, 3, 4):
+        add_court_row(
+            conn, n, state="TX", details="Pleaded guilty in a Texas state court", sha=f"{n:064d}"
+        )
     rsps.get(f"{TX}/news/releases", status=403)
-    result = process(config, conn, 1)
-    modules = {m["name"]: m for m in result.summary_json["modules"]}  # type: ignore[index, union-attr]
-    assert modules["court.state_ag"]["status"] == "miss"
-    mode, reason = sync.recorded(conn, "TX") or ("", "")
-    assert mode == "manual" and "403" in (reason or "")
-    again = process(config, conn, 1)
-    skipped = {m["name"]: m for m in again.summary_json["modules"]}  # type: ignore[index, union-attr]
-    assert "adapter is manual" in skipped["court.state_ag"]["reason"]
+    ctx, cap, registry = make_ctx(config, conn)
+    try:
+        first = component.process_row(row_of(conn, 1), ctx, registry)
+        assert first.summary_json["court_status"] == "deferred_error"  # retried, not a negative
+        assert sync.recorded(conn, "TX") is None  # one refusal records nothing
+        component.process_row(row_of(conn, 2), ctx, registry)
+        assert sync.recorded(conn, "TX") is None
+        component.process_row(row_of(conn, 3), ctx, registry)  # the third refusal in this run
+        mode, reason = sync.recorded(conn, "TX") or ("", "")
+        assert mode == "manual" and "403" in (reason or "")
+        fourth = component.process_row(row_of(conn, 4), ctx, registry)
+        skipped = {m["name"]: m for m in fourth.summary_json["modules"]}  # type: ignore[index, union-attr]
+        assert "adapter is manual" in skipped["court.state_ag"]["reason"]
+    finally:
+        cap.close()
 
 
 def test_a_manual_state_is_skipped_with_its_reason_and_the_chain_continues(
@@ -757,3 +767,77 @@ def test_recorded_listing_urls_match_the_cassettes(
             adapter.close()
     finally:
         cap.close()
+
+
+def test_a_page_that_parses_to_nothing_is_never_recorded_as_a_finished_archive(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    rsps.get(f"{TX}/news/releases", body="<html><body>Checking your browser...</body></html>")
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        tx = adapters()["TX"](ctx)
+        with pytest.raises(CaptureError, match="parsed to no releases"):
+            tx.harvest(2013, None)
+        assert not tx.index.started() and tx.covered(2013) is False  # nothing recorded as done
+        tx.close()
+    finally:
+        cap.close()
+
+
+def test_a_walk_of_empty_months_with_nothing_indexed_raises_instead_of_finishing(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import re
+
+    monkeypatch.setattr(oh_mod.Ohio, "first_cursor", lambda self: "2026-11")
+    rsps.add(
+        responses.GET,
+        re.compile(r"https://www\.ohioattorneygeneral\.gov/Media/News-Releases/.*"),
+        status=404,
+    )
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        oh = adapters()["OH"](ctx)
+        with pytest.raises(CaptureError, match="nothing is indexed"):
+            oh.harvest(2000, None, max_pages=100)
+        assert oh.index.count() == 0 and oh.index.progress()[2] is False  # never "done"
+        assert oh.refresh_newest() == 0  # and an empty index has nothing to refresh
+        oh.close()
+    finally:
+        cap.close()
+
+
+def test_a_throttle_or_a_refusal_during_a_smoke_test_is_reported_not_recorded(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    import re
+
+    from efp.livecheck import _ag_live
+
+    rsps.get(f"{TX}/news/releases", status=503)  # transient
+    rsps.get("https://illinoisattorneygeneral.gov/news-room/", status=403)  # one refusal
+    rsps.get(
+        "https://oag.ca.gov/media/news", body="<html>a challenge page</html>"
+    )  # parses to nothing
+    rsps.add(
+        responses.GET,
+        re.compile(r"https://www\.ohioattorneygeneral\.gov/Media/News-Releases/.*"),
+        status=503,
+    )
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        checks = {c.name: c for c in _ag_live(cap, config, conn)}
+    finally:
+        cap.close()
+    assert not any(c.ok for c in checks.values())
+    assert sync.recorded(conn, "TX") is None  # a 503 is retried, not recorded
+    assert sync.recorded(conn, "IL") is None  # one refusal is reported, not recorded
+    assert sync.recorded(conn, "OH") is None
+    mode, reason = sync.recorded(conn, "CA") or ("", "")
+    assert mode == "broken" and "no dated release" in (
+        reason or ""
+    )  # a page that loaded and parsed to nothing
+    assert "transient" in checks["live: state ag TX"].detail

@@ -80,7 +80,7 @@ def _ag_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> list
     import logging
 
     from efp.court.adapters.ag import adapters, sync
-    from efp.court.adapters.ag.base import SiteBlocked
+    from efp.court.adapters.ag.base import SiteBlocked, is_transient
     from efp.types import Context
 
     ctx = Context(config=config, db=conn, capture=capture, log=logging.getLogger("efp.selftest"))
@@ -108,11 +108,15 @@ def _ag_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> list
                     conn, state, "broken", "live smoke: the first page parsed to no dated release"
                 )
         except SiteBlocked as exc:
-            ok, detail = False, str(exc)
-            sync.mark(conn, state, "manual", str(exc)[:200])
+            # a refusal during a smoke test is reported, not recorded: `efp court ag verify` is
+            # where a state becomes manual
+            ok, detail = False, f"{exc} (not recorded)"
         except CaptureError as exc:
             ok, detail = False, str(exc)
-            sync.mark(conn, state, "broken", f"live smoke: {exc}"[:200])
+            if is_transient(exc):
+                detail += " (transient; not recorded)"
+            else:
+                sync.mark(conn, state, "broken", f"live smoke: {exc}"[:200])
         finally:
             adapter.close()
         out.append(Check(name, ok, detail))

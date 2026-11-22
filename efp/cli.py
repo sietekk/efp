@@ -503,7 +503,7 @@ def court_ag_verify(ctx: typer.Context) -> None:
     broken; one the site refuses is recorded as manual, each with the reason."""
     from efp.court.adapters.ag import adapters as ag_adapters
     from efp.court.adapters.ag import sync as ag_sync
-    from efp.court.adapters.ag.base import SiteBlocked
+    from efp.court.adapters.ag.base import SiteBlocked, is_transient
 
     state: AppState = ctx.obj
     config = _need_config(state)
@@ -536,11 +536,15 @@ def court_ag_verify(ctx: typer.Context) -> None:
                         f"{name}  BROKEN   the first listing page parsed to no dated release"
                     )
             except SiteBlocked as exc:
+                # an explicit verification run: the site refused, so it is recorded as manual
                 ag_sync.mark(conn, name, "manual", str(exc)[:200])
                 typer.echo(f"{name}  manual   {exc}")
             except capture_mod.CaptureError as exc:
-                ag_sync.mark(conn, name, "broken", str(exc)[:200])
-                typer.echo(f"{name}  BROKEN   {exc}")
+                if is_transient(exc):  # a throttle, a 5xx, a dropped connection: try again later
+                    typer.echo(f"{name}  retry    {exc} (transient; not recorded)")
+                else:
+                    ag_sync.mark(conn, name, "broken", str(exc)[:200])
+                    typer.echo(f"{name}  BROKEN   {exc}")
             finally:
                 adapter.close()
     finally:

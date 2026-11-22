@@ -49,6 +49,9 @@ class Ohio(StateAdapter):
     portal = "https://www.ohioattorneygeneral.gov"
     search_mode = "archive_listing"
     wayback_fallback = False  # a month with no page is a month with no releases, not a gone index
+    empty_limit = (
+        12  # a year of empty months with nothing indexed is a broken walk, not a quiet year
+    )
     trim_marker = '<div class="ohio-news">'
 
     def first_cursor(self) -> str:
