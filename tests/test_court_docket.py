@@ -236,9 +236,8 @@ def test_the_wisconsin_adapter_posts_a_json_search_and_a_portal_error_page_raise
         adapter = adapters()["WI"](ctx)
         found = adapter.search("Alex Example", 2014, window=1)
         sent = json.loads(rsps.calls[0].request.body)
-        assert (
-            sent["lastName"] == {"equalTo": "Example"} and sent["filingDate"]["end"] == "2015-12-31"
-        )
+        assert sent["lastName"] == "Example" and sent["firstName"] == "Alex"  # plain values
+        assert sent["filingDate"]["end"] == "2015-12-31"
         assert len(found) == 2
         rsps.replace(responses.POST, WI_SEARCH, body=(CASSETTES / "error.html").read_text())
         with pytest.raises(CaptureError, match="not JSON"):
@@ -955,3 +954,45 @@ def test_a_gated_docket_portal_keeps_the_row_waiting_even_when_a_press_release_w
     docket = Located("state_docket", "WI", "c", "n", "docket", "u", "court.state_docket", None)
     assert component.court_status([release, docket], gated_portal=True) == "primary_record"
     assert component.court_status([release], gated_portal=True, errored=True) == "deferred_error"
+
+
+def test_portal_supplied_values_are_quoted_in_the_detail_url() -> None:
+    hits = wi_mod.parse_cases(
+        {"result": {"cases": [{"caseNo": "20&14#CF 1", "caption": "c", "countyNo": "1&x=2"}]}}
+    )
+    assert hits[0].url == (
+        "https://wcca.wicourts.gov/caseDetail.html?caseNo=20%2614%23CF%201&countyNo=1%26x%3D2"
+    )
+
+
+def test_the_docket_text_capture_is_marked_as_derived_from_the_search_answer(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    cfg = cleared(config, "WI")
+    add_court_row(conn, 1, state="WI", details=STATE_COURT, year=2014)
+    record_portal(conn, "WI", "automated")
+    one = json.loads((CASSETTES / "hits.json").read_text())
+    one["result"]["cases"] = one["result"]["cases"][:1]
+    rsps.post(WI_SEARCH, json=one)
+    rsps.get("https://wcca.wicourts.gov/caseDetail.html", body="<html>detail</html>")
+    process(cfg, conn, 1)
+    posted = conn.execute(
+        "SELECT capture_id FROM captures WHERE url_requested LIKE '%advancedCaseSearch%'"
+    ).fetchone()[0]
+    headers = json.loads(
+        conn.execute(
+            "SELECT headers_json FROM captures WHERE tool = 'state_docket_row'"
+        ).fetchone()[0]
+    )
+    assert headers["derived"] is True and headers["derived_from_capture_id"] == posted
+
+
+def test_a_portal_the_seed_marks_human_check_is_assisted_even_with_an_adapter_and_clearance() -> (
+    None
+):
+    seed = dp.Seed("WI", "WCCA", "u", "wcca", "statewide", "human-check: gated by a CAPTCHA")
+    open_page = dp.Facts(status=200, search_form=True)
+    verdict = dp.classify(seed, open_page, adapter_exists=True, cleared=True)
+    assert verdict == ("assisted", "challenge", "gated by a CAPTCHA")  # never automated
+    wi = next(s for s in dp.load_seeds() if s.state == "WI")
+    assert wi.note.startswith("human-check:")  # the committed seed list carries the finding

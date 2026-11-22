@@ -29,7 +29,7 @@ Mode is `automated` (search and retrieve without a human), `assisted` (the pipel
 | FL | 89 | assisted | js-only | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | NC | 82 | assisted | blocked | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | CA | 70 | assisted | js-only | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| WI | 68 | assisted | terms-not-cleared | yes | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| WI | 68 | assisted | challenge | yes | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | OH | 63 | assisted | challenge | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | KY | 62 | assisted | account | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | IN | 59 | assisted | no-adapter | no | 2026-11-22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -51,7 +51,7 @@ Mode is `automated` (search and retrieve without a human), `assisted` (the pipel
 - **FL** (assisted): js-only: the search renders only in a browser (nothing is visible to a plain page load); the operator searches in a browser (+1 other portal(s) probed in this state)
 - **NC** (assisted): blocked: the portal answers HTTP 403 to automated requests; the operator searches in a browser
 - **CA** (assisted): js-only: the search renders only in a browser (nothing is visible to a plain page load); the operator searches in a browser
-- **WI** (assisted): terms-not-cleared: an adapter exists but the state is not in court.docket_terms_cleared (the portal's terms have not been read); the search renders only in a browser
+- **WI** (assisted): challenge: the search is gated by a CAPTCHA that the portal says is meant to stop automated programs and unauthorized harvesting of data (read from its client code, 2026-11-22): the operator searches in a browser
 - **OH** (assisted): challenge: a challenge page stands in front of the search; the operator searches in a browser
 - **KY** (assisted): account: the entry point shows a login and no search form; the search may need an account the pipeline will not create: the operator checks in a browser
 - **IN** (assisted): no-adapter: an online search exists and no adapter is built for this platform: the operator searches in a browser

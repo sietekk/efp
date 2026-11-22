@@ -70,11 +70,18 @@ in the probe and is fixed in that file). Modes: `automated` only for a state the
 `assisted` where a search exists that the operator runs in a browser (the pipeline builds the
 query); `manual` for no online search or an entry point that is not there.
 
-Assumed, because no search was ever run against a portal during the build:
+No search was ever run against a portal during the build. The Wisconsin adapter's shapes were
+checked against WCCA's own client code (its React bundle, read once on 2026-11-22), not by a search:
 
-| Adapter | Assumed | Check |
+| Adapter | From the portal's client code | Still unconfirmed |
 | --- | --- | --- |
-| Wisconsin WCCA (`efp/court/adapters/docket/wi.py`) | a JSON POST to `https://wcca.wicourts.gov/jsonPost/advancedCaseSearch` with `lastName`, `firstName`, `filingDate` bounds, answering `{"result": {"cases": [{caseNo, caption, countyName, countyNo, filingDate}]}}`; case pages at `caseDetail.html?caseNo=&countyNo=` | the first cleared run; the adapter raises on an answer of another shape rather than guess |
+| Wisconsin WCCA (`efp/court/adapters/docket/wi.py`) | search is `POST jsonPost/advancedCaseSearch`; the form's fields (`firstName`, `lastName`, `filingDate.start`/`.end`, `includeMissingDob`, `includeMissingMiddleName`, `countyNo`, `caseNo` …) go as plain values; the answer's list is `result.cases` with `caseNo`, `countyNo`, `countyName`, `caption` per item; case pages are `caseDetail.html` | the date format the server expects, whether items carry a filing date, any truncation keys (none found in the client) |
+
+**WCCA is not automatable today.** Its client code shows search gated by a CAPTCHA, and its own text
+says the check "protects websites from abuse and unauthorized harvesting or mining of data" and
+recognises "a human user, not an automated program"; its terms also say WCCA "may limit the number of
+records searched on any single request". The seed list therefore marks WCCA `human-check`, the probe
+records WI `assisted` whatever `court.docket_terms_cleared` says, and the adapter is kept but unused.
 
 The probe's observations are heuristics on one page (a login field with no search form, fee wording,
 a challenge page, a page that is empty without JavaScript); they classify conservatively (a page

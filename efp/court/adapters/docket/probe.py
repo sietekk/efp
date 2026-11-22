@@ -180,6 +180,10 @@ def classify(
             f"the entry point answered {facts.error or f'HTTP {facts.status}'}: check "
             "reference/docket_portals.csv",
         )
+    if seed.note.startswith("human-check:"):
+        # known from the portal's own client code and wording, not from this page: the search sits
+        # behind a check that says it is for humans and against automated programs
+        return "assisted", "challenge", seed.note.removeprefix("human-check:").strip()
     # A landing page that shows a login form or fee wording does not prove there is no public
     # search behind it, so these are for the operator to check (assisted), listed as gated with
     # what they want; the pipeline never creates an account or pays.

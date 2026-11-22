@@ -714,7 +714,9 @@ class Capture:
         except RateLimitTimeout as exc:
             raise CaptureBudgetError(str(exc)) from exc
         name = f"efp-bt-{uuid.uuid4().hex[:12]}"
-        with tempfile.TemporaryDirectory(prefix="efp-wacz-") as scratch:
+        # The container may write the WACZ as another user (root, on a Linux host): a cleanup that
+        # cannot remove it must not turn a successful capture into an error.
+        with tempfile.TemporaryDirectory(prefix="efp-wacz-", ignore_cleanup_errors=True) as scratch:
             try:
                 done = subprocess.run(  # noqa: S603
                     [

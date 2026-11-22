@@ -611,7 +611,12 @@ def court_docket_probe(
         if snapshot and root is not None:
             snap = root / "reference" / "docket_probe.csv"
             rows_out = docket_probe.snapshot_rows(probed)
-            docket_queue.write_csv(snap, list(rows_out[0]), rows_out)
+            if state_code:  # one state re-probed: replace its rows, keep the others'
+                docket_queue.merge_csv(
+                    snap, list(rows_out[0]), rows_out, replace_states={state_code.upper()}
+                )
+            else:
+                docket_queue.write_csv(snap, list(rows_out[0]), rows_out)
             typer.echo(f"wrote {snap.relative_to(root)}")
     finally:
         conn.close()

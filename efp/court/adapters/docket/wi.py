@@ -1,16 +1,25 @@
 """Wisconsin: Circuit Court Access (WCCA), https://wcca.wicourts.gov/.
 
-The prompt's expected automated candidate. **Written without a live search** (the build's probe
-loads one page per portal and never searches), so the request and answer shapes below are ASSUMED
-from how WCCA's public JSON search is commonly described and are listed in ``docs/sources.md``;
-the adapter fails loudly on an answer it does not recognise and the first live smoke is the check.
-It runs only for a state in ``court.docket_terms_cleared``: the operator reads WCCA's terms first.
+The prompt's expected automated candidate, **but WCCA is not automatable today**: its search is
+gated by a CAPTCHA that its own page says "protects websites from abuse and unauthorized harvesting
+or mining of data" and recognises "a human user, not an automated program" (read from the site's
+client code on 2026-11-22). The seed list therefore marks it ``human-check`` and the probe records
+WI ``assisted`` whatever ``court.docket_terms_cleared`` says. The adapter is kept for the day the
+portal offers a route that does not need a human; it is not used until then.
+
+The request and answer shapes were checked against WCCA's own client code, not by a search:
+``POST jsonPost/advancedCaseSearch`` with the form's fields (``firstName``, ``lastName``,
+``filingDate.start`` / ``.end``, ``includeMissingDob`` / ``includeMissingMiddleName`` …) as plain
+values, answered with ``result.cases`` items carrying ``caseNo``, ``countyNo``, ``countyName`` and
+``caption``. Still unconfirmed: the date format the server expects, whether case items carry a
+filing date, and any truncation keys. The adapter fails loudly on an answer it does not recognise.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from urllib.parse import quote
 
 from efp.capture import CaptureError
 from efp.court.adapters.docket import DocketHit, register
@@ -67,7 +76,10 @@ def parse_cases(payload: Any) -> list[DocketHit]:
                 case_number=number,
                 caption=str(item.get("caption") or ""),
                 filed_date=_day(item.get("filingDate")),
-                url=f"{DETAIL}?caseNo={number}&countyNo={item.get('countyNo', '')}",
+                # portal-supplied values go into the query string quoted: a "&" or "#" in a case
+                # number must not change the URL (which is also what the browser capture loads)
+                url=f"{DETAIL}?caseNo={quote(number, safe='')}"
+                f"&countyNo={quote(str(item.get('countyNo', '')), safe='')}",
             )
         )
     return out
@@ -85,8 +97,8 @@ class Wisconsin(DocketPortal):
             return []  # never an empty exact match (its meaning to WCCA is unknown); the module
             # sends a surname-only row down the assisted path instead of calling this
         payload = {
-            "lastName": {"equalTo": parts.surname},
-            "firstName": {"equalTo": parts.given},
+            "lastName": parts.surname,
+            "firstName": parts.given,
             "filingDate": {
                 "start": f"{year - LOOKBACK_YEARS}-01-01",
                 "end": f"{year + window}-12-31",

@@ -6,7 +6,7 @@ FL,Miami-Dade Clerk of Courts,https://www2.miamidadeclerk.gov/ocs/,county_clerks
 FL,Broward County Clerk of Courts,https://www.browardclerk.org/,county_clerks,county:Broward,Florida clerks are county by county
 NC,North Carolina Judicial Branch Portal,https://portal-nc.tylertech.cloud/Portal/,odyssey,statewide,
 CA,Los Angeles Superior Court,https://www.lacourt.ca.gov/pages/lp/case-summary-case-access,county_clerks,county:Los Angeles,California courts are county by county
-WI,Wisconsin Circuit Court Access (WCCA),https://wcca.wicourts.gov/,wcca,statewide,
+WI,Wisconsin Circuit Court Access (WCCA),https://wcca.wicourts.gov/,wcca,statewide,"human-check: the search is gated by a CAPTCHA that the portal says is meant to stop automated programs and unauthorized harvesting of data (read from its client code, 2026-11-22): the operator searches in a browser"
 OH,Cuyahoga County Clerk of Courts,https://cpdocket.cp.cuyahogacounty.gov/,county_clerks,county:Cuyahoga,Ohio courts are county by county
 KY,Kentucky CourtNet,https://kcoj.kycourts.net/CourtNet/,other,statewide,
 IN,Indiana MyCase,https://public.courts.in.gov/mycase/,mycase,statewide,

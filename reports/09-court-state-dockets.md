@@ -23,8 +23,8 @@ Changes the approved plan made to the prompt (both operator-approved at planning
 - Reference data: `reference/docket_portals.csv` (the seed list: twenty states, 22 portals, unverified addresses) and `reference/docket_probe.csv` (the 2026-11-22 probe).
 - Config (documented in `config.example.toml`): `court.docket_terms_cleared`, `court.docket_assisted_limit`, `court.docket_max_hits`, `court.docket_browser_image`.
 - Docs: `docs/sources.md` (probe, assumptions), `queues/README.md`, `RUNBOOK.md`.
-- Tests: `tests/test_court_docket.py` (55 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
-- Results: `uv run pytest -m "not live"`: 993 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_court_docket.py` (57 tests: entry-page analysis, 13 mode-rule cases, transient and gate rules, best portal per state, the seed list, one GET and no POST, the Wisconsin adapter on synthetic cassettes, the module's skip reasons, assisted rows and their deterministic query, the cleared automated path, candidates and portal errors, repeated refusals, hash scoping, `Capture.browser` with Docker absent, failing and faked, `review --assisted`, the matrix); synthetic cassettes in `tests/cassettes/docket/`.
+- Results: `uv run pytest -m "not live"`: 996 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
@@ -48,9 +48,9 @@ The probe of 2026-11-22: **0 automated, 19 states assisted, 0 manual, 1 not judg
 
 | Wants | States (best portal) | Meaning |
 | --- | --- | --- |
-| `terms-not-cleared` | WI | an adapter exists (WCCA); automated once you have read its terms and listed `WI` |
+| `terms-not-cleared` | none now | (WI was here until its client code was read; see `challenge`) |
 | `blocked` | NC, NH | the entry point answers HTTP 403 to automated requests |
-| `challenge` | OH (Cuyahoga), AZ (Maricopa) | a challenge page stands in front of the entry point |
+| `challenge` | WI (WCCA), OH (Cuyahoga), AZ (Maricopa) | a challenge stands in front of the search: for WCCA a CAPTCHA that its own text says is meant to stop automated programs (read from its client code); for Cuyahoga and Maricopa a challenge page at the entry point |
 | `account` | TX (Harris), KY, AL | the entry point shows a login and no search form (a heuristic: the operator checks) |
 | `fee` | FL (Broward, one of two FL portals) | fee wording on the entry page |
 | `js-only` | FL (Miami-Dade, recorded), CA (Los Angeles), VA | the search renders only in a browser |
@@ -84,6 +84,7 @@ None in the build's own runs.
 | A county-level state whose portals want an account or fee lost `gated_portal` for a row naming no probed county (it became `deferred_coverage` and left the gated report) | An account or fee wants keeps the row `gated_portal` whatever the county; only an assisted or no-wants county-less row is a coverage gap |
 | A truncated answer whose returned hits all failed name/date matching ended `not_found` (a negative drawn from a partial result set) | It is a coverage gap: `deferred_coverage` with the assisted query attached, so the operator can run the whole search |
 | `gated_portal` was ignored when a press release was located, so the row read as the finished `press_release_only` though the docket search never ran | `gated_portal` wins over a press release or other non-docket record (after the deferrals); a found docket still gives `primary_record` / `candidate_only` |
+| Portal-supplied values went into the WCCA detail URL unquoted; the docket evidence text is composed from JSON fields, not verbatim; a root-owned WACZ could break temp-dir cleanup | Values are quoted; the text capture is marked `derived` with the search capture it came from (a later stage must treat it as a derived artifact); cleanup errors are ignored |
 | Low: the assisted query's `platform` held the probe's "wants"; record identity ignored the county; two different filing windows; shallow heuristics (any `$5` was a fee, a `javascript:` terms link); the cleared list was case-sensitive | The query uses the portal's platform; identity includes the court; both paths use `court.window_years_after`; the fee rule needs a per-search price, script and anchor links are skipped, the cleared list is upper-cased |
 | Low: gated versus assisted counted differently | `gated_portal` is set for every assisted or account/fee portal, and the gated list now lists every non-automated portal, so they agree |
 | Low: the queue files sit under the data directory, not `queues/` | Deliberate (they hold names; `pacer.csv` is the precedent); stated in `queues/README.md` |
@@ -118,11 +119,11 @@ Gated-source demand (one of the nine numbers): all of the ten largest states' do
 
 ## Decisions needed from the operator
 
-1. **No portal is automated.** The pipeline cannot read terms, so every adapter waits for your clearance in `court.docket_terms_cleared`. Decide which portals' terms to read first (WI has the only adapter).
+1. **No portal can be automated today.** The pipeline cannot read terms, so an adapter waits for your clearance in `court.docket_terms_cleared`; and the only adapter built, WCCA's, sits behind a CAPTCHA (decision 5), so clearing WI would not make it run. Decide which portals to look at next, and whether any needs an adapter at all (assisted rows are the working path).
 2. **Assisted rows are non-blocking** (a deviation from the prompt's `needs_review`; approved at planning). Say so if you want them to hold identity until you import a result.
 3. **The seed portal list is the builder's knowledge and unverified.** The probe confirmed most addresses load, one (Dallas County) did not and one failed transiently (MS); correct `reference/docket_portals.csv` and re-probe. County-by-county states list only their largest-county portals, so most of the state's rows are not covered by any listed portal.
 4. **The probe's account, fee, script-only and no-form calls are heuristics** on one page. All are recorded `assisted`; none is recorded `manual`, because a page that shows no search form does not prove no search exists. `manual` is reserved for a seed entry marked `none` and for an address that is not there.
-5. **Wisconsin's request and answer shapes are assumed** (no search was run). The adapter raises on an answer of another shape; the first cleared live search is the check.
+5. **Wisconsin: shapes checked against the portal's client code, no live search sent.** WCCA's own React bundle (read once) confirms the `jsonPost/advancedCaseSearch` path, the form field names, and `result.cases` items with `caseNo`, `countyNo`, `countyName`, `caption`; it shows names as plain values (the adapter now sends them so, not as `equalTo` objects). The same code and text show a CAPTCHA that says it is for humans and against "automated" programs and "unauthorized harvesting or mining of data", so WCCA is marked `human-check` and recorded `assisted`; I did not send the one live search you asked for, because it would be an automated request to a system that says it is not for automated programs. If you still want one request and answer, say so: it would be a single unauthenticated POST, expected to be rejected for lacking the CAPTCHA, which would confirm the error shape but not the hits.
 6. **The 2022 court-scraper modules were not forked.** court-scraper (ISC licence, last release 2022-12) is on the excluded list and stale; the WCCA adapter was written fresh against the assumed API, so nothing from it needs an ISC notice. Oklahoma OSCN is not in the twenty states and is not built. **juriscraper** covers opinions and PACER, not state dockets, so no court adopts it.
 7. **Browsertrix needs Docker**, which was not exercised for real (tests fake it). A JS-only portal that is both cleared and has an adapter would be captured as a WACZ; none exists yet.
 8. **`efp review` is built for `court --assisted` only**; the rest of `review` still prints "not built yet" (belongs to a later build).
@@ -159,5 +160,6 @@ Filled in by the operator at merge time. Pre-filled only where a later report ex
 - 12, 13, 15, 16: assisted rows finish `done` with `court_status = gated_portal`, not `needs_review`, so later stages run provisionally; the constructed query is in `case_stage.summary_json.assisted`, and importing a portal result re-runs the row (`--reset`).
 - 14: the queue files `assisted_dockets.csv` and `portal_accounts.csv` live under the data directory's `queues/` and hold names and row ids; they never go in the repository.
 - 19, 21: the rows blocked only by a gated portal (per portal) are the `gated_portal` count by state in `docs/coverage_matrix.md`, which `efp status --coverage --write` regenerates; not yet measured.
+- operator; 09: WCCA (WI) search is gated by a CAPTCHA its own text says is meant to stop automated programs, so it is `assisted`; the `human-check:` note in `reference/docket_portals.csv` carries that into every probe, and the WI adapter is unused (read from its client code on 2026-11-22).
 - operator; 20: no search was run against any portal during this build; adapters run only for states in `court.docket_terms_cleared`, so the compliance review should list which states are cleared and on what reading of their terms.
 - 20: `Capture.browser` runs Browsertrix Crawler (AGPL) as a separate Docker container, never linked; the licence register should say so.

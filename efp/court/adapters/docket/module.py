@@ -275,6 +275,10 @@ class CourtStateDocket:
                 url=hit.url,
                 text=evidence,
                 tool="state_docket_row",
+                # derived, not verbatim: composed from the fields of the search answer. Spans
+                # cited from this text point at it (its own capture); a later stage must treat it
+                # as a derived artifact of the capture named here, not as the portal's own words.
+                extra={"derived": True, "derived_from_capture_id": source_id},
             )
             numbers = [
                 f.value
