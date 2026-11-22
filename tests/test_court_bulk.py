@@ -461,3 +461,33 @@ def test_a_row_with_an_unrecognised_state_gets_only_weak_matches(
     assert summary["court_status"] == "candidate_only"  # type: ignore[index]
     assert conn.execute("SELECT count(*) FROM court_records WHERE weak = 0").fetchone() == (0,)
     assert conn.execute("SELECT count(*) FROM court_records WHERE weak = 1").fetchone()[0] >= 2
+
+
+def test_an_old_docket_with_no_termination_date_is_not_in_a_later_rows_window(
+    config: Config, loaded: bulk.LoadResult
+) -> None:
+    con = bulk.duckdb.connect(str(bulk.index_path(config)))
+    con.execute(
+        "INSERT INTO dockets VALUES (501, 'ctd', '3:03-cr-00001', 'United States v. Example', '2003-02-01', NULL, '501', '/d/501/')"
+    )
+    con.execute(
+        "INSERT INTO dockets VALUES (502, 'ctd', '3:19-cr-00002', 'United States v. Example', NULL, NULL, '502', '/d/502/')"
+    )
+    con.execute("INSERT INTO parties VALUES (7001, 'Alex Example')")
+    con.execute("INSERT INTO docket_parties VALUES (501, 7001)")
+    con.execute("INSERT INTO docket_parties VALUES (502, 7001)")
+    con.close()
+    hits = bulk.search_dockets(config, parse_name("Alex Example"), state="CT", year=2020)
+    numbers = {h.docket_number for h in hits}
+    assert "3:03-cr-00001" not in numbers  # filed 17 years before: a different case
+    assert "3:19-cr-00002" in numbers  # no filing date: kept, but only as a candidate
+    from efp.court.located import docket_is_weak
+
+    unknown = next(h for h in hits if h.docket_number == "3:19-cr-00002")
+    assert docket_is_weak(
+        row_state="CT",
+        court_state="CT",
+        candidates=1,
+        initial_only=False,
+        date_known=bool(unknown.date_filed),
+    )

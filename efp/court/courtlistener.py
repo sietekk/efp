@@ -20,7 +20,15 @@ from typing import Any
 from efp.capture import CaptureBudgetError, CaptureError
 from efp.court.bulk import index_info, state_of_court
 from efp.court.doj import normalize_state
-from efp.court.located import STAGE, CourtTask, Located, cap, docket_is_weak, store_text
+from efp.court.located import (
+    LOOKBACK_YEARS,
+    STAGE,
+    CourtTask,
+    Located,
+    cap,
+    docket_is_weak,
+    store_text,
+)
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
 from efp.secrets import SecretsError, load_secrets
@@ -30,7 +38,6 @@ SEARCH = "https://www.courtlistener.com/api/rest/v4/search/"
 STORAGE = "https://storage.courtlistener.com/"
 HOST = "https://www.courtlistener.com"
 MAX_RECAP_DOCS = 5  # PDFs captured per docket: enough for build 10 to read the charging documents
-LOOKBACK_YEARS = 8  # a docket is filed before the year the row records the outcome
 # The per-request gap (0.8/s is 1.25 s) must fit inside this wait, so only a spent *daily* budget,
 # which would take hours, fails fast; a quota is not worth waiting for.
 QUOTA_WAIT = 5.0
@@ -217,6 +224,7 @@ class CourtApi:
                         court_state=docket.court_state,
                         candidates=len(dockets),
                         initial_only=docket.initial_only,
+                        date_known=bool(docket.date_filed),
                     ),
                     docket_id=docket.docket_id,
                 )

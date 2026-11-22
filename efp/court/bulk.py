@@ -30,7 +30,15 @@ import duckdb
 from efp.capture import CaptureError
 from efp.config import Config
 from efp.court.doj import STATES, normalize_state
-from efp.court.located import STAGE, CourtTask, Located, cap, docket_is_weak, store_text
+from efp.court.located import (
+    LOOKBACK_YEARS,
+    STAGE,
+    CourtTask,
+    Located,
+    cap,
+    docket_is_weak,
+    store_text,
+)
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
 from efp.types import Context, Row
@@ -468,6 +476,7 @@ def search_dockets(
     like = f"%{escaped}%"
     last_filed = f"{year + cfg.window_years_after}-12-31"
     first_ended = f"{year - cfg.terminated_slack_years}-01-01"
+    first_filed = f"{year - LOOKBACK_YEARS}-01-01"  # the API path's lower bound, too
     con = duckdb.connect(str(path), read_only=True)
     try:
         # pre-filter on the surname first (case name, or a party of the docket), then join only
@@ -484,11 +493,12 @@ def search_dockets(
             "LEFT JOIN courts c ON c.court_id = d.court_id "
             "LEFT JOIN docket_parties dp ON dp.docket_id = d.docket_id "
             "LEFT JOIN parties p ON p.party_id = dp.party_id "
-            "WHERE (d.date_filed IS NULL OR d.date_filed <= CAST(? AS DATE)) "
+            "WHERE (d.date_filed IS NULL OR "
+            "(d.date_filed >= CAST(? AS DATE) AND d.date_filed <= CAST(? AS DATE))) "
             "AND (d.date_terminated IS NULL OR d.date_terminated >= CAST(? AS DATE)) "
             "AND (? IS NULL OR c.state IS NULL OR c.state = ?) "
             "GROUP BY ALL",
-            [like, like, last_filed, first_ended, state, state],
+            [like, like, first_filed, last_filed, first_ended, state, state],
         ).fetchall()
     finally:
         con.close()
@@ -600,6 +610,7 @@ class CourtBulk:
                         candidates=len(hits),
                         initial_only=hit.initial_only,
                         score=hit.score,
+                        date_known=bool(hit.date_filed),
                     ),
                     docket_id=hit.docket_id,
                 )

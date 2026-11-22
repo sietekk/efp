@@ -132,3 +132,11 @@ def test_schema_and_example_have_the_same_keys() -> None:
 
 def test_example_config_validates() -> None:
     load_config(REPO / "config.example.toml")
+
+
+def test_a_daily_cap_of_zero_is_rejected_not_read_as_one_a_day(
+    write_config: Callable[..., Path],
+) -> None:
+    path = write_config({'"example.test" = 10': '"example.test" = 0'})
+    with pytest.raises(ConfigError, match="at least 1"):
+        load_config(path)

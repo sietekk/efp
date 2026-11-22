@@ -99,6 +99,9 @@ def store_text(
     return int(record.capture_id)
 
 
+LOOKBACK_YEARS = 8  # a docket is filed before the year the row records the outcome
+
+
 def docket_is_weak(
     *,
     row_state: str | None,
@@ -107,6 +110,7 @@ def docket_is_weak(
     initial_only: bool,
     score: int | None = None,
     min_score: int = 3,
+    date_known: bool = True,
 ) -> bool:
     """One rule for "this docket is only a candidate", shared by the bulk and API modules.
 
@@ -118,5 +122,6 @@ def docket_is_weak(
         or court_state is None
         or candidates > 1
         or initial_only
+        or not date_known  # nothing places the docket in the row's years
         or (score is not None and score < min_score)
     )

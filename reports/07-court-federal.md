@@ -111,6 +111,14 @@ A fifth review round:
 | --- | --- |
 | The API module called a docket weak only when the row's state was unknown, so several dockets for a common name, an initial-only match or a court of unknown state were stored as confirmed (and the RECAP step then took filings from the first) | One shared rule, `efp.court.located.docket_is_weak`, is used by both the bulk and the API module: weak when the row's state is unknown, the court's state is unknown, several dockets matched, only an initial and the surname matched, or (bulk) the score is below 3. `search_party` still lets a docket of unknown court state through, but it is now a candidate |
 
+A sixth review round:
+
+| Issue | Fix |
+| --- | --- |
+| The bulk search had no lower filing-date bound when `date_terminated` was NULL, so a 2003 docket matched a 2020 row (the API path already used `year - 8`) | Both paths use one constant, `LOOKBACK_YEARS` (`efp.court.located`); bulk adds `date_filed >= year - 8`. A docket with no filing date is kept but weak (`docket_is_weak(date_known=...)`, applied in the API path too) |
+| A daily cap of 0 was read as "1 a day" | The config rejects a cap below 1; the limiter raises on one and uses the replacement rate only for exactly 1 |
+| A connection broken mid-stream in `Capture.download` escaped as a raw exception | It is caught: the download resumes from the `.part` file with a Range request, up to `rate_limits.retry_attempts` times with backoff, then ends as a `CaptureError` ("run the download again to resume") with the part kept |
+
 `court_status` therefore has seven values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the two `deferred_*` values are "could not finish" (the API budget was spent, or a module failed): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

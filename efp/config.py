@@ -115,8 +115,11 @@ class RateLimits(BaseModel):
         for host, cap in self.daily_caps.items():
             if not _HOSTNAME.match(host):
                 raise ValueError(f"unknown key rate_limits.daily_caps.{host!r} (not a hostname)")
-            if cap < 0:
-                raise ValueError(f"rate_limits.daily_caps.{host!r} must not be negative")
+            if cap < 1:
+                raise ValueError(
+                    f"rate_limits.daily_caps.{host!r} must be at least 1 "
+                    "(to stop using a domain, disable the module that uses it)"
+                )
         return self
 
     def domains(self) -> dict[str, float]:

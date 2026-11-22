@@ -429,6 +429,7 @@ class Capture:
         stage: str,
         row_id: int | None = None,
         expected_size: int | None = None,
+        _resumes: int = 0,
     ) -> CaptureRecord:
         """Stream a large file to ``dest`` (resumable), hashing as it goes.
 
@@ -468,7 +469,12 @@ class Capture:
                 if status == 416 and have:  # asked for bytes past the end: the part is stale
                     part.unlink()  # (a complete one was finalized above without a request)
                     return self.download(
-                        url, dest, stage=stage, row_id=row_id, expected_size=expected_size
+                        url,
+                        dest,
+                        stage=stage,
+                        row_id=row_id,
+                        expected_size=expected_size,
+                        _resumes=_resumes,
                     )  # start again from zero; with no part left this cannot loop
                 if status == 200 and have:  # the server ignored the range: start over
                     digest, have = hashlib.sha256(), 0
@@ -488,11 +494,32 @@ class Capture:
                         f"{dest.name}: the server resumed at a different offset; the partial "
                         "file was removed, run the download again"
                     )
-                with part.open("ab") as out:
-                    for chunk in response.iter_content(chunk_size=1 << 20):
-                        out.write(chunk)
-                        digest.update(chunk)
-                        have += len(chunk)
+                try:
+                    with part.open("ab") as out:
+                        for chunk in response.iter_content(chunk_size=1 << 20):
+                            out.write(chunk)
+                            digest.update(chunk)
+                            have += len(chunk)
+                except requests.RequestException as exc:
+                    # The connection broke mid-stream: what arrived is in the .part file, so
+                    # ask again for the rest (a bounded number of times), then give up cleanly.
+                    limits = self.config.rate_limits
+                    if _resumes >= limits.retry_attempts:
+                        raise CaptureError(
+                            scrub_text(
+                                f"{dest.name}: the connection broke after {have} bytes "
+                                f"({type(exc).__name__}); run the download again to resume"
+                            )
+                        ) from exc
+                    self._sleep(limits.retry_backoff_seconds * 2.0 ** (_resumes + 1))
+                    return self.download(
+                        url,
+                        dest,
+                        stage=stage,
+                        row_id=row_id,
+                        expected_size=expected_size,
+                        _resumes=_resumes + 1,
+                    )
                 etag = response.headers.get("ETag")
                 modified = response.headers.get("Last-Modified")
         if expected_size is not None and have != expected_size:

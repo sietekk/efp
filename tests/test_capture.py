@@ -590,3 +590,51 @@ def test_wait_limit_is_per_thread(cap: Capture) -> None:
         worker.join()
         assert cap.adapter.max_wait == 5
     assert seen == [None] and cap.adapter.max_wait is None
+
+
+def test_download_resumes_after_the_connection_breaks_mid_stream(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+    rsps.get(
+        "https://example.test/f.csv",
+        body=b"def",
+        status=206,
+        headers={"Content-Range": "bytes 3-5/6"},
+    )
+    real = requests.Response.iter_content
+    state = {"broke": False}
+
+    def flaky(self, chunk_size=1, decode_unicode=False):  # type: ignore[no-untyped-def]
+        if self.url.endswith("f.csv") and not state["broke"]:
+            state["broke"] = True
+            yield b"abc"
+            raise requests.exceptions.ChunkedEncodingError("connection reset")
+        yield from real(self, chunk_size, decode_unicode)
+
+    monkeypatch.setattr(requests.Response, "iter_content", flaky)
+    dest = tmp_path / "f.csv"
+    cap.download("https://example.test/f.csv", dest, stage="bulk", expected_size=6)
+    assert dest.read_bytes() == b"abcdef"
+    gets = [c for c in rsps.calls if c.request.url.endswith("f.csv")]
+    assert [c.request.headers.get("Range") for c in gets] == [None, "bytes=3-"]
+
+
+def test_download_that_keeps_breaking_ends_as_a_capture_error_with_the_part_kept(
+    cap: Capture, rsps: responses.RequestsMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rsps.get("https://example.test/robots.txt", status=404)
+    rsps.get("https://example.test/f.csv", body=b"abcdef")
+
+    real = requests.Response.iter_content
+
+    def broken(self, chunk_size=1, decode_unicode=False):  # type: ignore[no-untyped-def]
+        if not self.url.endswith("f.csv"):
+            yield from real(self, chunk_size, decode_unicode)
+            return
+        raise requests.exceptions.ConnectionError("reset")
+
+    monkeypatch.setattr(requests.Response, "iter_content", broken)
+    with pytest.raises(CaptureError, match="run the download again"):
+        cap.download("https://example.test/f.csv", tmp_path / "f.csv", stage="bulk")
