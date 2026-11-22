@@ -841,7 +841,7 @@ def test_a_missing_token_during_the_recap_check_is_transient_and_not_queued(
     assert not Path(config.court.pacer_queue).exists()
 
 
-def test_the_first_of_several_confirmed_dockets_is_checked_and_the_rest_are_marked_not_checked(
+def test_several_api_dockets_for_one_name_are_all_weak_and_none_is_looked_up_or_queued(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     _index_without(config)
@@ -855,16 +855,23 @@ def test_the_first_of_several_confirmed_dockets_is_checked_and_the_rest_are_mark
         caseName="United States v. Absent",
     )
     rsps.get(SEARCH, json={"results": [first, second]}, match=[_has_param("party_name")])
-    rsps.get(SEARCH, json={"results": []}, match=[_has_param("docket_id")])
-    rsps.get("https://www.courtlistener.com/robots.txt", status=404)
     summary = process(config, conn, 1).summary_json
-    with Path(config.court.pacer_queue).open() as handle:
-        rows = list(csv.reader(handle))[1:]
-    assert len(rows) == 2
-    reasons = sorted(r[4] for r in rows)
-    assert any("only the best candidate" in r for r in reasons)
-    assert any("RECAP archive" in r for r in reasons)  # checked, and not there
-    assert summary["pacer_queued"] == 2
+    assert summary["court_status"] == "candidate_only"
+    assert [i["weak"] for i in summary["located"]] == [True, True]  # type: ignore[union-attr]
+    assert not [c for c in rsps.calls if "docket_id" in c.request.url]  # no RECAP call
+    assert summary["pacer_queued"] == 0
+
+
+def test_an_initial_only_or_unplaced_api_docket_is_weak_and_one_confirmed_docket_is_not() -> None:
+    from efp.court.located import docket_is_weak
+
+    base = {"row_state": "CT", "court_state": "CT", "candidates": 1, "initial_only": False}
+    assert docket_is_weak(**base) is False
+    assert docket_is_weak(**{**base, "initial_only": True}) is True
+    assert docket_is_weak(**{**base, "court_state": None}) is True
+    assert docket_is_weak(**{**base, "candidates": 2}) is True
+    assert docket_is_weak(**{**base, "row_state": None}) is True
+    assert docket_is_weak(**base, score=2) is True
 
 
 # --- review round 3: a record is identified by its document -----------------------------------------------

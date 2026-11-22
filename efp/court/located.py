@@ -97,3 +97,26 @@ def store_text(
         headers={"parent_capture_id": parent_capture_id, **(extra or {})},
     )
     return int(record.capture_id)
+
+
+def docket_is_weak(
+    *,
+    row_state: str | None,
+    court_state: str | None,
+    candidates: int,
+    initial_only: bool,
+    score: int | None = None,
+    min_score: int = 3,
+) -> bool:
+    """One rule for "this docket is only a candidate", shared by the bulk and API modules.
+
+    Weak when the row's state is unknown, the court's state is unknown (nothing corroborates the
+    place), several dockets matched the name, only an initial and the surname matched, or (bulk
+    only) the match scored below ``min_score``."""
+    return (
+        row_state is None
+        or court_state is None
+        or candidates > 1
+        or initial_only
+        or (score is not None and score < min_score)
+    )

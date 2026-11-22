@@ -20,7 +20,7 @@ from typing import Any
 from efp.capture import CaptureBudgetError, CaptureError
 from efp.court.bulk import index_info, state_of_court
 from efp.court.doj import normalize_state
-from efp.court.located import STAGE, CourtTask, Located, cap, store_text
+from efp.court.located import STAGE, CourtTask, Located, cap, docket_is_weak, store_text
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
 from efp.secrets import SecretsError, load_secrets
@@ -47,6 +47,8 @@ class ApiDocket:
     url: str | None
     documents: list[dict[str, Any]] = field(default_factory=list)
     party_names: list[str] = field(default_factory=list)
+    court_state: str | None = None  # set by search_party
+    initial_only: bool = False  # set by search_party: only an initial and the surname matched
 
 
 def token(ctx: Context) -> str | None:
@@ -128,6 +130,8 @@ def search_party(
         court_state = state_of_court(docket.court)
         if state and court_state and court_state != state:
             continue
+        docket.court_state = court_state
+        docket.initial_only = named.initial_only
         kept.append(docket)
     return kept[: ctx.config.court.top_candidates], capture_id
 
@@ -208,7 +212,12 @@ class CourtApi:
                     text=evidence,
                     text_capture_id=text_id,
                     basis={"recap_documents": len(docket.documents), "candidates": len(dockets)},
-                    weak=normalize_state(row.state) is None,
+                    weak=docket_is_weak(
+                        row_state=normalize_state(row.state),
+                        court_state=docket.court_state,
+                        candidates=len(dockets),
+                        initial_only=docket.initial_only,
+                    ),
                     docket_id=docket.docket_id,
                 )
             )

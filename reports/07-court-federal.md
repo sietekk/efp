@@ -105,6 +105,12 @@ A fourth review round, also fixed with tests:
 | The CourtListener API module (and the DOJ listing) turned an outage, a 5xx or a bad answer into a clean *miss*, so the row ended `not_found` with a hash `--recheck` never revisits | A non-budget `CaptureError` is now `Outcome.error`: the row is `deferred_error` (or keeps its finding) with `:error` on its hash. A spent budget stays a quota deferral |
 | `_supersede` counted a quota-spent or failed API run as "evaluated" and retired earlier dockets | An errored module is never evaluated, and a spent budget removes the API and RECAP strategies from the evaluated set, so earlier records stay `current = 1` |
 
+A fifth review round:
+
+| Issue | Fix |
+| --- | --- |
+| The API module called a docket weak only when the row's state was unknown, so several dockets for a common name, an initial-only match or a court of unknown state were stored as confirmed (and the RECAP step then took filings from the first) | One shared rule, `efp.court.located.docket_is_weak`, is used by both the bulk and the API module: weak when the row's state is unknown, the court's state is unknown, several dockets matched, only an initial and the surname matched, or (bulk) the score is below 3. `search_party` still lets a docket of unknown court state through, but it is now a candidate |
+
 `court_status` therefore has seven values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the two `deferred_*` values are "could not finish" (the API budget was spent, or a module failed): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)

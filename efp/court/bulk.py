@@ -30,7 +30,7 @@ import duckdb
 from efp.capture import CaptureError
 from efp.config import Config
 from efp.court.doj import STATES, normalize_state
-from efp.court.located import STAGE, CourtTask, Located, cap, store_text
+from efp.court.located import STAGE, CourtTask, Located, cap, docket_is_weak, store_text
 from efp.court.names import NameParts, match_name
 from efp.modules import Availability, ModuleResult, Outcome
 from efp.types import Context, Row
@@ -594,12 +594,12 @@ class CourtBulk:
                         "candidates": len(hits),
                     },
                     # several dockets for one name, or a weaker kind of match, is not settled
-                    weak=(
-                        normalize_state(row.state) is None
-                        or hit.state is None
-                        or len(hits) > 1
-                        or hit.score < 3
-                        or hit.initial_only
+                    weak=docket_is_weak(
+                        row_state=normalize_state(row.state),
+                        court_state=hit.state,
+                        candidates=len(hits),
+                        initial_only=hit.initial_only,
+                        score=hit.score,
                     ),
                     docket_id=hit.docket_id,
                 )
