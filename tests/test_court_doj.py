@@ -390,3 +390,49 @@ def test_a_release_whose_state_is_not_corroborated_is_recorded_but_does_not_stop
     assert located["weak"] is True and summary["court_status"] == "press_release_only"
     weak_row = conn.execute("SELECT weak, basis_json FROM court_records").fetchone()
     assert weak_row[0] == 1 and "state_corroborated" in weak_row[1]  # persisted for readers
+
+
+def test_title_misses_are_consecutive_and_a_proven_server_is_never_switched_off(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    def answer(request):  # type: ignore[no-untyped-def]
+        import json as _json
+        from urllib.parse import parse_qs, urlsplit
+
+        keyword = parse_qs(urlsplit(request.url).query).get(doj.TITLE_PARAM, [""])[0]
+        title = f"{keyword} pleads guilty" if keyword.startswith("Hit") else "Budget announcement"
+        return (200, {}, _json.dumps(doj_page(release(title, "x", uuid=keyword))))
+
+    rsps.add_callback(responses.GET, API, callback=answer, content_type="application/json")
+    ctx, cap, _ = make_ctx(config, conn)
+    try:
+        for keyword in ("Miss1", "Miss2", "Hit1", "Miss3", "Miss4", "Miss5", "Miss6"):
+            client = doj.DojClient(ctx)
+            try:
+                client.search_title(keyword, None, 2013)
+                if keyword == "Hit1":
+                    assert client.title_search_works is True
+            finally:
+                client.close()
+        # two misses, a success (which resets the count), then four more misses: still on,
+        # because a server that has honored the parameter is not switched off by quiet names
+        assert doj.DojClient(ctx).title_search_works is True
+    finally:
+        cap.close()
+
+
+def test_a_capped_harvest_that_does_not_reach_the_window_is_a_deferred_coverage_not_not_found(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    capped = config.model_copy(
+        update={"court": config.court.model_copy(update={"doj_harvest_max_pages": 2})}
+    )
+    add_court_row(conn, 1)  # a 2014 row; the feed below only ever shows 2020 releases
+    _site(rsps)
+    rsps.get(API, json=doj_page(release("Budget announcement", "x", date="2020-01-01", uuid="a")))
+    result = process(capped, conn, 1)
+    summary = result.summary_json
+    assert summary["court_status"] == "deferred_coverage"  # not a clean not_found
+    assert summary["flags"]["doj_coverage_gap"] is True  # type: ignore[index]
+    assert any("harvest reaches back only to 2020" in n for n in summary["notes"])  # type: ignore[union-attr]
+    assert result.input_hash and result.input_hash.endswith(":coverage")

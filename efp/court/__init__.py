@@ -72,7 +72,11 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
 
 
 def court_status(
-    located: list[Located], *, quota_exhausted: bool = False, errored: bool = False
+    located: list[Located],
+    *,
+    quota_exhausted: bool = False,
+    errored: bool = False,
+    coverage_gap: bool = False,
 ) -> str:
     """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
     A row where nothing was found but the API quota ran out is ``deferred_quota``, and one where
@@ -86,6 +90,8 @@ def court_status(
         return "press_release_only"
     if errored:
         return "deferred_error"
+    if coverage_gap and not quota_exhausted:
+        return "deferred_coverage"  # the DOJ harvest did not reach the row's years
     return "deferred_quota" if quota_exhausted else "not_found"
 
 
@@ -280,7 +286,10 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     errored = bool(run.errors)
-    status = court_status(state.located, quota_exhausted=quota_hit, errored=errored)
+    coverage_gap = bool(state.flags.get("doj_coverage_gap"))
+    status = court_status(
+        state.located, quota_exhausted=quota_hit, errored=errored, coverage_gap=coverage_gap
+    )
     summary: dict[str, Any] = {
         "court_status": status,
         "classification": {"kind": classification.kind, "basis": classification.basis[:6]},
@@ -316,6 +325,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         input_hash=input_hash(row, ctx, registry)
         + (":quota" if quota_hit else "")
         + (":error" if errored else "")
+        + (":coverage" if coverage_gap else "")
         + (":recap" if recap_transient else ""),
         tool_version=TOOL_VERSION,
         summary_json=summary,

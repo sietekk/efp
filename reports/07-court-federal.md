@@ -119,7 +119,14 @@ A sixth review round:
 | A daily cap of 0 was read as "1 a day" | The config rejects a cap below 1; the limiter raises on one and uses the replacement rate only for exactly 1 |
 | A connection broken mid-stream in `Capture.download` escaped as a raw exception | It is caught: the download resumes from the `.part` file with a Range request, up to `rate_limits.retry_attempts` times with backoff, then ends as a `CaptureError` ("run the download again to resume") with the part kept |
 
-`court_status` therefore has seven values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the two `deferred_*` values are "could not finish" (the API budget was spent, or a module failed): without them those rows would be counted as findings or as negatives.
+A seventh review round:
+
+| Issue | Fix |
+| --- | --- |
+| The DOJ title-probe miss counter was cumulative and could switch off a title search that had been shown to work | Misses are consecutive: a success resets the count, and a server that has honored the parameter once is never switched off |
+| A capped DOJ harvest that stopped before the row's window gave a clean `not_found` for older rows | The row gets `court_status = deferred_coverage`, a `doj_coverage_gap` flag with the oldest harvested date, a note naming `court.doj_harvest_max_pages`, and `:coverage` on its hash, so `--recheck` revisits it after the cap is raised |
+
+`court_status` therefore has eight values: `primary_record`, `candidate_only`, `press_release_only`, `gated_portal` (set by build 09), `deferred_quota`, `deferred_error`, `deferred_coverage`, `not_found`. The plan's four are a subset. `candidate_only` is "found a candidate, not confirmed", and the three `deferred_*` values are "could not finish" (the API budget was spent, a module failed, or the DOJ harvest did not reach the row's years): without them those rows would be counted as findings or as negatives.
 
 ## Gated sources encountered (not worked around)
 

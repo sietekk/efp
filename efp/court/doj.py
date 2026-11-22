@@ -247,15 +247,18 @@ class DojClient:
                 if honors_title(releases, keyword):
                     self.title_search_works = True
                     cap(self.ctx)._doj_title_works = True
+                    cap(self.ctx)._doj_title_misses = 0  # consecutive misses: a success resets
                 else:
                     # One keyword that matched nothing in the titles is weak evidence the server
                     # ignores the parameter (it may match bodies, or the name may be absent from
-                    # titles): only several misses in a row disable the title search for the run.
-                    misses = getattr(cap(self.ctx), "_doj_title_misses", 0) + 1
-                    cap(self.ctx)._doj_title_misses = misses
-                    if misses >= TITLE_PROBES:
-                        self.title_search_works = False
-                        cap(self.ctx)._doj_title_works = False
+                    # titles). Only several misses in a row, before it has ever been shown to
+                    # honor the parameter, disable the title search for the run.
+                    if self.title_search_works is not True:
+                        misses = getattr(cap(self.ctx), "_doj_title_misses", 0) + 1
+                        cap(self.ctx)._doj_title_misses = misses
+                        if misses >= TITLE_PROBES:
+                            self.title_search_works = False
+                            cap(self.ctx)._doj_title_works = False
                     return releases
             found.extend(releases)
             dated = [r.date.year for r in releases if r.date]
@@ -264,6 +267,11 @@ class DojClient:
             ):
                 break
         return found
+
+    def covered(self, first_year: int) -> bool:
+        """Has the harvest reached back to ``first_year`` (or exhausted the feed)?"""
+        _page, oldest, done = self.index.progress()
+        return done or bool(oldest and int(oldest[:4]) <= first_year)
 
     def harvest(self, until_year: int, row_id: int | None) -> int:
         """Page the date-sorted feed (newest first) into the index back to ``until_year``."""
@@ -422,6 +430,8 @@ class CourtDoj:
         client = DojClient(ctx)
         try:
             releases, how = client.candidates(cs.parts, year - slack, year + slack, task.row_id)
+            covered = client.covered(year - slack)
+            oldest = client.index.progress()[1]
         except CaptureError as exc:
             cs.notes.append(f"DOJ API: {exc}"[:200])
             return ModuleResult(Outcome.error, error=f"DOJ API: {exc}"[:200])
@@ -439,6 +449,14 @@ class CourtDoj:
             )
         )
         cs.flags["doj"] = {"found_by": how, "candidates": len(releases), "matched": len(matches)}
+        if how == "harvest" and not covered:
+            # The capped harvest stopped before the row's window: an absence here proves nothing.
+            cs.flags["doj_coverage_gap"] = True
+            cs.flags["doj"]["oldest_harvested"] = oldest
+            cs.notes.append(
+                f"DOJ harvest reaches back only to {oldest or 'nothing'}; the row's window starts "
+                f"{year - slack}: raise court.doj_harvest_max_pages and run --recheck"
+            )
         if not matches:
             return ModuleResult(Outcome.miss, wrote={"candidates": len(releases)})
         found_case = False
