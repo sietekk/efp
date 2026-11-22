@@ -149,8 +149,6 @@ Two things to state plainly in the write-up rather than let a reviewer find. Fir
 
 **Public figures and private individuals.** Candidates, officeholders, party officials and paid operatives are public figures whose politics are a matter of public record, and characterising them is ordinary political science. A large share of rows are private individuals — a man who voted not knowing his rights were unrestored, a woman who forged her late landlord's ballot. For them, *unknown* or a non-ideological motive is usually the honest code, and the identity gate plus the handle-only social stage exist to keep the research from becoming profiling.
 
-**IRB.** Research on identifiable living individuals usually needs at least an exemption determination even when every source is public. It is also a precondition of Reddit for Researchers access, and Meta's Content Library terms prohibit surveillance use and longitudinal individual tracking. Getting a determination on record early protects the publication.
-
 **Platform and licence terms.** NewsBank and Newspapers.com prohibit bulk download and scraping; retrieval there is manual by design. Reddit's developer API is explicitly not an authorised research channel. Several pipeline tools carry copyleft licences (PyMuPDF and Browsertrix are AGPL; the WhatsMyName site data is CC BY-SA) and a licence register goes in the methods appendix.
 
 **Publication split.** The toolchain code and the aggregate findings can be public. The working dataset, holding identity resolutions and account attributions for named private individuals, should not be. Row-level identity fields stay private under Dr. Treistman's supervision.
@@ -179,7 +177,6 @@ The pre-2015 rows are the schedule risk. NewsBank retrieval is manual, and if th
 
 - [ ] Is the population all 1,481 dispositions, or the 1,252 criminal convictions only?
 - [ ] What does *independent* mean in the dropdown — ideologically centrist, registered unaffiliated, or non-partisan in direction? Three different sets of rows
-- [ ] Has the project been through IRB, and if not, who files? It gates Reddit for Researchers and shapes how stage 4 is documented
 - [ ] Would he code 50 rows himself as a calibration set? It is the cheapest way to surface any mismatch between his reading of the categories and mine
 - [ ] Does he want the companion columns in the deliverable workbook, or in a separate analysis file alongside his original layout?
 - [ ] Budget items that may arise: Ballotpedia academic access (price unknown), X API Basic at $200/month if stage 4 needs X, PACER fees if the exemption is refused

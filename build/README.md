@@ -22,7 +22,7 @@ Each file in this folder is one message to Claude Code. Together they cover the 
 | 12 | [Identity resolution](12-identity.md) | 8, 4 (identity), 1 (F4) | D5, F3 | 07, 10, 11 | S4 | **opus** | label 150 pairs (then `efp identity refit`); the F3 audit |
 | 13 | [News retrieval](13-news.md) | 4 (news), 5 (GDELT, Media Cloud, CDX), 1 (F5) | D7 | 06, 12 | S5 | opusplan | — |
 | 14 | [Manual import path for licensed sources](14-manual-import.md) | 6 (licensed sources), 4 (news, documents) | D7 | 10, 13 | S5 | sonnet | — |
-| 15 | [Social: handle-only pivot](15-social.md) | 4 (social), 1 (F7), 12 (compliance) | D10 | 12, 13 | S5 | opus | record the IRB determination in `config.toml` `[irb]` |
+| 15 | [Social: handle-only pivot](15-social.md) | 4 (social), 1 (F7), 12 (compliance) | D10 | 12, 13 | S5 | opus | — |
 | 16 | [Extraction with verbatim spans](16-extract.md) | 9 (extraction schema), 4 (extract), 1 (F8) | D8 | 10, 13 | S6 | **opus** | the 50-row tally (volume run proceeds unless `stages.extract.require_sample_approval`) |
 | 17 | [Gold set and validation harness](17-validation.md) | 9 (gold set, harness), 11 (model tests) | D8, E2 | 03, 16 | S6 | opusplan | double coding of the gold set |
 | 18 | [Coding: codebook as data](18-code.md) | 9 (coding), 4 (code), 1 (F9) | D9 | 16, 17 | S6 | **opus** | review the 50 sample rows |
@@ -30,7 +30,7 @@ Each file in this folder is one message to Claude Code. Together they cover the 
 | 20 | [Integrity packaging, compliance and methods](20-integrity-compliance.md) | 7 (BagIt, RO-Crate, manifests), 11 (reproducibility), 12 (license register, compliance) | D12 | 05, 19 | S7 | opusplan | — |
 | 21 | [QA review and first-pass freeze](21-qa-freeze.md) | plan "What the first pass hands back" | E2 (replaced) | 19, 20 | S8 | opusplan | review 100 rows (freeze runs with status recorded; re-tag after) |
 
-**Two rules every prompt obeys** (they are in `CLAUDE.md`): everything in a unit is built completely, with nothing left for later because an operator step has not happened; and every stage is a chain of swappable modules (build 04 defines the interface), so a missing key, a gated source, an absent tool or a pending human input is skipped with its reason and the step completes on what is available. The "Operator refinement" column lists your inputs; each one refines results when it arrives and never gates a build or a run. The IRB determination is in hand (November 21, 2026); prompt 15 only asks that it be recorded in `config.toml` `[irb]` so the stage and the methods appendix can cite it.
+**Two rules every prompt obeys** (they are in `CLAUDE.md`): everything in a unit is built completely, with nothing left for later because an operator step has not happened; and every stage is a chain of swappable modules (build 04 defines the interface), so a missing key, a gated source, an absent tool or a pending human input is skipped with its reason and the step completes on what is available. The "Operator refinement" column lists your inputs; each one refines results when it arrives and never gates a build or a run.
 
 Not written, by design: the Postgres migration (spec section 3, "Postgres path") is a documented trigger, not a build unit; write a prompt for it only if a second operator joins. Purchases and applications named in the spec (PACER, CourtListener EDU, Perma registrar, Ballotpedia academic access, Reddit for Researchers, Meta Content Library, X API) are gated sources: the prompts that touch them wire the configuration and record the gate; nothing applies, signs up or pays.
 
