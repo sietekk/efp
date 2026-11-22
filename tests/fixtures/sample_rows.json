@@ -136,7 +136,7 @@
       "year_band": "2017-25",
       "jurisdiction": "federal",
       "fraud_type": "other",
-      "population": 6,
+      "population": 5,
       "sampled": 1
     },
     {
@@ -178,11 +178,11 @@
       "year_band": "2017-25",
       "jurisdiction": "state",
       "fraud_type": "other",
-      "population": 258,
+      "population": 259,
       "sampled": 6
     }
   ],
-  "sample_sha256": "e8fcf0ebda462a6d9bd6e0c068f8b91673d74b36b2d2071a77607d69be9fa05e",
+  "sample_sha256": "025a50c242d831db439f75765043f4b3338ad442082325e7844d03457d4c1839",
   "rows": [
     {
       "row_id": 9,
@@ -373,12 +373,12 @@
       "row_sha256": "7a2c07ec6a9ce6b8798f8f711e6e5c36cd89b73386534818ca36f914b54ee700"
     },
     {
-      "row_id": 1405,
-      "row_sha256": "00f7c83fcefef4508c30c32ea7f3a87996900ec8c04d9d6cbb6dfc782858b73c"
+      "row_id": 1386,
+      "row_sha256": "512e2b9accc58722eea0821a4b4b0e272627b385435987a97198b62c81188ab1"
     },
     {
-      "row_id": 1431,
-      "row_sha256": "0f0358ead73d2a1d58baadb6fcbb488d8a7f0d1c86d1ef4e1a1b454eecbb760c"
+      "row_id": 1405,
+      "row_sha256": "00f7c83fcefef4508c30c32ea7f3a87996900ec8c04d9d6cbb6dfc782858b73c"
     },
     {
       "row_id": 1448,
