@@ -7,7 +7,8 @@ HTTP library. The ``wayback`` and ``cdx-toolkit`` packages are not used here: th
 HTTP calls, which would bypass the budget, the cache, the WARC and the secret stripping.
 
 The Wayback index is rate-limited at 80% of its published ~0.4 requests per second
-(``rate_limits."web.archive.org"``); Common Crawl is polite by default.
+(``rate_limits."web.archive.org"``); Common Crawl publishes no limit, so it takes the
+default budget.
 """
 
 from __future__ import annotations
@@ -186,7 +187,7 @@ def commoncrawl_cdx(
         indexes = [i for i in (_json(listing, capture) or []) if i.get("cdx-api")]
         capture._cc_indexes = indexes  # type: ignore[attr-defined]
     out: list[CdxRow] = []
-    for index in indexes[:3]:  # the three newest crawls: bounded politeness
+    for index in indexes[:3]:  # the three newest crawls: bounded request count
         params = {"url": url, "output": "json", "matchType": match, "limit": str(limit)}
         if from_year:
             params["from"] = str(from_year)

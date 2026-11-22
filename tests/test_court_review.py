@@ -135,7 +135,6 @@ def test_the_title_search_pages_back_to_the_rows_year_and_asks_for_aliases(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
     add_court_row(conn, 1, name="Alex Example aka Alec Sample", details="x")
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get(
         "https://www.justice.gov/usao-ct/pr/example-release",
         body=release_html(TARGET),
@@ -186,7 +185,6 @@ def test_a_release_naming_several_case_numbers_is_flagged_weak(
         "Alex Example, 47, of Hartford, Connecticut, pleaded guilty to voting twice in Case No. 3:13-cr-00045. "
         "Blake Other pleaded in Case No. 3:13-cr-00046 to ballot fraud. " + ARTICLE
     )
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get(
         "https://www.justice.gov/usao-ct/pr/example-release",
         body=release_html(body),
@@ -267,7 +265,6 @@ def test_like_wildcards_in_a_name_are_not_wildcards(config: Config, tmp_path: Pa
 def test_a_file_already_downloaded_and_recorded_is_not_fetched_again(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     ctx, cap, _ = make_ctx(config, conn)
     payload = b"id,name\n1,x\n"
     item = bulk.BulkFile(
@@ -284,7 +281,6 @@ def test_a_file_already_downloaded_and_recorded_is_not_fetched_again(
 def test_a_download_that_redirects_is_refused_not_followed(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     rsps.get(
         "https://bulk.example.test/f.csv",

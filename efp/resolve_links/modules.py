@@ -49,7 +49,6 @@ class LinkState:
     capture_id: int | None = None  # the body that makes the link live or archived
     evidence_capture_id: int | None = None  # a dead page, kept as evidence if nothing better
     live_expanded: bool = False  # the live fetch itself produced the expansion
-    robots_blocked: bool = False
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -173,10 +172,6 @@ def _try_live(ctx: Context, task: LinkTask, url: str, original: str) -> ModuleRe
     st = task.st
     record = _fetch_page(ctx, task, url)
     if record is None:
-        return ModuleResult(Outcome.miss)
-    if record.tool == "robots_disallow":
-        st.robots_blocked = True
-        _note(task, f"robots.txt disallows {urlsplit(url).hostname}: unreachable by policy")
         return ModuleResult(Outcome.miss)
     verdict, extracted, date = _judge(ctx, task, record, original, check_redirect=True)
     final = record.url_final or url
@@ -306,8 +301,7 @@ class ResolveLive(_Base):
         if record.outcome is Outcome.miss and st.expansion is None and not task.has_scheme:
             # A bare address: https was tried first; fall back to plain http.
             insecure = "http://" + task.fetch_url.removeprefix("https://")
-            if not st.robots_blocked:
-                record = _try_live(ctx, task, insecure, insecure)
+            record = _try_live(ctx, task, insecure, insecure)
         return record
 
 
@@ -334,9 +328,6 @@ class ResolveBitlyInfo(_Base):
         info_url = parts._replace(path=parts.path.rstrip("/") + "+", query="", fragment="").geturl()
         record = _fetch_page(ctx, task, info_url)
         if record is None:
-            return ModuleResult(Outcome.miss)
-        if record.tool == "robots_disallow":
-            _note(task, "robots.txt disallows the Bitly info page: unreachable by policy")
             return ModuleResult(Outcome.miss)
         if not record.ok:
             _note(task, f"Bitly info page: HTTP {record.http_status}")

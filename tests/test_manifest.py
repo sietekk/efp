@@ -295,7 +295,6 @@ def test_the_open_days_warc_is_left_out_of_the_bag_until_the_day_is_over(
     cap = make_capture(config, conn)
     cap._clock = lambda: day  # type: ignore[method-assign]
     with responses_lib.RequestsMock(assert_all_requests_are_fired=False) as rsps:
-        rsps.get("https://example.test/robots.txt", status=404)
         rsps.get("https://example.test/a", body=b"first")
         rsps.get("https://example.test/b", body=b"second")
         cap.fetch("https://example.test/a", row_id=1, stage="resolve_links")

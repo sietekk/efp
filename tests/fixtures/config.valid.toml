@@ -55,7 +55,6 @@ pacer_queue = "queues/pacer.csv"
 [rate_limits]
 default_rps = 0.5
 "example.test" = 1.0
-honor_robots_txt = true
 retry_attempts = 3
 retry_backoff_seconds = 5
 
@@ -65,7 +64,6 @@ retry_backoff_seconds = 5
 [capture]
 timeout_seconds = 10
 max_redirects = 10
-robots_cache_hours = 24
 cache_expire_hours = 24
 max_wait_seconds = 30
 spn_per_minute = 5

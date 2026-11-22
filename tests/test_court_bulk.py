@@ -244,7 +244,6 @@ def test_an_index_hit_is_a_federal_docket_and_the_api_is_not_called(
     config: Config, conn: sqlite3.Connection, loaded: bulk.LoadResult, rsps: responses.RequestsMock
 ) -> None:
     add_court_row(conn, 1, details="Charged in U.S. District Court")
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json={"results": []})
     rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
     result = process(config, conn, 1)
@@ -292,7 +291,6 @@ def test_the_bulk_module_is_unavailable_until_the_index_is_loaded(
 def test_a_download_streams_to_disk_hashes_it_and_records_a_manifest_not_the_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     payload = b"id,name\n" + b"x" * 5000
     url = "https://bulk.example.test/bulk-data/parties-2026-09-30.csv"
@@ -321,7 +319,6 @@ def test_a_download_streams_to_disk_hashes_it_and_records_a_manifest_not_the_fil
 def test_an_interrupted_download_resumes_from_the_part_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     payload = bytes(range(256)) * 40
     url = "https://bulk.example.test/bulk-data/courts-2026-09-30.csv"
@@ -344,7 +341,6 @@ def test_an_interrupted_download_resumes_from_the_part_file(
 def test_a_wrong_size_is_an_error_and_leaves_the_part_file(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     _ctx, cap, _ = make_ctx(config, conn)
     url = "https://bulk.example.test/bulk-data/courts-2026-09-30.csv"
     rsps.get(url, body=b"short")
@@ -418,7 +414,6 @@ def test_a_weak_only_bulk_result_is_a_miss_kept_as_candidates_not_a_primary_reco
     # two dockets for one name in one state: neither can be settled, so every match is weak
     _tiny_index(config)
     add_court_row(conn, 1, name="Pat Lane", details="Charged in U.S. District Court")
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json={"results": []})
     rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
     summary = process(config, conn, 1).summary_json
@@ -455,7 +450,6 @@ def test_a_row_with_an_unrecognised_state_gets_only_weak_matches(
     junk: str,
 ) -> None:
     add_court_row(conn, 1, state=junk, details="Charged in U.S. District Court")
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json={"results": []})
     rsps.get("https://www.courtlistener.com/api/rest/v4/search/", json={"results": []})
     summary = process(config, conn, 1).summary_json

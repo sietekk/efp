@@ -203,8 +203,7 @@ def capture_checks(config: Config, present_secrets: list[str]) -> list[Check]:
         Check(
             "budgets",
             True,
-            f"default 1 per {1 / limits.default_rps:g}s; {named}; robots.txt "
-            f"{'honored' if limits.honor_robots_txt else 'NOT honored'}",
+            f"default 1 per {1 / limits.default_rps:g}s; {named}",
         )
     )
     spn_keys = all(k in present_secrets for k in ("IA_ACCESS", "IA_SECRET"))

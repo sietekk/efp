@@ -83,7 +83,6 @@ def test_fetch_refuses_over_the_size_limit_even_with_yes(
 def test_fetch_with_yes_downloads_each_file_and_load_builds_the_index(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock, tmp_path: Path
 ) -> None:
-    rsps.get("https://bulk.example.test/robots.txt", status=404)
     staged = write_bulk_files(tmp_path / "staged", compress=False)
     _listing(rsps, {kind: path.stat().st_size for kind, path in staged.items()})
     for kind, path in staged.items():
@@ -163,7 +162,6 @@ def test_load_of_a_truncated_compressed_file_is_a_clean_failure_not_a_traceback(
 def test_doj_harvest_command_walks_the_feed_and_says_whether_it_reaches_the_year(
     config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
 ) -> None:
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     old = {
         "metadata": {"resultset": {"count": 1, "pagesize": 50}},
         "results": [

@@ -333,8 +333,8 @@ def capture_recap_documents(ctx: Context, task: CourtTask, docket: Located) -> R
         if taken >= MAX_RECAP_DOCS:
             break
     if not taken and failed:
-        # The filings are listed, but none could be fetched (a 5xx, a spent budget, a robots
-        # block): they are unknown, not absent, so this is neither "checked" nor a purchase
+        # The filings are listed, but none could be fetched (a 5xx, a spent budget, a block):
+        # they are unknown, not absent, so this is neither "checked" nor a purchase
         # candidate, and the row is retried.
         return RecapOutcome(
             False,

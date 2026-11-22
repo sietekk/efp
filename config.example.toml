@@ -74,7 +74,6 @@ default_rps = 0.5
 "api.gdeltproject.org" = 0.16     # 80% of one request per 5 seconds (0.2/s)
 "api.open.fec.gov" = 0.22         # 80% of 1,000 requests per hour (0.278/s)
 "ballotpedia.org" = 0.2           # low rate, read only
-honor_robots_txt = true
 retry_attempts = 3
 retry_backoff_seconds = 5
 
@@ -86,7 +85,6 @@ retry_backoff_seconds = 5
 [capture]
 timeout_seconds = 10
 max_redirects = 10
-robots_cache_hours = 24
 cache_expire_hours = 24           # default freshness for cached responses where the server sends no Cache-Control
 max_wait_seconds = 300            # longest a fetch will wait for its domain budget before failing the request
 spn_per_minute = 4                # Save Page Now 2 publishes ~6/min authenticated; 80% rounded down

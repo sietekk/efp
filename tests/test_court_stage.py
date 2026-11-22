@@ -128,7 +128,6 @@ def test_the_api_finds_a_docket_the_index_lacks_and_captures_the_filings_already
     mine = _docket(recap_documents=docs, party=["Quinn Absent"], caseName="United States v. Absent")
     rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("party_name")])
     rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("docket_id")])
-    rsps.get("https://storage.courtlistener.com/robots.txt", status=404)
     rsps.get(PDF_URL, body=b"%PDF-1.7 synthetic indictment", content_type="application/pdf")
     result = process(config, conn, 1)
     summary = result.summary_json
@@ -219,7 +218,6 @@ def test_the_api_token_is_never_stored(
     add_court_row(conn, 1, name="Quinn Absent", details="U.S. District Court")
     _quiet_doj(rsps)
     rsps.get(SEARCH, json={"results": [_docket(party=["Quinn Absent"], caseName="USA v. Absent")]})
-    rsps.get("https://www.courtlistener.com/robots.txt", status=404)
     process(config, conn, 1)
     secret = "SENTINEL-courtlistener-5b1d9c"  # pragma: allowlist secret (synthetic test value)
     stored = " ".join(str(v) for row in conn.execute("SELECT * FROM captures") for v in row)
@@ -507,7 +505,6 @@ def test_a_pre_2013_federal_row_matches_a_report_entry(
         "United States v. Bob Other, No. 1:09-cr-00010 (S.D. Ohio). Another defendant."
     )
     monkeypatch.setattr(pin, "_backend", lambda: lambda pdf: [pdf.decode()])
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get(url, body=page.encode(), content_type="application/pdf")
     add_court_row(conn, 1, year=2010, details="U.S. District Court")
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=doj_page())
@@ -654,7 +651,6 @@ def test_the_pin_module_closes_its_index_after_every_row_even_on_an_error(
 
     monkeypatch.setattr(pin.PinIndex, "__init__", tracking)
     monkeypatch.setattr(pin, "_backend", lambda: lambda pdf: [pdf.decode()])
-    rsps.get("https://example.test/robots.txt", status=404)
     rsps.get(url, body=b"Nothing relevant here at all, a long enough paragraph to be indexed ok.")
     add_court_row(conn, 1, year=2010, details="U.S. District Court")
     rsps.get("https://www.justice.gov/api/v1/press_releases.json", json=doj_page())
@@ -1226,7 +1222,6 @@ def test_a_pin_report_that_failed_to_fetch_is_tried_once_per_run_not_per_row(
         update={"court": config.court.model_copy(update={"pin_report_urls": [url]})}
     )
     monkeypatch.setattr(pin, "_backend", lambda: lambda _pdf: [])
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get(url, status=404)
     ctx, cap, _ = make_ctx(wired, conn)
     index = pin.PinIndex(wired.paths.bulk / "pin.sqlite")
@@ -1266,7 +1261,6 @@ def _recap_setup(
     mine = _docket(recap_documents=docs, party=["Quinn Absent"], caseName="United States v. Absent")
     rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("party_name")])
     rsps.get(SEARCH, json={"results": [mine]}, match=[_has_param("docket_id")])
-    rsps.get("https://storage.courtlistener.com/robots.txt", status=404)
 
 
 _LISTED = {

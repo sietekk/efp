@@ -57,7 +57,7 @@ Claude Code builds and runs each session on your Mac in its own branch; you revi
 **Standing guardrails** (these go into `CLAUDE.md` verbatim)
 
 - No people-search or data-broker service, ever; no account discovery by a person's name.
-- Every network call goes through the capture layer, is rate-limited per domain at 80% of the published limit (1 request per second where none is published), honors `robots.txt`, and is logged.
+- Every network call goes through the capture layer, is rate-limited per domain at 80% of the published limit (1 request per second where none is published), and is logged.
 - Every value written carries its source capture and, for extractions, a verbatim span; abstain rather than guess.
 - The nine source columns are never written; `rows` is immutable; captures, decisions and the audit log are append-only.
 - Secrets live only in `~/.config/efp/.env`; the database and store live only in `~/efp-data/`; neither is ever in the repository.
@@ -74,18 +74,18 @@ Everything below is reachable by a program or by a signup you complete yourself 
 | DOJ press-release API | Federal cases, roughly 2013 onward | No key | Under 4 requests per second; topic filter is ignored, so filter locally |
 | CourtListener bulk data | Dockets, parties, courts as monthly dumps | Download, public domain | Load once; search locally before any API call |
 | CourtListener REST API and RECAP | Docket search, filings already in the archive | Self-serve token | Throttled per the spec; bulk-before-API rule applies |
-| Wayback Machine CDX and Availability APIs | Archived copies of dead source and news pages | No key | Polite rate; the local WARC stays the evidentiary copy |
+| Wayback Machine CDX and Availability APIs | Archived copies of dead source and news pages | No key | Rate-limited; the local WARC stays the evidentiary copy |
 | Save Page Now 2 | Background redundancy for every captured page | Self-serve S3 keys | Throttles under load; failures are not errors |
 | GDELT DOC 2.0 | News index, 2017 onward | No key | About one request per 5 seconds; nothing before 2017 |
 | Media Cloud | Local and regional news index, partial before 2017 | Self-serve key | Coverage is uneven; report hit rate by year |
-| State AG and DA press releases | State-case announcements with names and charges | Public web, per-state scraper module | Top states by case count first; robots.txt honored |
+| State AG and DA press releases | State-case announcements with names and charges | Public web, per-state scraper module | Top states by case count first |
 | State court portals with public search | Dockets and dispositions | Public web, no account | S2 probes each portal; the ones that need an account or fee are listed, not worked around |
 | OpenFEC | Federal candidates and committees | Self-serve api.data.gov key | 1,000 requests per hour |
 | Congress.gov API and congress-legislators | Federal officeholders | Self-serve key; GitHub file | Identity of public figures only |
 | OpenStates API and bulk | State legislators | Self-serve key | Bulk first |
 | DIME v4, Harvard local elections database, FollowTheMoney mirror | Candidate records and ideology scores for subjects who ran for office | Download | Mirror FollowTheMoney in session 0; it is unmaintained |
 | Census surnames and SSA given names | The population prior for identity | Download | Loaded as reference tables |
-| Ballotpedia public pages | Candidate biographies for identity confirmation | Public web, robots.txt | Low rate, read only; the API stays excluded |
+| Ballotpedia public pages | Candidate biographies for identity confirmation | Public web | Low rate, read only; the API stays excluded |
 | Google Programmable Search | Discovery of pre-2017 local coverage still on the open web | Self-serve key | 100 queries a day free, then $5 per 1,000; capped per session, optional |
 | Anthropic API | Extraction with span citations; transcription of pages OCR fails on | Self-serve key | Temperature 0; model id and prompt hash logged per call |
 | North Carolina and Ohio voter files | Direct downloads, the only two no-request files among the states that matter | Download | Only if Jeff says yes to decision 6; stored as its own column, never used for motive |
@@ -164,15 +164,14 @@ The first pass is built to report its own gaps, so most of these end as numbers 
 
 | Risk | Likelihood | What the plan does |
 | --- | --- | --- |
-| Court portals block automated search (bot checks, CAPTCHAs, terms that forbid scripts) | High for several large states | The portal goes on the gated list with the rows it affects. No CAPTCHA solving, no evasion; Browsertrix only where the terms allow a browser. |
+| Court portals block automated search (bot checks, CAPTCHAs, terms that forbid scripts) | High for several large states | The portal goes on the gated list with the rows it affects. Browsertrix only where the terms allow a browser. |
 | Pre-2017 news is thin on the open web; GDELT starts in 2017 and local papers are paywalled or gone | Certain: 994 rows (67%) are pre-2017 | Expected. The NewsBank queue with search strings is a deliverable, not a failure. |
 | Heritage source links are dead and the Wayback Machine never captured them | Medium | Reported as link survival; the row falls back to court and press-release search by name. |
 | State press-release sites restructure and break a module | Medium, over months | Contract tests on cassettes catch it; the module falls back to the Wayback copy of the release index. |
 | CourtListener bulk dumps are tens of gigabytes | Certain | Load only dockets, parties and courts; keep the raw dumps outside the repository and off the backup. |
 | Identifiers are sparse in state records, so identity stays unresolved for whole states | High for some states | A finding, reported by state; nothing moves downstream unresolved. |
 | Model extraction drifts or costs more than planned | Low with temperature 0 and a budget cap | Model id and prompt hash per call; three runs only on the sample; the cap in `config.toml` stops the run. |
-| Politeness budgets make full runs take days | Certain | Runs are resumable per row; sessions are scheduled around them rather than waiting on them. |
-| `robots.txt` disallows a site the design counts on | Medium | Honored. The Wayback copy is used where it exists; otherwise the source is reported as unreachable by policy. |
+| Rate-limit budgets make full runs take days | Certain | Runs are resumable per row; sessions are scheduled around them rather than waiting on them. |
 | Jeff's decisions arrive mid-run | Likely | They are flags in `config.toml`; every stage is idempotent, so a rerun is cheap. |
 
 ## Effort, cost and timeline
@@ -185,7 +184,7 @@ About ten Claude Code sessions over three weeks, 15 to 20 hours of your review t
 | 2 | S3 documents, S4 identity, S5 news | Label the 150 pairs (about 3 hours); the F3 audit of 50 rows (about 3 hours); one report review |
 | 3 | S6 extraction and coding, S7 export and reporting, S8 review and freeze | Review the 50 sample extractions (about 2 hours); the 100-row QA review (4 to 6 hours); read the first-pass notes |
 
-**Run time.** Politeness budgets, not code, set the pace: a full pass of a stage over 1,481 rows takes hours to a day. Runs resume per row, so a session starts a run and the next session reads its results.
+**Run time.** Rate-limit budgets, not code, set the pace: a full pass of a stage over 1,481 rows takes hours to a day. Runs resume per row, so a session starts a run and the next session reads its results.
 
 **Model API.** Extraction over every row with text is roughly 1,500 rows times three documents times 4,000 tokens, on the order of $100 to $200 at Sonnet-class pricing and several times that on Opus; the OCR fallback adds a few dollars. The cap in `config.toml` is the real limit. The optional Google search is $5 per 1,000 queries after the free 100 a day.
 

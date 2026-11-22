@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -51,7 +50,6 @@ def config(write_config: Callable[..., Path]) -> Config:
 
 
 def _site(rsps: responses.RequestsMock, page_html: str | None = None) -> None:
-    rsps.get("https://www.justice.gov/robots.txt", status=404)
     rsps.get(PR_URL, body=page_html or release_html(TARGET_BODY), content_type="text/html")
 
 
@@ -272,22 +270,6 @@ def test_an_api_failure_is_a_deferred_error_not_a_negative_and_is_retried(
     assert result.status == "done" and result.summary_json["court_status"] == "deferred_error"
     assert any("DOJ API" in n for n in result.summary_json["notes"])  # type: ignore[union-attr]
     assert result.input_hash and result.input_hash.endswith(":error")
-
-
-def test_the_captured_page_is_kept_and_a_robots_block_falls_back_to_the_api_body(
-    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
-) -> None:
-    add_court_row(conn, 1)
-    rsps.get("https://www.justice.gov/robots.txt", body="User-agent: *\nDisallow: /usao-ct\n")
-    rsps.get(API, json=doj_page(release("Alex Example pleads guilty to voter fraud", TARGET_BODY)))
-    result = process(config, conn, 1)
-    assert result.summary_json["court_status"] == "press_release_only"
-    basis = json.loads(
-        json.dumps(result.summary_json["located"])  # type: ignore[arg-type]
-    )
-    assert basis and not [c for c in rsps.calls if c.request.url == PR_URL]
-    tool = conn.execute("SELECT tool FROM captures WHERE tool IN ('doj_release_text')").fetchone()
-    assert tool is not None  # the body the API returned was kept as the text capture
 
 
 def test_one_keyword_missing_from_the_titles_does_not_disable_the_title_search(

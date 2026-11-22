@@ -181,7 +181,7 @@ def test_selftest_reports_the_capture_layer_budgets_and_which_keys_exist(
     assert result.exit_code == 0, result.output
     out = result.output
     assert "capture layer" in out and "libraries importable" in out
-    assert "budgets" in out and "robots.txt honored" in out and "example.test 1s" in out
+    assert "budgets" in out and "example.test 1s" in out
     assert "save page now" in out and "IA_ACCESS/IA_SECRET absent" in out
     assert "perma.cc" in out and "PERMA_API_KEY absent" in out
     assert "tsa trust anchors" in out

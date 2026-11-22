@@ -36,6 +36,6 @@ Stay in plan mode until I approve. Propose the URL parser for the Source cell, t
 
 ## Guardrails that bite here
 
-All fetches through the capture layer; budgets apply per domain, including `web.archive.org`. No scraping of a domain whose robots.txt disallows the path; it is recorded as unreachable by policy, and the Wayback copy is used where one exists.
+All fetches through the capture layer; budgets apply per domain, including `web.archive.org`.
 
 Finish with `reports/06-resolve-links.md` and a pull request. Do not merge. Review checkpoint: the domain table and link survival.

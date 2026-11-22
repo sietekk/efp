@@ -2,14 +2,12 @@
 
 ``Capture.fetch`` is the single client for every network call. In order, it
 
-1. checks ``robots.txt`` for page fetches (cached per domain; a disallow is a ``captures`` row with
-   ``http_status = NULL`` and ``tool = 'robots_disallow'``, never a bypass),
-2. sends the request through a ``requests-cache`` session (SQLite, honoring ``Cache-Control``) with
-   the project ``User-Agent``; the session's adapter takes the per-domain budget before every
-   network hop, so cached responses cost nothing and redirects to another domain use that
+1. sends the request through a ``requests-cache`` session (SQLite, honoring ``Cache-Control``) with
+   the project ``User-Agent``; the session's adapter takes the per-domain rate-limit budget before
+   every network hop, so cached responses cost nothing and redirects to another domain use that
    domain's budget,
-3. retries 429, 5xx and connection errors with jitter (``stamina``),
-4. appends the request and response to the day's WARC, writes the body to the content-addressed
+2. retries 429, 5xx and connection errors with jitter (``stamina``),
+3. appends the request and response to the day's WARC, writes the body to the content-addressed
    store, and inserts one ``captures`` row.
 
 A cached response still produces a ``captures`` row (``tool = 'requests-cache'``): "what was
@@ -29,7 +27,6 @@ import re
 import sqlite3
 import threading
 import time
-import urllib.robotparser
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -93,7 +90,6 @@ CACHE_IGNORED = sorted(
 
 _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
 _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
-_ROBOTS_TOOL = "robots_txt"
 
 
 class CaptureError(Exception):
@@ -217,7 +213,7 @@ def _redact_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-class _PoliteAdapter(HTTPAdapter):
+class _BudgetAdapter(HTTPAdapter):
     """Takes the domain budget immediately before each network hop (cache hits never get here)."""
 
     def __init__(self, limiter: DomainLimiter, *args: Any, **kwargs: Any) -> None:
@@ -243,16 +239,6 @@ class _PoliteAdapter(HTTPAdapter):
         return super().send(request, *args, **kwargs)
 
 
-@dataclass
-class _Robots:
-    fetched_at: float
-    allow_all: bool
-    parser: urllib.robotparser.RobotFileParser | None
-    url: str
-    body: bytes
-    status: int | None
-
-
 class Capture:
     """The client. One per process; safe to share between threads only if the connection is."""
 
@@ -272,14 +258,12 @@ class Capture:
         self._clock = clock
         self.limiter = limiter or DomainLimiter(config)
         self.warcs = WarcStore(config.paths.warc, software=f"efp/{package_version()}")
-        self._robots: dict[str, _Robots] = {}
         self._throttled: set[str] = set()  # services that answered 429 in this run
         self._failed: set[str] = set()  # URLs that could not be fetched in this run
         self._once: set[str] = set()  # work done once per run (see once_per_run)
         self.run_state: dict[str, Any] = {}  # what a component learned this run (cleared per run)
         self._lock = threading.Lock()
         self.user_agent = config.project.user_agent
-        self._ua_token = self.user_agent.split("/")[0].split()[0]
         if session is None:
             config.paths.cache.mkdir(parents=True, exist_ok=True)
             expire = config.capture.cache_expire_hours * 3600
@@ -294,7 +278,7 @@ class Capture:
                 filter_fn=_cacheable,
                 match_headers=False,
             )
-        self.adapter = _PoliteAdapter(self.limiter)
+        self.adapter = _BudgetAdapter(self.limiter)
         session.mount("https://", self.adapter)
         session.mount("http://", self.adapter)
         session.headers["User-Agent"] = self.user_agent
@@ -324,39 +308,24 @@ class Capture:
     ) -> CaptureRecord:
         """Fetch ``url`` and capture whatever comes back.
 
-        ``kind="page"`` is a scrape target (robots.txt is honored, successful responses are queued
-        for Save Page Now); ``kind="api"`` is a documented API endpoint (no robots check, not
-        queued). ``record_url`` is stored as ``url_requested`` when it differs from the URL
-        actually requested (Wayback fetches record the original URL); ``tool`` overrides the
-        recorded tool. ``retry=False`` makes a single attempt (Save Page Now treats a 429 as
-        deferral, not something to hammer); ``no_cache=True`` bypasses a cached answer (status
-        polls).
+        ``kind="page"`` is a scrape target (successful responses are queued for Save Page Now);
+        ``kind="api"`` is a documented API endpoint (not queued). ``record_url`` is stored as
+        ``url_requested`` when it differs from the URL actually requested (Wayback fetches record
+        the original URL); ``tool`` overrides the recorded tool. ``retry=False`` makes a single
+        attempt (Save Page Now treats a 429 as deferral, not something to hammer);
+        ``no_cache=True`` bypasses a cached answer (status polls).
         """
         if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
             raise CaptureError(f"not a fetchable http(s) URL: {scrub_text(url)!r}")
         api = kind == "api"
         wanted = record_url or with_params(url, params)
-        check_robots = kind == "page" and self.config.rate_limits.honor_robots_txt
         seconds = timeout or self.config.capture.timeout_seconds
-        # Redirects are followed here, one hop at a time, so every hop is checked against its own
-        # robots.txt and budget, and credentials are not carried to a different host.
+        # Redirects are followed here, one hop at a time, so every hop takes its own domain's
+        # budget, and credentials are not carried to a different host.
         origin_host = urlsplit(url).hostname
         current, current_method, current_params, current_data = url, method, params, data
         hops: list[requests.Response] = []
         while True:
-            # A documented API endpoint is trusted for its own host, but a redirect off that host
-            # is a page on someone else's site and gets its robots.txt checked like any other.
-            off_host = bool(hops) and urlsplit(current).hostname != origin_host
-            if (check_robots or (api and off_host)) and self.config.rate_limits.honor_robots_txt:
-                blocked = self._robots_block(
-                    with_params(current, current_params),
-                    wanted,
-                    row_id=row_id,
-                    stage=stage,
-                    hops=hops,
-                )
-                if blocked is not None:
-                    return blocked
             same_host = urlsplit(current).hostname == origin_host
             sent_headers = {
                 k: v
@@ -522,10 +491,6 @@ class Capture:
         if expected_size is not None and have == expected_size:
             status = 200  # a complete .part (killed before the rename): finalize without a request
         else:
-            if self.config.rate_limits.honor_robots_txt:
-                blocked = self._robots_block(url, url, row_id=row_id, stage=stage)
-                if blocked is not None:  # recorded as a robots_disallow capture, never bypassed
-                    raise CaptureError(f"{redact_url(url, api=True)}: disallowed by robots.txt")
             response = self._open_download(url, headers)
             with response:
                 status = response.status_code
@@ -554,8 +519,8 @@ class Capture:
                         part.unlink()
                     elif status in _REDIRECT_STATUS:
                         raise CaptureError(
-                            f"{redact_url(url, api=True)}: redirected; not followed (no "
-                            "robots check on a new host): download the final address deliberately"
+                            f"{redact_url(url, api=True)}: redirected; not followed (a "
+                            "download is made from the address listed): use the final address"
                         )
                     elif status not in (200, 206):
                         raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")
@@ -630,7 +595,7 @@ class Capture:
 
     def _open_download(self, url: str, headers: dict[str, str]) -> requests.Response:
         """GET for a download, retried with a pause on 429/5xx like ``fetch`` (a download is the
-        same politeness: the domain budget is taken per attempt)."""
+        same rate limit: the domain budget is taken per attempt)."""
         limits = self.config.rate_limits
         attempts = limits.retry_attempts + 1
         for attempt in range(1, attempts + 1):
@@ -701,91 +666,6 @@ class Capture:
     def close(self) -> None:
         self.session.close()  # type: ignore[no-untyped-call]
         self.limiter.close()
-
-    # --- robots -----------------------------------------------------------------------------
-
-    def _robots_for(self, url: str, *, row_id: int | None, stage: str) -> _Robots:
-        parts = urlsplit(url)
-        origin = f"{parts.scheme}://{parts.netloc}"
-        ttl = self.config.capture.robots_cache_hours * 3600
-        with self._lock:
-            cached = self._robots.get(origin)
-        if cached is not None and time.monotonic() - cached.fetched_at < ttl:
-            return cached
-        robots_url = f"{origin}/robots.txt"
-        response = self._send(
-            "GET",
-            robots_url,
-            headers=None,
-            allow_redirects=True,
-            timeout=self.config.capture.timeout_seconds,
-            params=None,
-            data=None,
-            retry=True,
-            no_cache=False,
-        )
-        self._record_response(
-            response,
-            row_id=row_id,
-            stage=stage,
-            url_requested=robots_url,
-            tool=_ROBOTS_TOOL if not getattr(response, "from_cache", False) else None,
-            api=True,
-            enqueue_spn=False,
-        )
-        status = response.status_code
-        body = response.content
-        if status == 200:
-            parser = urllib.robotparser.RobotFileParser()
-            parser.parse(body.decode("utf-8", errors="replace").splitlines())
-            entry = _Robots(time.monotonic(), False, parser, robots_url, body, status)
-        elif status in (401, 403, 429) or status >= 500:
-            # Unreadable rules: fetch less. The whole site stays disallowed until they can be read.
-            entry = _Robots(time.monotonic(), False, None, robots_url, body, status)
-        else:  # 404 and other 4xx: no robots.txt, nothing is disallowed
-            entry = _Robots(time.monotonic(), True, None, robots_url, body, status)
-        with self._lock:
-            self._robots[origin] = entry
-        return entry
-
-    def _robots_block(
-        self,
-        url: str,
-        wanted: str,
-        *,
-        row_id: int | None,
-        stage: str,
-        hops: Sequence[requests.Response] = (),
-    ) -> CaptureRecord | None:
-        robots = self._robots_for(url, row_id=row_id, stage=stage)
-        if robots.allow_all:
-            return None
-        if robots.parser is not None and robots.parser.can_fetch(self._ua_token, url):
-            return None
-        digest = write_body(self.config.paths.store, robots.body)
-        return self._insert(
-            row_id=row_id,
-            stage=stage,
-            url_requested=redact_url(wanted),
-            url_final=robots.url,
-            http_status=None,
-            content_type="text/plain",
-            digest=digest,
-            headers={
-                "robots_txt_status": robots.status,
-                "rules_url": robots.url,
-                "blocked_url": redact_url(url),
-                "redirected_via": [
-                    {"url": redact_url(h.url), "status": h.status_code} for h in hops
-                ],
-            },
-            warc_path=None,
-            tool="robots_disallow",
-            tool_version=package_version(),
-            manual_source=None,
-            site_data_sha256=None,
-            from_cache=False,
-        )
 
     # --- sending ----------------------------------------------------------------------------
 
