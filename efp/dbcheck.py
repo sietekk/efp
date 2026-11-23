@@ -47,6 +47,9 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "manifests",
     "manifest_tokens",
     "manifest_captures",
+    # documents (0010)
+    "document_pages",
+    "llm_calls",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -76,6 +79,14 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_gold_set_row",
     "idx_spn_queue_status",
     "idx_manifest_captures_capture",
+    # documents (0010)
+    "idx_document_pages_doc",
+    "idx_documents_current",
+    "idx_llm_calls_called_at",
+    "idx_documents_text",
+    "idx_documents_layout",
+    "idx_llm_calls_row",
+    "idx_llm_calls_capture",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (
@@ -94,6 +105,13 @@ EXPECTED_TRIGGERS: tuple[str, ...] = (
     "source_workbook_no_update",
     "source_workbook_no_delete",
     "source_workbook_no_replace",
+    # documents (0010)
+    "documents_no_delete",
+    "documents_current_only",
+    "document_pages_no_update",
+    "document_pages_no_delete",
+    "llm_calls_no_update",
+    "llm_calls_no_delete",
 )
 
 # Orphan captures (no rows parent) are allowed only for these stages.

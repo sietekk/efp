@@ -56,8 +56,8 @@ def test_component_exposes_run_and_gate(name: str) -> None:
     assert callable(module.gate)
 
 
-# ingest, resolve_links and court are built; the rest are still stubs.
-BUILT = ("ingest", "resolve_links", "court")
+# ingest, resolve_links, court and documents are built; the rest are still stubs.
+BUILT = ("ingest", "resolve_links", "court", "documents")
 
 
 @pytest.mark.parametrize("name", [c for c in COMPONENTS if c not in BUILT])

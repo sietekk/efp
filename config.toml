@@ -158,6 +158,11 @@ audit_sample = 50                 # the F3 false-confirmation audit
 [documents]
 ocr_quality_threshold = 0.85      # pages below this are review-flagged and never reach extraction unflagged
 llm_transcription_fallback = true   # Claude transcribes a page only when both OCR paths fail; counts against the budget
+ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
+render_dpi = 200                  # page images for OCR, the blank check and model transcription
+max_pages = 500                   # a longer document is read to this page; the rest is recorded as not read
+ocr_timeout_seconds = 300         # per document, OCRmyPDF
+transcribe_max_tokens = 4096      # model transcription of one page
 
 [llm]
 provider = "anthropic"
@@ -165,6 +170,9 @@ model = "claude-sonnet-5-5"       # Sonnet-class for extraction; pinned in build
 transcription_model = "claude-sonnet-5-5"   # OCR fallback on page images; few pages, same tier
 temperature = 0.0
 max_monthly_usd = 150.0           # the run stops at this cap
+send_temperature = false          # claude-sonnet-5-5 and API version 2026-10-21 reject `temperature`; true only for a model that takes it
+price_input_per_mtok = 2.0        # USD per million input tokens (claude-sonnet-5-5 list price); the spend cap is computed from this
+price_output_per_mtok = 10.0      # USD per million output tokens
 sample_runs = 3                   # three runs on the sample, disagreement flagged
 
 [search]

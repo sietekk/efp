@@ -107,6 +107,19 @@ MAX_WACZ_BYTES = 250 * 1024 * 1024  # a browser capture of one page is far small
 _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
 
+@dataclass(frozen=True)
+class LlmResult:
+    """What one model call returned, and the capture that holds its request and response."""
+
+    text: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    request_id: str | None
+    stop_reason: str | None
+    capture_id: int
+
+
 class CaptureError(Exception):
     """A fetch could not be completed (no response was received, or an input was invalid)."""
 
@@ -818,6 +831,109 @@ class Capture:
 
     def read_body(self, record: CaptureRecord) -> bytes:
         return read_verified(self.config.paths.store, record.content_sha256)
+
+    def llm_message(
+        self,
+        *,
+        api_key: str,
+        row_id: int | None,
+        stage: str,
+        purpose: str,
+        model: str,
+        system: str,
+        content: list[dict[str, Any]],
+        max_tokens: int,
+        thinking: Mapping[str, Any] | None = None,
+        effort: str | None = None,
+        temperature: float | None = None,
+        timeout: float = 120.0,
+    ) -> LlmResult:
+        """One model call, through the capture layer: it takes the ``api.anthropic.com`` budget,
+        and the request (images replaced by their hashes) and the response are stored as captures.
+
+        ``temperature`` is sent only when given: claude-sonnet-5-5 and API version 2026-10-21
+        reject it, so the caller leaves it out and says why in its own log. A failed call raises
+        :class:`CaptureError` (a budget wait that times out raises :class:`CaptureBudgetError`);
+        nothing is retried here beyond the SDK's own two retries of a 429 or a 5xx.
+        """
+        try:
+            self.limiter.acquire("api.anthropic.com", max_wait=None)
+        except RateLimitTimeout as exc:
+            raise CaptureBudgetError(str(exc)) from exc
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise CaptureError(
+                "the anthropic package is not installed (the documents extra)"
+            ) from exc
+        args: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": content}],
+        }
+        if thinking is not None:
+            args["thinking"] = dict(thinking)
+        if effort is not None:
+            args["output_config"] = {"effort": effort}
+        if temperature is not None:
+            args["temperature"] = temperature
+        stored_request = {
+            **{k: v for k, v in args.items() if k != "messages"},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "media_type": b["source"]["media_type"],
+                            "sha256": hashlib.sha256(b["source"]["data"].encode()).hexdigest(),
+                        }
+                        if b.get("type") == "image"
+                        else b
+                        for b in content
+                    ],
+                }
+            ],
+        }
+        url = "https://api.anthropic.com/v1/messages"
+        client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=2)
+        try:
+            message = client.messages.create(**args)
+        except anthropic.APIStatusError as exc:
+            self.store_bytes(
+                json.dumps({"request": stored_request, "status": exc.status_code}).encode(),
+                row_id=row_id, stage=stage, url_requested=url, http_status=exc.status_code,
+                tool="llm", tool_version=model, content_type="application/json",
+                headers={"purpose": purpose, "request_id": exc.request_id or ""},
+            )  # fmt: skip
+            raise CaptureError(
+                f"{model}: HTTP {exc.status_code} ({scrub_text(exc.message)[:160]})"
+            ) from exc
+        except anthropic.APIError as exc:
+            raise CaptureError(f"{model}: {type(exc).__name__}") from exc
+        finally:
+            client.close()
+        text = "".join(b.text for b in message.content if b.type == "text")
+        usage = message.usage
+        record = self.store_bytes(
+            json.dumps(
+                {"request": stored_request, "response": json.loads(message.to_json())},
+                sort_keys=True,
+            ).encode(),
+            row_id=row_id, stage=stage, url_requested=url, http_status=200, tool="llm",
+            tool_version=model, content_type="application/json",
+            headers={"purpose": purpose, "request_id": message._request_id or ""},
+        )  # fmt: skip
+        return LlmResult(
+            text=text,
+            model=message.model,
+            input_tokens=int(usage.input_tokens or 0),
+            output_tokens=int(usage.output_tokens or 0),
+            request_id=message._request_id,
+            stop_reason=message.stop_reason,
+            capture_id=int(record.capture_id),
+        )
 
     def close(self) -> None:
         self.session.close()  # type: ignore[no-untyped-call]

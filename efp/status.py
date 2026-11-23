@@ -77,6 +77,7 @@ class StatusReport:
     court: dict[str, dict[str, int]] = field(
         default_factory=dict
     )  # federal/state/unknown -> status
+    documents: dict[str, Any] = field(default_factory=dict)  # build 10: methods, bands, spend
 
 
 def _scoped(
@@ -93,6 +94,71 @@ def _scoped(
         )
         params.extend(sample_ids)
     return condition, params
+
+
+BANDS = (
+    ("0.95 to 1.00", 0.95, 1.01),
+    ("0.85 to 0.95", 0.85, 0.95),
+    ("0.50 to 0.85", 0.50, 0.85),
+    ("under 0.50", 0.0, 0.50),
+)
+
+
+def documents_summary(
+    conn: sqlite3.Connection, config: Config, state: str | None = None
+) -> dict[str, Any]:
+    """Pages by method, documents by lowest page quality, flagged pages, unreadable PDFs and the
+    month's model transcription spend (build 10). Empty when the stage has produced nothing."""
+    from efp.documents.llm import spent_this_month
+
+    condition, params = _scoped(config, state, None)
+    out: dict[str, Any] = {}
+    methods = dict(
+        conn.execute(
+            "SELECT p.method, count(*) FROM document_pages_current p "
+            f"JOIN rows r ON r.row_id = p.row_id WHERE {condition} GROUP BY 1",
+            params,
+        ).fetchall()
+    )
+    docs = conn.execute(
+        "SELECT d.quality_min, json_extract(d.quality_json, '$.unreadable') FROM documents d "
+        f"JOIN rows r ON r.row_id = d.row_id WHERE d.current = 1 AND {condition}",
+        params,
+    ).fetchall()
+    bands = {label: 0 for label, _, _ in BANDS}
+    bands["no scored page"] = 0
+    unreadable: dict[str, int] = {}
+    for quality, bad in docs:
+        if bad is not None:
+            key = str(bad)[:80]
+            unreadable[key] = unreadable.get(key, 0) + 1
+        elif quality is None:
+            bands["no scored page"] += 1
+        else:
+            for label, low, high in BANDS:
+                if low <= float(quality) < high:
+                    bands[label] += 1
+                    break
+    flagged = dict(
+        conn.execute(
+            "SELECT p.flag_reasons, count(*) FROM document_pages_current p "
+            f"JOIN rows r ON r.row_id = p.row_id WHERE {condition} AND p.flagged = 1 GROUP BY 1",
+            params,
+        ).fetchall()
+    )
+    spend = spent_this_month(conn)
+    if methods or docs or spend:
+        out = {
+            "documents": len(docs),
+            "pages_by_method": methods,
+            "documents_by_quality_min": bands,
+            "flagged_pages": sum(flagged.values()),
+            "flagged_by_reason": flagged,
+            "unreadable_by_reason": unreadable,
+            "transcription_spend_usd": round(spend, 4),
+            "monthly_cap_usd": config.llm.max_monthly_usd,
+        }
+    return out
 
 
 def build_report(
@@ -141,6 +207,10 @@ def build_report(
         params,
     ):
         report.court.setdefault(str(kind).strip('"'), {})[str(court_state).strip('"')] = count
+    try:
+        report.documents = documents_summary(conn, config, state)
+    except sqlite3.OperationalError:  # a database behind the migration that made the tables
+        report.documents = {}
     try:
         ids = load_sample_ids(config)
     except Exception:  # no sample file yet: the subset is simply absent
@@ -207,6 +277,25 @@ def render_md(report: StatusReport) -> str:
             out.append(
                 f"| {kind} | " + " | ".join(f"{counts.get(s, 0):,}" for s in statuses) + " |"
             )
+    if report.documents:
+        d = report.documents
+        out += ["", "### Documents (text, OCR and page quality)", ""]
+        out += [
+            f"{d['documents']:,} documents; {d['flagged_pages']:,} pages flagged for review.",
+            "",
+        ]
+        out += ["| method | pages |", "|---|---:|"]
+        out += [f"| {m} | {n:,} |" for m, n in sorted(d["pages_by_method"].items())]
+        out += ["", "| lowest page quality | documents |", "|---|---:|"]
+        out += [f"| {b} | {n:,} |" for b, n in d["documents_by_quality_min"].items()]
+        if d["unreadable_by_reason"]:
+            out += ["", "Unreadable PDFs:"]
+            out += [f"- {n:,} x {why}" for why, n in d["unreadable_by_reason"].items()]
+        out += [
+            "",
+            f"Model transcription spend this month: ${d['transcription_spend_usd']:.2f} "
+            f"of ${d['monthly_cap_usd']:.2f}.",
+        ]
     if report.sample_size:
         out += ["", f"### Frozen sample ({report.sample_size:,} rows in scope)", ""]
         out += _table(report.sample_matrix)

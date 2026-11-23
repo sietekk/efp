@@ -17,6 +17,7 @@ from efp.version import git_sha, package_version, repo_root
 # One marker module per optional extra.
 EXTRAS: dict[str, str] = {
     "documents": "pdfplumber",
+    "layout": "docling",
     "ocr-fallback": "paddleocr",
     "social": "naminter",
     "extraction": "instructor",
