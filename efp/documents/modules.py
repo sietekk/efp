@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -103,34 +104,39 @@ class Pdfplumber:
         return ModuleResult(Outcome.miss)
 
 
+DOCLING_KILL_GRACE_SECONDS = 120  # past docling_timeout_seconds (a soft limit) before the kill
+
+
+def docling_command(doc: DocState, cfg: DocumentsCfg, out: Path) -> list[str]:
+    pages = max(1, min(doc.page_count, cfg.max_pages))
+    return [
+        sys.executable, "-m", "efp.documents.docling_worker",
+        str(doc.path), str(out), str(pages), str(float(cfg.docling_timeout_seconds)),
+    ]  # fmt: skip
+
+
 def convert_docling(doc: DocState, cfg: DocumentsCfg) -> None:
-    """Run Docling over the PDF once, the first ``max_pages`` pages and no longer than
-    ``docling_timeout_seconds`` (it keeps the pages it finished); the outcome, or the error, stays
-    on ``doc``."""
+    """Run Docling over the PDF once, in a subprocess: the first ``max_pages`` pages, soft-limited
+    by ``docling_timeout_seconds`` (Docling keeps the pages it finished) and killed outright, with
+    its process group, ``DOCLING_KILL_GRACE_SECONDS`` later if a page hangs inside its model. The
+    outcome, or the error, stays on ``doc``."""
     if doc.docling_attempted:
         return
     doc.docling_attempted = True
+    out = doc.scratch / "docling.json"
+    hard = cfg.docling_timeout_seconds + DOCLING_KILL_GRACE_SECONDS
     try:
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
-        from docling.document_converter import DocumentConverter, PdfFormatOption
-
-        # layout and structure only: scanned pages are the OCR rungs' work
-        options = PdfPipelineOptions(
-            do_ocr=False, document_timeout=float(cfg.docling_timeout_seconds)
-        )
-        converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
-        )
-        result = converter.convert(
-            str(doc.path), page_range=(1, max(1, min(doc.page_count, cfg.max_pages)))
-        )
-        if getattr(getattr(result, "status", None), "name", "") == "FAILURE":
-            raise RuntimeError("Docling could not convert the document")
-        doc.docling_dict = result.document.export_to_dict()
+        code, err = run_group(docling_command(doc, cfg, out), hard)
+        if code != 0 or not out.is_file():
+            last = (err.strip().splitlines() or ["no output"])[-1]
+            doc.docling_error = f"docling exit {code}: {scrub_text(last)[:160]}"
+            return
+        doc.docling_dict = json.loads(out.read_text(encoding="utf-8"))
         doc.docling_pages = docling_parse.parse(doc.docling_dict)
-    except Exception as exc:
-        doc.docling_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+    except subprocess.TimeoutExpired:
+        doc.docling_error = f"docling hung and was killed after {hard} s"
+    except (OSError, ValueError) as exc:
+        doc.docling_error = f"docling output unreadable: {type(exc).__name__}"
 
 
 def docling_first(ctx: Context, registry: Registry, doc: DocState) -> None:

@@ -732,8 +732,6 @@ def test_an_http_error_call_is_logged_with_its_stored_request(
 def test_docling_and_ocr_stop_at_max_pages_and_docling_has_a_time_limit(
     write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import subprocess
-
     from tests.test_documents_model import _fake_docling
 
     _fake_docling(monkeypatch)
@@ -769,14 +767,16 @@ def test_docling_and_ocr_stop_at_max_pages_and_docling_has_a_time_limit(
     add_row(conn)
     add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A, pdfgen.LINES_B, pdfgen.LINES_A]))
     commands: list[list[str]] = []
-    real_run = subprocess.run
+    from efp.documents import modules as doc_modules
 
-    def spy(cmd: list[str], *a: Any, **k: Any) -> Any:
-        if "ocrmypdf" in cmd:
-            commands.append(list(cmd))
-        return real_run(cmd, *a, **k)
+    real_group = doc_modules.run_group
 
-    monkeypatch.setattr(subprocess, "run", spy)
+    def spy(command: list[str], timeout: float) -> Any:
+        if "ocrmypdf" in command:
+            commands.append(list(command))
+        return real_group(command, timeout)
+
+    monkeypatch.setattr(doc_modules, "run_group", spy)
     run_row(config, conn)
     assert seen["kwargs"]["page_range"] == (1, 2)
     assert seen["options"]["document_timeout"] == 77.0
@@ -978,3 +978,61 @@ def test_a_docling_box_without_a_page_size_is_never_negative() -> None:
     word = lines[0][0]
     assert (size.width, size.height) == (0, 0)
     assert min(word.x0, word.top, word.x1, word.bottom) >= 0
+
+
+# --- Docling runs in a subprocess that is killed if a page hangs ---------------------------------------------
+
+
+def test_docling_runs_as_a_killable_subprocess_command(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from efp.documents import modules as doc_modules
+    from efp.documents.ladder import DocState
+
+    config = doc_config(write_config, **{"max_pages = 500": "max_pages = 3"})
+    doc = DocState(Path("/scratch/original.pdf"), Path("/scratch"), 1, 1, page_count=9)
+    cmd = doc_modules.docling_command(doc, config.documents, Path("/scratch/docling.json"))
+    assert cmd[1:3] == ["-m", "efp.documents.docling_worker"]
+    assert cmd[3:] == ["/scratch/original.pdf", "/scratch/docling.json", "3", "900.0"]
+
+
+def test_a_docling_page_that_hangs_is_killed_and_the_ladder_carries_on(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from efp.documents import modules as doc_modules
+
+    monkeypatch.setattr(doc_modules, "DOCLING_KILL_GRACE_SECONDS", 0)
+    monkeypatch.setattr(
+        doc_modules, "docling_command", lambda doc, cfg, out: ["sh", "-c", "sleep 60"]
+    )
+    monkeypatch.setattr(
+        doc_modules.Docling, "available", lambda self, ctx: doc_modules.Availability.available()
+    )
+    config = doc_config(
+        write_config,
+        'modules = ["documents.pdfplumber", "documents.docling"]',
+        **{"docling_timeout_seconds = 900": "docling_timeout_seconds = 1"},
+    )
+    add_row(conn)
+    add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A]))  # pdfplumber misses: docling runs
+    started = time.monotonic()
+    result = run_row(config, conn)
+    assert time.monotonic() - started < 30  # not 60: the hung worker was killed
+    assert result.status == "done"
+    modules = json.loads(conn.execute("SELECT methods_json FROM documents").fetchone()[0])
+    assert "hung and was killed" in modules["document"]["docling_error"]
+    assert conn.execute("SELECT method, flagged FROM document_pages_current").fetchall() == [
+        ("failed", 1)
+    ]  # nothing else could read the scan, and it is flagged for review
+
+
+def test_a_failing_docling_worker_is_an_error_with_its_reason(tmp_path: Path) -> None:
+    from efp.documents import docling_worker
+
+    assert (
+        docling_worker.main([str(tmp_path / "missing.pdf"), str(tmp_path / "o.json"), "1", "5"])
+        == 1
+    )
+    assert docling_worker.main(["only-one-argument"]) == 1

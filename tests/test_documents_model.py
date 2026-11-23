@@ -361,6 +361,20 @@ def _fake_docling(monkeypatch: pytest.MonkeyPatch) -> None:
         "docling.document_converter", DocumentConverter=Converter, PdfFormatOption=lambda **kw: kw
     )
 
+    # Docling runs as a subprocess in the stage; the fakes live in this process, so the worker
+    # module is called in-process in place of the subprocess (the command is the real one)
+    from efp.documents import docling_worker
+    from efp.documents import modules as doc_modules
+
+    real_group = doc_modules.run_group
+
+    def shim(command: list[str], timeout: float) -> tuple[int, str]:
+        if "efp.documents.docling_worker" in command:
+            return docling_worker.main(command[3:]), ""
+        return real_group(command, timeout)
+
+    monkeypatch.setattr(doc_modules, "run_group", shim)
+
 
 def test_docling_reads_a_page_pdfplumber_could_not_and_its_json_is_stored(
     write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch

@@ -28,7 +28,7 @@ candidate is kept (a tie goes to the earlier rung).
 | Rung | Module | Method stored | Notes |
 |---|---|---|---|
 | 1 | `documents.pdfplumber` | `native` | words with boxes from the text layer. A page with no text and no ink is `blank` (not scored, not flagged) |
-| 2 | `documents.docling` | `docling` | layout and structure, once per PDF, OCR switched off. Its JSON is stored; its text items are candidates for pages rung 1 missed. Boxes are item-level. Runs when a page falls past rung 1, or for every PDF with `documents.docling_always = true` |
+| 2 | `documents.docling` | `docling` | layout and structure, once per PDF, OCR switched off. Its JSON is stored; its text items are candidates for pages rung 1 missed. Boxes are item-level (see below). Runs in a subprocess that is killed with its process group if it hangs. Runs when a page falls past rung 1, or for every PDF with `documents.docling_always = true` |
 | 3 | `documents.ocrmypdf` | `tesseract` | OCRmyPDF `--skip-text` on a copy, once per PDF, **as a subprocess** (importing `ocrmypdf` patches pdfminer for the whole process, after which pdfplumber reads standard-font PDFs as `(cid:72)(cid:101)...`; the score also treats `(cid:N)` text as unreadable); words and boxes read from its text layer. Tesseract's confidence is not exposed, so the score omits that part |
 | 4 | `documents.paddleocr` | `paddleocr` | the page image through PaddleOCR; word boxes are the recognised line's box shared out by character count |
 | 5 | `documents.claude_transcribe` | `model` | the page image, to the model. Always flagged. Box is the whole page. Only for a page OCR failed on (below) |
@@ -81,6 +81,18 @@ instrument.
 `documents.quality_json` holds, per page: method, score, its parts, flags, `short`, character count
 and the page's span in the canonical text. `quality_min` is the lowest scored page (blank and failed
 pages have no score).
+
+**Docling runs in its own process** (`efp.documents.docling_worker`, started with `run_group` like
+OCRmyPDF). Docling checks its `document_timeout` only between pages, so a page that hangs inside its
+layout model would stall the whole run; the stage gives it `docling_timeout_seconds` (soft: it keeps
+the pages it finished) plus 120 s, then kills the process group and records `docling hung and was
+killed` for the document. The ladder carries on with the other rungs.
+
+**Docling boxes are coarse.** An item's words all share the item's box (`bbox_source = item`).
+When the export has no page size, a bottom-left box cannot be flipped to the top-left origin, so it
+becomes the extent from the page origin, `(0, 0, right, top)`: a box that contains the item but is
+not tight. Never use an `item` box for highlighting or exact span mapping; a reader that needs a
+tight box uses a `word` box (pdfplumber, Tesseract) or accepts the item's.
 
 ## Flags
 
