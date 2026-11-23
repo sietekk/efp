@@ -22,8 +22,8 @@ Changes the approved plan made to the prompt:
 - CLI: `efp reference status|download|load|verify|import|index`, and `efp selftest --reference`.
 - Config (documented in `config.example.toml`): `[reference]` (`max_gb`, `download_user_agent`, `download_user_agent_hosts`, the source URLs, FEC cycles, `harvard_osf_node`, `dime_url`, `ftm_url`), `[stages.reference]`, rate limits for `api.congress.gov` (1.1/s) and `v3.openstates.org` (0.5/s); `pyyaml` and `lxml` declared as dependencies.
 - Docs: `docs/sources.md` (every loaded file with URL, vintage, size, rows, SHA-256, license and the attribution sentences), new `docs/license_register.md`, `RUNBOOK.md`.
-- Tests: `tests/test_reference.py` and `tests/test_reference_network.py` (58 tests) with synthetic files in each dataset's real format (`tests/reference_helpers.py`).
-- Results: `uv run pytest -m "not live"`: 1162 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_reference.py` and `tests/test_reference_network.py` (64 tests) with synthetic files in each dataset's real format (`tests/reference_helpers.py`).
+- Results: `uv run pytest -m "not live"`: 1161 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
