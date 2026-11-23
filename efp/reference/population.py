@@ -116,7 +116,14 @@ class SsaNames(Dataset):
             "WHERE name = 'Mary' AND sex = 'F' AND year = 1880 AND state IS NULL",
             (),
             7065,
-        )
+        ),
+        Known(
+            "Mary (F) born 1950 in Connecticut, state count (read from CT.TXT of namesbystate.zip)",
+            "SELECT count FROM ref_given_freq_current "
+            "WHERE name = 'Mary' AND sex = 'F' AND year = 1950 AND state = 'CT'",
+            (),
+            614,
+        ),
     ]
 
     def parts(self, ctx: Context) -> list[Part]:

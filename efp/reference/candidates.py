@@ -452,6 +452,14 @@ class Dime(Dataset):
     #    a candidate with no surname part is split from the full name
     loader_version: ClassVar[int] = 2
     needs_url: ClassVar[str | None] = "dime_url"
+    known: ClassVar[list[Known]] = [
+        Known(
+            "DIME candidate rows for a U.S. House seat in the 2012 cycle (committees excluded)",
+            "SELECT count(*) FROM ref_dime_current WHERE cycle = 2012 AND office = 'federal:house'",
+            (),
+            1823,
+        )
+    ]
 
     def parts(self, ctx: Context) -> list[Part]:
         url = ctx.config.reference.dime_url

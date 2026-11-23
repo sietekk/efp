@@ -182,9 +182,12 @@ class PriorModel:
         totals = self._totals(None)
         den = sum(n for (_, y), n in totals.items() if c_lo <= y <= c_hi)
         num = self.conn.execute(
-            "SELECT coalesce(sum(count), 0) FROM ref_given_freq_current "
-            "WHERE state IS NULL AND name GLOB ? AND year BETWEEN ? AND ?",
-            (f"{letter}*", c_lo, c_hi),
+            # pinned to the name index: the planner would otherwise scan every national row
+            "SELECT coalesce(sum(t.count), 0) FROM ref_given_freq AS t "
+            "INDEXED BY idx_ref_given_name JOIN ref_sources s ON s.load_id = t.load_id "
+            "WHERE s.current = 1 AND t.state IS NULL AND t.name >= ? AND t.name < ? "
+            "AND t.year BETWEEN ? AND ?",
+            (letter, chr(ord(letter) + 1), c_lo, c_hi),
         ).fetchone()[0]
         share = (int(num) / den) if den and num else 1.0
         return share, {
