@@ -30,6 +30,10 @@ class PageSize:
     height: float
 
 
+IMAGE_COVER = 0.5  # a picture over at least this share of the page ...
+TEXT_COVER = 0.10  # ... with a text layer under this share of it is a scan with a partial layer
+
+
 class PdfError(Exception):
     """The file is not a readable PDF (corrupt, encrypted, truncated)."""
 
@@ -128,6 +132,39 @@ class PdfReader:
             return page.to_image(resolution=dpi).original.convert("RGB")
         except Exception as exc:
             raise PdfError(f"page {index + 1} render: {type(exc).__name__}") from exc
+        finally:
+            page.flush_cache()
+
+    def partial_text_layer(self, index: int) -> bool:
+        """A page whose picture covers most of it but whose text layer is only a small part of it:
+        a scan carrying a stamp or header in text (the ECF line on a RECAP scan). The text layer
+        alone would score as a clean page and hide that the body is only an image. A page with no
+        text at all is not this (that is the empty-page path), and neither is a scan with a full
+        hidden text layer."""
+        page = self._page(index)
+        try:
+            area = float(page.width) * float(page.height)
+            if area <= 0:
+                return False
+            covered = 0.0
+            for image in page.images:
+                width = min(float(image["x1"]), float(page.width)) - max(float(image["x0"]), 0.0)
+                height = min(float(image["bottom"]), float(page.height)) - max(
+                    float(image["top"]), 0.0
+                )
+                covered += max(0.0, width) * max(0.0, height)
+            if covered / area < IMAGE_COVER:
+                return False
+            chars = page.chars
+            if not chars:
+                return False
+            text_area = sum(
+                (float(c["x1"]) - float(c["x0"])) * (float(c["bottom"]) - float(c["top"]))
+                for c in chars
+            )
+            return text_area / area < TEXT_COVER
+        except Exception as exc:
+            raise PdfError(f"page {index + 1}: {type(exc).__name__}") from exc
         finally:
             page.flush_cache()
 

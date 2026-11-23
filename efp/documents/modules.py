@@ -23,6 +23,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ from efp.types import Context, Row
 
 log = logging.getLogger(__name__)
 STAGE = "documents"
+PARTIAL_NATIVE_CAP = 0.5
 PROMPT = Path(__file__).resolve().parents[2] / "prompts" / "transcribe_page.md"
 MODEL_IMAGE_MAX_SIDE = 1568  # pixels; the API scales larger images down anyway
 
@@ -71,10 +73,21 @@ def _candidate(
     bbox_source: str = "word",
     confidences: list[float] | None = None,
     flags: tuple[str, ...] = (),
+    partial: bool = False,
 ) -> ModuleResult:
     score = score_lines(_texts(lines), confidences)
     if score.empty:
         return ModuleResult(Outcome.miss)
+    if partial:
+        # a text layer that covers only a small part of a scanned page (a stamp) is not the page:
+        # its score is capped below any threshold so the rungs that read the picture still run,
+        # and whatever is kept is flagged
+        score = replace(
+            score,
+            score=min(score.score, PARTIAL_NATIVE_CAP),
+            parts={**score.parts, "text_layer_coverage": 0.0},
+        )
+        flags = (*flags, "native_text_partial")
     task.p.add(Candidate(method, lines, score, size, bbox_source, flags))
     return ModuleResult(Outcome.hit, quality=score.score)
 
@@ -93,7 +106,9 @@ class Pdfplumber:
         task = _task(row)
         lines, size = task.d.reader(task.d.path).native_page(task.page_no - 1)
         if lines:
-            return _candidate(task, "native", lines, size)
+            return _candidate(
+                task, "native", lines, size, partial=task.page_no in task.d.partial_pages
+            )
         try:  # no text layer: a page with no ink is blank, not a failure
             image = task.d.reader(task.d.path).render_page(task.page_no - 1, 100)
         except pdfio.PdfError:
@@ -166,7 +181,10 @@ class Docling:
         got = doc.docling_pages.get(task.page_no)
         if not got or not got[0]:
             return ModuleResult(Outcome.miss)
-        return _candidate(task, "docling", got[0], got[1], bbox_source="item")
+        return _candidate(
+            task, "docling", got[0], got[1], bbox_source="item",
+            partial=task.page_no in doc.partial_pages,
+        )  # fmt: skip
 
 
 class Ocrmypdf:
@@ -222,10 +240,41 @@ class Ocrmypdf:
                 doc.ocr_error = f"ocrmypdf timed out after {limit} s ({pages_read} pages)"
             except OSError as exc:
                 doc.ocr_error = f"ocrmypdf could not start: {type(exc).__name__}"
+            if doc.ocr_path is not None and doc.partial_pages:
+                _force_ocr_partial_pages(doc, cfg)
         if doc.ocr_error or doc.ocr_path is None:
             return ModuleResult(Outcome.error, error=doc.ocr_error or "no OCR output")
+        if task.page_no in doc.partial_pages and doc.ocr_force_error:
+            return ModuleResult(Outcome.error, error=doc.ocr_force_error)
         lines, size = doc.reader(doc.ocr_path).native_page(task.page_no - 1)
         return _candidate(task, "tesseract", lines, size)
+
+
+def _force_ocr_partial_pages(doc: DocState, cfg: DocumentsCfg) -> None:
+    """A scan with only a stamp in its text layer is skipped by ``--skip-text`` (it has text), so
+    those pages get a second pass, ``--force-ocr`` on just them, over the first pass's output. The
+    final OCR PDF (``doc.ocr_path``) then holds both."""
+    assert doc.ocr_path is not None  # noqa: S101 - the caller checked
+    pages = ",".join(str(n) for n in sorted(doc.partial_pages))
+    target = doc.scratch / "ocr_forced.pdf"
+    limit = cfg.ocr_timeout_seconds + cfg.ocr_seconds_per_page * len(doc.partial_pages)
+    command = [
+        sys.executable, "-m", "ocrmypdf", "--force-ocr", "-l", cfg.ocr_language,
+        "--output-type", "pdf", "--optimize", "0", "--jobs", "2", "--quiet",
+        "--invalidate-digital-signatures", "--tesseract-timeout", str(min(180, limit)),
+        "--pages", pages, str(doc.ocr_path), str(target),
+    ]  # fmt: skip
+    try:
+        code, err = run_group(command, limit)
+        if code == 0 and target.is_file():
+            doc.ocr_path = target
+            return
+        last = (err.strip().splitlines() or ["no output"])[-1]
+        doc.ocr_force_error = f"ocrmypdf --force-ocr exit {code}: {scrub_text(last)[:160]}"
+    except subprocess.TimeoutExpired:
+        doc.ocr_force_error = f"ocrmypdf --force-ocr timed out after {limit} s"
+    except OSError as exc:
+        doc.ocr_force_error = f"ocrmypdf --force-ocr could not start: {type(exc).__name__}"
 
 
 def run_group(command: list[str], timeout: float) -> tuple[int, str]:
@@ -376,7 +425,8 @@ class ClaudeTranscribe:
         for method, cls in wanted.items():
             if cls.name in configured and method not in ran and cls().available(ctx).ok:
                 return f"{method} has not yet run on this page"
-        if task.p.has("native") is not None:
+        native = task.p.has("native")
+        if native is not None and "native_text_partial" not in native.flags:
             return "the page has a text layer: it is not sent to the model"
         return True
 

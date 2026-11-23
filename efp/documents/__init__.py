@@ -200,6 +200,13 @@ def process_pdf(
         if cfg.docling_always:
             docling_first(ctx, registry, doc)
         limit = min(count, cfg.max_pages)
+        reader = doc.reader(copy)
+        for index in range(limit):  # scans that carry only a small text layer (a stamp)
+            try:
+                if reader.partial_text_layer(index):
+                    doc.partial_pages.add(index + 1)
+            except pdfio.PdfError:
+                continue
         try:
             for index in range(count):
                 page_no = index + 1

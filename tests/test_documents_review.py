@@ -1146,3 +1146,75 @@ def test_call_model_refuses_a_call_the_cap_cannot_afford_without_calling_the_api
         cap.close()
     assert done.reply is None and "max_monthly_usd" in (done.error or "") and done.cost == 0.0
     assert s.calls == [] and conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 0
+
+
+# --- review round 9: a scan with a stamp in its text layer is not a native page ------------------------------
+
+
+def test_the_stamp_only_text_layer_is_detected_and_real_text_layers_are_not(tmp_path: Path) -> None:
+    from efp.documents.pdfio import PdfReader
+
+    def partial(data: bytes) -> list[bool]:
+        path = tmp_path / "x.pdf"
+        path.write_bytes(data)
+        with PdfReader(path) as reader:
+            return [reader.partial_text_layer(i) for i in range(reader.page_count())]
+
+    assert partial(pdfgen.scan_with_stamp([pdfgen.LINES_A, pdfgen.LINES_B])) == [True, True]
+    assert partial(pdfgen.born_digital([pdfgen.LINES_A])) == [False]  # no picture
+    assert partial(pdfgen.image_only([pdfgen.LINES_A])) == [False]  # no text layer at all
+
+
+def test_a_scanned_page_with_a_stamp_is_flagged_not_accepted_as_native(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config = doc_config(write_config, 'modules = ["documents.pdfplumber"]')
+    add_row(conn)
+    add_filing(conn, config, pdfgen.scan_with_stamp([pdfgen.LINES_A]))
+    run_row(config, conn)
+    ((method, quality, flagged, reasons),) = conn.execute(
+        "SELECT method, quality, flagged, flag_reasons FROM document_pages_current"
+    ).fetchall()
+    assert method == "native" and quality <= 0.5 and flagged == 1  # was ~1.0 and unflagged
+    assert set(json.loads(reasons)) == {"below_threshold", "native_text_partial"}
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 0
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("tesseract") is None, reason="the tesseract binary is not installed"
+)
+def test_ocr_reads_the_body_of_a_scan_that_carries_a_stamp(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config = doc_config(write_config)
+    add_row(conn)
+    add_filing(conn, config, pdfgen.scan_with_stamp([pdfgen.LINES_A, pdfgen.LINES_B]))
+    run_row(config, conn)
+    got = conn.execute(
+        "SELECT method, flagged FROM document_pages_current ORDER BY page_no"
+    ).fetchall()
+    assert got == [("tesseract", 0), ("tesseract", 0)]  # the body was read, not just the stamp
+    doc = conn.execute("SELECT text_capture_id, ocr_applied FROM documents").fetchone()
+    sha = conn.execute(
+        "SELECT content_sha256 FROM captures WHERE capture_id = ?", (doc[0],)
+    ).fetchone()[0]
+    text = (config.paths.store / sha[:2] / sha).read_text()
+    assert "pleaded guilty" in text and "stipulation" in text  # words only the picture has
+    assert doc[1] == 1
+
+
+def test_the_model_may_read_a_page_whose_text_layer_is_only_a_stamp(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = _stubbed(monkeypatch)
+    chain = (
+        'modules = ["documents.pdfplumber", "documents.ocrmypdf", "documents.claude_transcribe"]'
+    )
+    config = doc_config(write_config, chain, **SONNET)
+    add_row(conn)
+    add_filing(conn, config, pdfgen.scan_with_stamp([pdfgen.LINES_A]))
+    run_row(config, conn, registry=model_registry())  # OCR (scripted) ran and found nothing
+    assert len(s.calls) == 1  # unlike a digital page, a stamp is not a text layer worth keeping
+    assert conn.execute("SELECT method, flagged FROM document_pages_current").fetchall() == [
+        ("model", 1)
+    ]

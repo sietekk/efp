@@ -138,3 +138,20 @@ def faint(lines_per_page: list[list[str]], dpi: int = 200, grey: int = 225) -> b
         image = _page_image(lines, dpi)
         out.append(image.point(lambda v: 255 if v > 128 else grey))
     return _pdf_from_images(out, dpi)
+
+
+STAMP = "Case 1:21-cr-00001 Document 12 Filed 03/01/21 Page 1 of 1"
+
+
+def scan_with_stamp(lines_per_page: list[list[str]], stamp: str = STAMP, dpi: int = 200) -> bytes:
+    """Scanned pages (a picture of the text) with only a one-line header in the text layer: the ECF
+    stamp on a RECAP scan. The body is only an image."""
+    scan = PdfReader(io.BytesIO(image_only(lines_per_page, dpi)))
+    header = PdfReader(io.BytesIO(born_digital([[stamp]] * len(lines_per_page))))
+    writer = PdfWriter()
+    for scanned, stamped in zip(scan.pages, header.pages, strict=True):
+        added = writer.add_page(scanned)  # attached to the writer first (pypdf 7)
+        added.merge_page(stamped)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()

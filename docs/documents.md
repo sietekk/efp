@@ -88,6 +88,15 @@ instrument.
 and the page's span in the canonical text. `quality_min` is the lowest scored page (blank and failed
 pages have no score).
 
+**A scan with only a stamp in its text layer** (the ECF header line on a RECAP scan) is not a native
+page. A page whose picture covers at least half of it and whose text layer covers under 10% of it
+(`pdfio.IMAGE_COVER`, `TEXT_COVER`) is a *partial text layer*. Its native and Docling candidates are
+scored at most 0.5 and flagged `native_text_partial`, so the rungs that read the picture still run:
+OCRmyPDF gets a second pass, `--force-ocr` on just those pages (`--skip-text` would skip them), and
+the model may read one (unlike a page with a real text layer). If nothing better comes back, the
+page is kept as native text but flagged and out of `document_pages_extractable`. A figure-heavy
+digital page with a short caption can match too; that costs a re-read, not a wrong result.
+
 **Docling runs in its own process** (`efp.documents.docling_worker`, started with `run_group` like
 OCRmyPDF). Docling checks its `document_timeout` only between pages, so a page that hangs inside its
 layout model would stall the whole run; the stage gives it `docling_timeout_seconds` (soft: it keeps

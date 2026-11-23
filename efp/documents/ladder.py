@@ -66,6 +66,8 @@ class DocState:
     ocr_path: Path | None = None
     docling_attempted: bool = False
     docling_error: str | None = None
+    partial_pages: set[int] = field(default_factory=set)  # scans with only a small text layer
+    ocr_force_error: str | None = None
     docling_dict: dict[str, Any] | None = None
     docling_pages: dict[int, tuple[list[list[Word]], PageSize]] = field(default_factory=dict)
     engines: set[str] = field(default_factory=set)  # OCR engines that produced a used page
