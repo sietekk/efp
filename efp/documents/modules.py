@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from efp import modules as chain
-from efp.capture import CaptureBudgetError, CaptureError
+from efp.capture import CaptureBudgetError, CaptureError, LlmCallError
 from efp.documents import docling_parse, llm, pdfio
 from efp.documents.ladder import Candidate, DocState, PageTask
 from efp.documents.pdfio import PageSize, Word
@@ -394,9 +394,16 @@ class ClaudeTranscribe:
                 temperature=temperature,
             )
         except CaptureError as exc:
+            billed = isinstance(exc, LlmCallError)
+            note = " [billed or possibly billed]" if billed else ""
             llm.log_call(
-                conn, capture_id=None, input_tokens=None, output_tokens=None, cost=0.0,
-                request_id=None, ok=False, error=str(exc)[:300], **common,
+                conn, capture_id=None,
+                input_tokens=exc.input_tokens if isinstance(exc, LlmCallError) else None,
+                output_tokens=exc.output_tokens if isinstance(exc, LlmCallError) else None,
+                cost=llm.failure_cost(ctx.config, exc, cfg.transcribe_max_tokens),
+                request_id=exc.request_id if isinstance(exc, LlmCallError) else None,
+                ok=False, error=str(exc)[:280] + note,
+                **common,
             )  # fmt: skip
             kind = "budget" if isinstance(exc, CaptureBudgetError) else "call"
             return ModuleResult(Outcome.error, error=f"model transcription {kind}: {exc}"[:300])

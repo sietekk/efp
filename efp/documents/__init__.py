@@ -198,40 +198,42 @@ def process_pdf(
         if cfg.docling_always:
             docling_first(ctx, registry, doc)
         limit = min(count, cfg.max_pages)
-        for index in range(count):
-            page_no = index + 1
-            if index >= limit:
-                out.pages.append(
-                    PageOut(
-                        page_no,
-                        "failed",
-                        None,
-                        True,
-                        ["not_read"],
-                        {},
-                        0,
-                        False,
-                        [],
-                        canonical.PageText(page_no, "failed"),
+        try:
+            for index in range(count):
+                page_no = index + 1
+                if index >= limit:
+                    out.pages.append(
+                        PageOut(
+                            page_no,
+                            "failed",
+                            None,
+                            True,
+                            ["not_read"],
+                            {},
+                            0,
+                            False,
+                            [],
+                            canonical.PageText(page_no, "failed"),
+                        )
                     )
+                    out.not_read += 1
+                    continue
+                task = PageTask(
+                    row_id=row.row_id,
+                    year=row.year,
+                    state=row.state,
+                    source=row.source,
+                    page_no=page_no,
+                    doc=doc,
+                    ladder=PageState(),
                 )
-                out.not_read += 1
-                continue
-            task = PageTask(
-                row_id=row.row_id,
-                year=row.year,
-                state=row.state,
-                source=row.source,
-                page_no=page_no,
-                doc=doc,
-                ladder=PageState(),
-            )
-            run = chain.run_chain(chain_cfg, task, ctx, registry, quality_bar=meets)
-            settled = settle(task, run.records, threshold)
-            if settled.method in ("tesseract", "paddleocr"):
-                doc.engines.add(settled.method)
-            out.pages.append(settled)
-        doc.close()  # the open PDFs (original and OCR copy) before the scratch directory goes
+                run = chain.run_chain(chain_cfg, task, ctx, registry, quality_bar=meets)
+                settled = settle(task, run.records, threshold)
+                if settled.method in ("tesseract", "paddleocr"):
+                    doc.engines.add(settled.method)
+                out.pages.append(settled)
+        finally:
+            doc.close()  # the open PDFs (original and OCR copy), whatever happened above
         # the OCR output lives in the scratch directory: read it before that is removed
         if doc.ocr_path is not None and any(p.method == "tesseract" for p in out.pages):
             out.ocr_bytes = doc.ocr_path.read_bytes()
@@ -330,8 +332,8 @@ def _write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> in
         raise RuntimeError("the documents stage needs the database")
     old = conn.execute(
         "SELECT document_id, text_sha256, quality_json FROM documents "
-        "WHERE capture_id = ? AND current = 1",
-        (pdf.capture_id,),
+        "WHERE row_id = ? AND capture_id = ? AND current = 1",
+        (row.row_id, pdf.capture_id),
     ).fetchone()
     if out.unreadable is not None:
         quality = json.dumps({"unreadable": out.unreadable}, sort_keys=True)

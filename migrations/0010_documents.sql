@@ -122,4 +122,4 @@ CREATE INDEX idx_documents_text      ON documents(text_capture_id);
 CREATE INDEX idx_documents_layout    ON documents(layout_capture_id);
 CREATE INDEX idx_llm_calls_row       ON llm_calls(row_id);
 CREATE INDEX idx_llm_calls_capture   ON llm_calls(capture_id);
-CREATE UNIQUE INDEX idx_documents_one_current ON documents(capture_id) WHERE current = 1;
+CREATE UNIQUE INDEX idx_documents_one_current ON documents(row_id, capture_id) WHERE current = 1;

@@ -124,6 +124,25 @@ class CaptureError(Exception):
     """A fetch could not be completed (no response was received, or an input was invalid)."""
 
 
+class LlmCallError(CaptureError):
+    """A model call that may have been billed although no usable answer came back: a timeout or a
+    dropped connection after the request went out, or a failure after a successful answer (the
+    tokens, when known, are what was billed). The caller logs the cost; it is never zero."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.request_id = request_id
+
+
 class CaptureBudgetError(CaptureError):
     """The domain's rate budget did not free up in time (a spent daily quota, typically)."""
 
@@ -878,7 +897,9 @@ class Capture:
         if effort is not None:
             args["output_config"] = {"effort": effort}
         if temperature is not None:
-            args["temperature"] = temperature
+            # the installed SDK (API version 2026-10-21) has no `temperature` argument; a model
+            # that still accepts it is sent it in the body, and one that does not answers HTTP 400
+            args["extra_body"] = {"temperature": temperature}
         stored_request = {
             **{k: v for k, v in args.items() if k != "messages"},
             "messages": [
@@ -912,25 +933,35 @@ class Capture:
                 f"{model}: HTTP {exc.status_code} ({scrub_text(exc.message)[:160]})"
             ) from exc
         except anthropic.APIError as exc:
-            raise CaptureError(f"{model}: {type(exc).__name__}") from exc
+            # no answer, but the request went out: it may have been billed
+            raise LlmCallError(f"{model}: {type(exc).__name__}") from exc
         finally:
             client.close()
-        text = "".join(b.text for b in message.content if b.type == "text")
         usage = message.usage
-        record = self.store_bytes(
-            json.dumps(
-                {"request": stored_request, "response": json.loads(message.to_json())},
-                sort_keys=True,
-            ).encode(),
-            row_id=row_id, stage=stage, url_requested=url, http_status=200, tool="llm",
-            tool_version=model, content_type="application/json",
-            headers={"purpose": purpose, "request_id": message._request_id or ""},
-        )  # fmt: skip
+        tokens = (int(usage.input_tokens or 0), int(usage.output_tokens or 0))
+        try:
+            text = "".join(b.text for b in message.content if b.type == "text")
+            record = self.store_bytes(
+                json.dumps(
+                    {"request": stored_request, "response": json.loads(message.to_json())},
+                    sort_keys=True,
+                ).encode(),
+                row_id=row_id, stage=stage, url_requested=url, http_status=200, tool="llm",
+                tool_version=model, content_type="application/json",
+                headers={"purpose": purpose, "request_id": message._request_id or ""},
+            )  # fmt: skip
+        except Exception as exc:  # the answer was billed whatever happened to it afterwards
+            raise LlmCallError(
+                f"{model}: answer received but not recorded ({type(exc).__name__})",
+                input_tokens=tokens[0],
+                output_tokens=tokens[1],
+                request_id=message._request_id,
+            ) from exc
         return LlmResult(
             text=text,
             model=message.model,
-            input_tokens=int(usage.input_tokens or 0),
-            output_tokens=int(usage.output_tokens or 0),
+            input_tokens=tokens[0],
+            output_tokens=tokens[1],
             request_id=message._request_id,
             stop_reason=message.stop_reason,
             capture_id=int(record.capture_id),

@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
+from efp.capture import CaptureError, LlmCallError
 from efp.config import Config
 
 TEMPERATURE_NOTE = (
@@ -107,3 +108,15 @@ def log_call(
     )
     conn.commit()
     return int(cursor.lastrowid or 0)
+
+
+def failure_cost(config: Config, exc: CaptureError, max_tokens: int) -> float:
+    """What a failed call is logged as costing. An HTTP error answer was not billed (0). A call
+    that may have been billed (a timeout or dropped connection after the request went out, or an
+    answer that could not be recorded) is logged at the tokens it used when they are known, else
+    at the worst case, so the cap never undercounts."""
+    if not isinstance(exc, LlmCallError):
+        return 0.0
+    if exc.input_tokens is not None and exc.output_tokens is not None:
+        return cost_usd(config, exc.input_tokens, exc.output_tokens)
+    return worst_case_usd(config, max_tokens)

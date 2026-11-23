@@ -190,7 +190,8 @@ def _model_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> l
             conn, row_id=None, stage="selftest", purpose="selftest", capture_id=None,
             model_id=model, prompt_sha256=None, temperature=temperature,
             thinking=thinking["type"] if thinking else None, input_tokens=None,
-            output_tokens=None, cost=0.0, request_id=None, ok=False, error=str(exc)[:300],
+            output_tokens=None, cost=llm.failure_cost(config, exc, 200), request_id=None,
+            ok=False, error=str(exc)[:300],
         )  # fmt: skip
         return [Check(name, False, str(exc))]
     llm.log_call(

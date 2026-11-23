@@ -489,3 +489,211 @@ def test_the_sdk_accepts_the_thinking_setting_the_transcription_sends() -> None:
     )
     effort = typing.get_type_hints(OutputConfigParam)["effort"]
     assert "low" in str(effort)
+
+
+# --- review round 5: the cap never undercounts; one current document per row and capture ----------------
+
+
+class _Raises:
+    """Replaces Capture.llm_message with a failure of a chosen kind."""
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def __call__(self, cap: Capture, **kw: Any) -> Any:
+        raise self.exc
+
+
+def _fail_with(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> None:
+    raiser = _Raises(exc)
+    monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: raiser(self, **kw))
+
+
+def _model_run(write_config: Callable[..., Path], conn: sqlite3.Connection) -> Config:
+    chain = (
+        'modules = ["documents.pdfplumber", "documents.ocrmypdf", "documents.claude_transcribe"]'
+    )
+    config = doc_config(write_config, chain, **SONNET)
+    add_row(conn)
+    add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A]))
+    run_row(config, conn, registry=model_registry())
+    return config
+
+
+def test_a_timeout_after_the_request_went_out_is_logged_at_the_worst_case_cost(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.capture import LlmCallError
+
+    _fail_with(monkeypatch, LlmCallError("claude-sonnet-5-5: APITimeoutError"))
+    config = _model_run(write_config, conn)
+    ok, cost, err = conn.execute("SELECT ok, cost_usd, error FROM llm_calls").fetchone()
+    assert ok == 0 and "possibly billed" in err
+    assert cost == pytest.approx(llm.worst_case_usd(config, config.documents.transcribe_max_tokens))
+    assert llm.spent_this_month(conn) == pytest.approx(cost)  # the cap sees it
+
+
+def test_an_answer_that_could_not_be_recorded_is_logged_at_its_real_tokens(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.capture import LlmCallError
+
+    _fail_with(
+        monkeypatch,
+        LlmCallError("answer received but not recorded", input_tokens=2000, output_tokens=300),
+    )
+    _model_run(write_config, conn)
+    cost = conn.execute("SELECT cost_usd FROM llm_calls").fetchone()[0]
+    assert cost == pytest.approx((2000 * 2 + 300 * 10) / 1e6)
+
+
+def test_an_http_error_answer_is_not_billed(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.capture import CaptureError
+
+    _fail_with(monkeypatch, CaptureError("claude-sonnet-5-5: HTTP 529 (overloaded)"))
+    _model_run(write_config, conn)
+    assert conn.execute("SELECT cost_usd FROM llm_calls").fetchone()[0] == 0
+
+
+def test_llm_message_raises_a_billed_error_for_a_timeout_and_for_a_failed_store(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anthropic
+    import httpx2 as httpx
+
+    from efp.capture import LlmCallError
+
+    add_row(conn)
+    _ctx, cap, _ = make_ctx(config, conn)
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    kwargs: dict[str, Any] = {
+        "api_key": "k", "row_id": 1, "stage": "documents", "purpose": "p", "model": "m",
+        "system": "s", "content": [{"type": "text", "text": "x"}], "max_tokens": 10,
+    }  # fmt: skip
+
+    class Timeout:
+        def __init__(self, **kw: Any) -> None:
+            self.messages = self
+
+        def create(self, **kw: Any) -> None:
+            raise anthropic.APITimeoutError(request=request)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(anthropic, "Anthropic", Timeout)
+    try:
+        with pytest.raises(LlmCallError) as timed_out:
+            cap.llm_message(**kwargs)
+        assert timed_out.value.input_tokens is None  # unknown: the caller logs the worst case
+
+        from tests.test_documents_model import _Message
+
+        class Answers:
+            def __init__(self, **kw: Any) -> None:
+                self.messages = self
+
+            def create(self, **kw: Any) -> Any:
+                return _Message()
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(anthropic, "Anthropic", Answers)
+
+        def broken(self: Capture, *a: Any, **k: Any) -> Any:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Capture, "store_bytes", broken)
+        with pytest.raises(LlmCallError) as unrecorded:
+            cap.llm_message(**kwargs)
+        assert (unrecorded.value.input_tokens, unrecorded.value.output_tokens) == (321, 45)
+    finally:
+        cap.close()
+
+
+def test_two_rows_that_point_at_one_capture_each_keep_their_own_current_document(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config = doc_config(write_config)
+    add_row(conn, 1)
+    capture_id = add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A]))
+    add_row(conn, 2)
+    conn.execute(
+        "INSERT INTO court_records (row_id, source_kind, document_kind, found_at, basis_json) "
+        "VALUES (2, 'state_docket', 'docket', '2026-01-01T00:00:00+00:00', ?)",
+        (json.dumps({"document_captures": [capture_id]}),),
+    )
+    conn.commit()
+    run_row(config, conn, 1)
+    run_row(config, conn, 2)
+    run_row(config, conn, 1)  # and again: they must not take turns
+    got = conn.execute(
+        "SELECT row_id, current FROM documents WHERE current = 1 ORDER BY row_id"
+    ).fetchall()
+    assert got == [(1, 1), (2, 1)]
+    assert (
+        conn.execute("SELECT count(DISTINCT row_id) FROM document_pages_current").fetchone()[0] == 2
+    )
+
+
+def test_the_open_pdfs_are_closed_even_when_a_page_raises(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.documents import pdfio
+    from efp.documents.ladder import DocState
+
+    closed: list[bool] = []
+    real = DocState.close
+
+    def spy(self: DocState) -> None:
+        closed.append(True)
+        real(self)
+
+    monkeypatch.setattr(DocState, "close", spy)
+    monkeypatch.setattr(
+        pdfio.PdfReader, "native_page", lambda self, i: (_ for _ in ()).throw(KeyError("boom"))
+    )
+    config = doc_config(write_config, 'modules = ["documents.pdfplumber"]')
+    add_row(conn)
+    add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A]))
+    run_row(config, conn)  # the rung's error is recorded; nothing escapes
+    assert closed  # and the handles were released
+
+
+def test_a_configured_temperature_goes_in_the_body_not_as_an_sdk_argument(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The installed SDK has no `temperature` argument (API 2026-10-21): passing one raised a
+    TypeError the first time `send_temperature = true` was tried live. The value now travels in
+    the request body, where the API answers HTTP 400 for a model that rejects it."""
+    import anthropic
+
+    from tests.test_documents_model import _Message
+
+    seen: dict[str, Any] = {}
+
+    class Client:
+        def __init__(self, **kw: Any) -> None:
+            self.messages = self
+
+        def create(self, **kw: Any) -> Any:
+            seen.update(kw)
+            return _Message()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(anthropic, "Anthropic", Client)
+    add_row(conn)
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        cap.llm_message(
+            api_key="k", row_id=1, stage="documents", purpose="p", model="m", system="s",
+            content=[{"type": "text", "text": "x"}], max_tokens=10, temperature=0.0,
+        )  # fmt: skip
+    finally:
+        cap.close()
+    assert "temperature" not in seen and seen["extra_body"] == {"temperature": 0.0}
