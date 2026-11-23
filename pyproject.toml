@@ -50,7 +50,10 @@ dependencies = [
 [project.optional-dependencies]
 # auto-archiver runs via Docker subprocess (spec 10); its seleniumbase pins clash with others.
 archive-docker = ["auto-archiver>=1.2.9"]
-documents = ["pdfplumber>=0.11", "pypdf>=6", "ocrmypdf>=17", "docling>=2"]
+# documents: born-digital text, OCR (needs the tesseract and ghostscript binaries) and the model
+# transcription fallback. layout: Docling (pulls torch, so it is separate); the ladder skips it when absent.
+documents = ["pdfplumber>=0.11", "pypdf>=6", "ocrmypdf>=17", "anthropic>=2"]
+layout = ["docling>=2"]
 ocr-fallback = ["paddleocr>=3.7"]
 social = ["naminter>=1.0.9", "maigret>=0.6", "atproto>=0.0.72"]
 extraction = ["langextract>=1.7", "instructor>=1.17", "anthropic"]
@@ -121,7 +124,8 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*"]
+module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*"]
+# optional extras (documents, layout, ocr-fallback): mypy also runs where they are not installed
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

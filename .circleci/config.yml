@@ -27,10 +27,13 @@ jobs:
             - uv-v1-{{ checksum "uv.lock" }}
             - uv-v1-
       - run:
-          name: Python 3.12 and locked dependencies
+          name: OCR programs (the documents tests run the real OCR path)
+          command: sudo apt-get update && sudo apt-get install -y tesseract-ocr ghostscript
+      - run:
+          name: Python 3.12 and locked dependencies (documents extra, as the GitHub workflow)
           command: |
             uv python install 3.12
-            uv sync --locked
+            uv sync --locked --extra documents
       - save_cache:
           key: uv-v1-{{ checksum "uv.lock" }}
           paths:

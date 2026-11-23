@@ -185,6 +185,14 @@ class IdentityCfg(_Section):
 class DocumentsCfg(_Section):
     ocr_quality_threshold: float = Field(ge=0, le=1)
     llm_transcription_fallback: bool
+    docling_always: bool
+    ocr_language: str = Field(min_length=2)
+    render_dpi: int = Field(ge=72, le=600)
+    max_pages: int = Field(gt=0)
+    docling_timeout_seconds: int = Field(gt=0)
+    ocr_timeout_seconds: int = Field(gt=0)
+    ocr_seconds_per_page: int = Field(ge=0)
+    transcribe_max_tokens: int = Field(gt=0)
 
 
 class Llm(_Section):
@@ -193,6 +201,8 @@ class Llm(_Section):
     transcription_model: str
     temperature: float
     max_monthly_usd: float = Field(ge=0)
+    price_input_per_mtok: float = Field(ge=0)
+    price_output_per_mtok: float = Field(ge=0)
     sample_runs: int = Field(gt=0)
 
     @field_validator("temperature")

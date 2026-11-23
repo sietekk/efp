@@ -15,7 +15,9 @@ jobs:
         with:
           version: "0.13.9"
       - run: uv python install 3.12
-      - run: uv sync --locked
+      # The documents tests run the real OCR path: Tesseract and Ghostscript are system packages.
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr ghostscript
+      - run: uv sync --locked --extra documents
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy efp

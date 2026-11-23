@@ -33,7 +33,7 @@ Additional rules:
 - The default per-domain budget where no limit is published is 1 request per 2 seconds (spec section 10), which is within the plan's ceiling above.
 - Party registration, where it exists at all, is never used to infer motive. It is an identity signal only, behind a config flag that defaults off.
 - Row-level identity data (names joined to dates of birth, addresses, dockets) never leaves `~/efp-data/`. The only export that may leave the machine is the redacted CSV. Test fixtures and cassettes must not contain real subjects; synthesize them.
-- Prompts to the model are files under `prompts/` with their SHA-256 logged per call. Temperature 0. Model id logged per call. Never let the model answer from anything outside the captured text.
+- Prompts to the model are files under `prompts/` with their SHA-256 logged per call. Temperature 0. Model id logged per call. Temperature 0 is the rule, but API version 2026-10-21 rejects `temperature` outright (HTTP 400, confirmed live), so none is sent and `llm_calls.temperature` is NULL with the reason; reproducibility rests on the pinned model id, the hashed prompt, thinking off and low effort. Every model call goes through `efp.llm.call_model` (build 10), which is the only place that shapes, logs and prices a request. Never let the model answer from anything outside the captured text.
 - Do not install or depend on tools the tool register marks dead, stale or license-incompatible (newspaper3k, snscrape, twscrape, waybackpy, abydos, dedupe, recordlinkage, Blackbird, SpiderFoot, Recon-ng, PyMuPDF unless the AGPL is accepted in writing).
 
 ## Architecture rule: every stage is a chain of swappable modules, and nothing waits

@@ -157,14 +157,24 @@ audit_sample = 50                 # the F3 false-confirmation audit
 
 [documents]
 ocr_quality_threshold = 0.85      # pages below this are review-flagged and never reach extraction unflagged
-llm_transcription_fallback = true   # Claude transcribes a page only when both OCR paths fail; counts against the budget
+llm_transcription_fallback = false  # OFF: true sends page IMAGES of court documents to api.anthropic.com (names, addresses, dockets leave ~/efp-data); the operator opts in. When on, only a page the OCR rungs failed on, within the budget
+docling_always = false            # true: run Docling over every PDF (structure for born-digital documents too); false: only when a page falls past the first rung
+ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
+render_dpi = 200                  # page images for OCR, the blank check and model transcription
+max_pages = 500                   # a longer document is read (and OCR'd, and sent to Docling) to this page only; the rest is recorded as not read. Raise it for very long filings
+docling_timeout_seconds = 900     # per document: Docling stops there and keeps the pages it finished
+ocr_timeout_seconds = 300         # OCRmyPDF's base allowance per document ...
+ocr_seconds_per_page = 30         # ... plus this per page read (max_pages caps it): 500 pages = 300 + 15,000 s. A document that still times out is retried after you raise either (the hash includes both)
+transcribe_max_tokens = 4096      # model transcription of one page
 
 [llm]
 provider = "anthropic"
 model = "claude-sonnet-5-5"       # Sonnet-class for extraction; pinned in build 01, UNVERIFIED against the API until the first call; logged per call with the prompt hash
 transcription_model = "claude-sonnet-5-5"   # OCR fallback on page images; few pages, same tier
-temperature = 0.0
+temperature = 0.0                 # the project rule's value, recorded for the audit; NEVER SENT (API version 2026-10-21 rejects it, confirmed live): see efp/llm.py
 max_monthly_usd = 150.0           # the run stops at this cap
+price_input_per_mtok = 2.0        # USD per million input tokens (claude-sonnet-5-5 list price); the spend cap is computed from this
+price_output_per_mtok = 10.0      # USD per million output tokens
 sample_runs = 3                   # three runs on the sample, disagreement flagged
 
 [search]

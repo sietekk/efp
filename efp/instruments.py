@@ -39,6 +39,7 @@ _REGISTRY: dict[str, str] = {
     "wmn_data": "reference/wmn-data.json",
     "maigret_data": "reference/maigret_data.json",
     "gold_set": "reference/gold_set.csv",
+    "wordlist": "reference/wordlist.txt.gz",
 }
 
 
