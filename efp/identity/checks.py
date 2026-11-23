@@ -26,21 +26,49 @@ from efp.selftest import Check
 LEVEL_KEYS = ("m", "u", "basis")
 
 
+def ranked_surnames(
+    surnames: Counter[str], real: PriorModel, *, rarest: bool
+) -> list[tuple[str, int]]:
+    """Workbook surnames, commonest first, or (``rarest``) by the prior's own measure: surnames
+    absent from the Census file (the floor) first, then the smallest listed proportion; the
+    workbook's count breaks ties and, with no Census file loaded, is the order."""
+    if not rarest:
+        return surnames.most_common()
+
+    def key(item: tuple[str, int]) -> tuple[float, int, str]:
+        p, _ = real.p_surname(item[0])
+        return (p if real.have_surnames else 0.0, item[1], item[0])
+
+    return sorted(surnames.items(), key=key)
+
+
 def name_only_posteriors(
-    conn: sqlite3.Connection, config: Config, settings: model.Settings, top: int = 10
+    conn: sqlite3.Connection,
+    config: Config,
+    settings: model.Settings,
+    top: int = 10,
+    *,
+    rarest: bool = False,
 ) -> list[tuple[int, str, float, float]]:
     """``(surname rank in the workbook, prior mode, evidence bits, posterior)`` for each of the
-    ``top`` most common workbook surnames, a candidate agreeing on the name and state only."""
+    ``top`` most common (or, with ``rarest``, least common) workbook surnames, a candidate agreeing
+    on the name and state only. The real prior is strongest where the surname is rare, so the
+    guarantee is checked at both ends."""
     surnames: Counter[str] = Counter()
     givens: dict[str, Counter[str]] = {}
     states: dict[str, Counter[str]] = {}
-    for name, state in conn.execute("SELECT name, state FROM rows WHERE in_scope = 1"):
+    years: dict[str, Counter[int]] = {}
+    for name, state, row_year in conn.execute(
+        "SELECT name, state, year FROM rows WHERE in_scope = 1"
+    ):
         parts = parse_name(name)
         if not parts.surname:
             continue
         surnames[parts.surname] += 1
         givens.setdefault(parts.surname, Counter())[parts.given or "John"] += 1
         states.setdefault(parts.surname, Counter())[str(state or "")] += 1
+        if row_year:
+            years.setdefault(parts.surname, Counter())[int(row_year)] += 1
     real = PriorModel(conn, ssa_state_min_births=config.identity.ssa_state_min_births)
     # the same tables with nothing loaded: the ceiling prior
     empty = sqlite3.connect(":memory:")
@@ -53,14 +81,16 @@ def name_only_posteriors(
     ceiling = PriorModel(empty)
     tf = {k: model.term_frequencies(v) for k, v in workbook_term_frequencies(conn).items()}
     out: list[tuple[int, str, float, float]] = []
-    for rank, (surname, _) in enumerate(surnames.most_common(top), 1):
+    ordered = ranked_surnames(surnames, real, rarest=rarest)
+    for rank, (surname, _) in enumerate(ordered[:top], 1):
         given = givens[surname].most_common(1)[0][0]
         state = states[surname].most_common(1)[0][0] or None
+        year = years[surname].most_common(1)[0][0] if years[surname] else None
         for mode, prior_model in (("census", real), ("ceiling", ceiling)):
             builder = PairBuilder(conn, prior_model)
             left = Person("row", "0", given, "", surname, state=state)
             right = Person("court", "x", given, "", surname, state=state)
-            pair = builder.build(1, left, right, None)
+            pair = builder.build(1, left, right, year)  # the year is a row's own; no age is known
             water = model.score(
                 [{"pair_id": 1, "left": pair.left, "right": pair.right}], settings, tf=tf,
                 cap=config.identity.tf_adjustment_cap,
@@ -113,19 +143,23 @@ def identity_checks(config: Config, conn: sqlite3.Connection | None = None) -> l
                 required=False,
             )
         )
-        results = name_only_posteriors(connection, config, published)
-        worst = max((p for _, _, _, p in results), default=0.0)
         review = config.identity.review_threshold
-        checks.append(
-            Check(
-                "identity.guarantee",
-                worst < review if results else True,
-                f"name+state-only candidates for the {len(results) // 2} most common surnames: "
-                f"highest posterior {worst:.4g} (review threshold {review})"
-                if results
-                else "no rows to check",
+        for name, rarest, word in (
+            ("identity.guarantee", False, "most common"),
+            ("identity.guarantee_rare", True, "rarest"),
+        ):
+            results = name_only_posteriors(connection, config, published, rarest=rarest)
+            worst = max((p for _, _, _, p in results), default=0.0)
+            checks.append(
+                Check(
+                    name,
+                    worst < review if results else True,
+                    f"name+state-only candidates for the {len(results) // 2} {word} surnames: "
+                    f"highest posterior {worst:.4g} (review threshold {review})"
+                    if results
+                    else "no rows to check",
+                )
             )
-        )
         return checks
     finally:
         if own:

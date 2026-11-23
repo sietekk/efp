@@ -90,6 +90,9 @@ class _Reference:
             return "the row has no state, and a candidate is never gathered on a name alone"
         return True
 
+    def enrich(self, conn: sqlite3.Connection, person: Person) -> None:
+        """What a source carries beyond the index's columns (none by default)."""
+
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         assert isinstance(row, IdentityTask) and ctx.db is not None  # noqa: S101
         marks = ",".join("?" * len(self.sources))
@@ -127,6 +130,7 @@ class _Reference:
                     },
                     alias_index=person.alias_index,
                 )  # fmt: skip
+                self.enrich(ctx.db, found[ident])
         people = list(found.values())
         return ModuleResult(
             Outcome.hit if people else Outcome.miss,
@@ -138,6 +142,31 @@ class CandDime(_Reference):
     name = "identity.cand.dime"
     sources = ("dime",)
     dataset = "DIME"
+
+    def enrich(self, conn: sqlite3.Connection, person: Person) -> None:
+        """From the candidate's DIME rows (one per cycle): the latest suffix (compared with the
+        row's), a nickname as an alias of the given name, and outcome, status, party code and
+        FEC year kept as facts. Gender is carried and never used by the prior."""
+        rows = conn.execute(
+            "SELECT party_code, suffix, gender, won, primary_won, ico_status, fecyear, nickname "
+            "FROM ref_dime_current WHERE bonica_rid = ? ORDER BY cycle DESC",
+            (person.source_id,),
+        ).fetchall()
+        if not rows:
+            return
+        person.suffix = next((str(r[1]) for r in rows if r[1]), person.suffix)
+        nicknames = sorted({str(r[7]) for r in rows if r[7]})
+        extras: dict[str, Any] = {
+            "party_code": next((r[0] for r in rows if r[0]), None),
+            "gender": next((r[2] for r in rows if r[2]), None),
+            "won": any(r[3] == 1 for r in rows),
+            "primary_won": any(r[4] == 1 for r in rows),
+            "ico_status": next((r[5] for r in rows if r[5]), None),
+            "fecyear": max((int(r[6]) for r in rows if r[6]), default=None),
+        }
+        if nicknames:
+            extras["nicknames"] = nicknames
+        person.extras.update(extras)
 
 
 class CandFec(_Reference):

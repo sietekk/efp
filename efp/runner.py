@@ -186,7 +186,9 @@ class RunOptions:
     reset: bool = False
     recover: bool = False
     retry_failed: bool = False
-    recheck: bool = False  # also look at ``done`` rows: unchanged input hash is a no-op
+    recheck: bool = (
+        False  # also look at settled rows (done, needs_review): unchanged hash is a no-op
+    )
     force: bool = False  # recheck, ignoring the hash
 
 
@@ -230,7 +232,10 @@ def _candidate_sql(
     stage = options.stage
     preds = PREDECESSORS[stage]
     scope, params = _scope_clause(config, options, sample_ids)
-    statuses = ["'pending'", "'failed'"] + (["'done'"] if options.recheck or options.force else [])
+    # a row waiting in the review band is settled the same way a done row is: after new data it is
+    # revisited too, or its score would lag behind the data it was scored on
+    settled = ["'done'", "'needs_review'"]
+    statuses = ["'pending'", "'failed'"] + (settled if options.recheck or options.force else [])
     sql = (
         "SELECT r.row_id, r.year FROM rows r "
         "JOIN case_stage cur ON cur.row_id = r.row_id AND cur.stage = ? "
@@ -240,7 +245,7 @@ def _candidate_sql(
     if options.retry_failed:
         pass  # failed rows at the attempt limit get one more attempt
     else:
-        sql += " AND (cur.status = 'done' OR cur.attempts < ?)"
+        sql += " AND (cur.status IN ('done', 'needs_review') OR cur.attempts < ?)"
         out.append(config.runner.max_attempts_per_stage)
     if preds:
         sql += (
@@ -295,10 +300,14 @@ def apply_gate_failure(
 def recover(
     conn: sqlite3.Connection, stage: str, *, stale_after_minutes: int | None, force: bool
 ) -> int:
-    """Reset ``running`` rows to ``pending`` without counting the interrupted attempt."""
+    """Reset ``running`` rows without counting the interrupted attempt: a row that was settled
+    (done, or waiting in the review band) before it was claimed goes back to that status, so its
+    last result stands and it stays in its queue; any other row is pending."""
     sql = (
-        "UPDATE case_stage SET status = 'pending', attempts = max(attempts - 1, 0), "
-        "started_at = NULL WHERE stage = ? AND status = 'running'"
+        "UPDATE case_stage SET status = CASE WHEN prior_status IN ('done', 'needs_review') "
+        "THEN prior_status ELSE 'pending' END, prior_status = NULL, "
+        "attempts = max(attempts - 1, 0), started_at = NULL "
+        "WHERE stage = ? AND status = 'running'"
     )
     params: list[Any] = [stage]
     if not force:
@@ -419,11 +428,11 @@ def _claim(
             reason = GATES[stage](conn, config, row_id) if stage in GATES else None
             reason = reason or _component_gate(component, row, stage)
             if reason is not None:
-                if current != "done":
+                if current not in ("done", "needs_review"):
                     apply_gate_failure(conn, row_id, stage, reason, ("pending", "failed"))
                     summary.count_gate(reason)
                 continue
-            if current == "done":
+            if current in ("done", "needs_review"):
                 if options.force:
                     pass
                 else:
@@ -439,7 +448,8 @@ def _claim(
         if claimed:
             marks = ",".join("?" * len(claimed))
             conn.execute(
-                "UPDATE case_stage SET status = 'running', attempts = attempts + 1, "
+                "UPDATE case_stage SET prior_status = status, status = 'running', "
+                "attempts = attempts + 1, "
                 "started_at = ?, finished_at = NULL "
                 f"WHERE stage = ? AND row_id IN ({marks})",
                 (_now(), stage, *[r.row_id for r in claimed]),

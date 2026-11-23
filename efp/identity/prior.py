@@ -172,6 +172,7 @@ class PriorModel:
         ).fetchall()
         return {(str(s), int(y)): int(n) for s, y, n in rows}
 
+    @lru_cache(maxsize=4096)  # noqa: B019 (the model lives for one run)
     def _p_initial(
         self, letter: str, lo: int | None, hi: int | None
     ) -> tuple[float, dict[str, Any]]:
@@ -182,9 +183,10 @@ class PriorModel:
         totals = self._totals(None)
         den = sum(n for (_, y), n in totals.items() if c_lo <= y <= c_hi)
         num = self.conn.execute(
+            # state IS NULL is an equality on the leading column of idx_ref_given_state_name
             "SELECT coalesce(sum(count), 0) FROM ref_given_freq_current "
-            "WHERE state IS NULL AND name GLOB ? AND year BETWEEN ? AND ?",
-            (f"{letter}*", c_lo, c_hi),
+            "WHERE state IS NULL AND name >= ? AND name < ? AND year BETWEEN ? AND ?",
+            (letter, chr(ord(letter) + 1), c_lo, c_hi),
         ).fetchone()[0]
         share = (int(num) / den) if den and num else 1.0
         return share, {

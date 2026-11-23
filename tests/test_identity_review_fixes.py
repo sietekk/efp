@@ -424,3 +424,102 @@ def test_the_refit_command_fits_charts_and_rescores(
     assert (tmp_path / "charts" / "parameter_estimates_labeled_pairs.html").is_file()
     assert runner._identity_outcome(conn, same[0]) == "confirmed"
     assert store.human_decision(conn, same[0]) is None
+
+
+# ---- a re-score through the runner keeps the later stages in step -------------------------------
+
+
+@pytest.fixture
+def strict_config(write_config: Callable[..., Path]) -> Config:
+    return load_config(write_config({"confirm_threshold = 0.99": "confirm_threshold = 0.9999"}))
+
+
+COURT_TEXT = "John Quincy Raresurname, 52, of Hartford, was sentenced. Case No. 3:19-cr-123."
+COURT_IDS = [
+    ("age", "52", "Raresurname, 52, of Hartford"),
+    ("city", "Hartford", "52, of Hartford"),
+    ("case_number", "3:19-cr-123", "Case No. 3:19-cr-123"),
+]
+
+
+def confirmable_row(conn: sqlite3.Connection, config: Config) -> None:
+    from tests.identity_helpers import seed_court
+
+    seed_row(
+        conn,
+        1,
+        "John Q. Raresurname",
+        details="John Q. Raresurname, 52, of Hartford, was convicted.",
+    )
+    seed_court(
+        conn,
+        config,
+        1,
+        text=COURT_TEXT,
+        case_number="3:19-cr-123",
+        url="https://example.test/r",
+        identifiers=COURT_IDS,
+    )
+
+
+def stage_status(conn: sqlite3.Connection, stage: str) -> tuple[str, str | None]:
+    return conn.execute(
+        "SELECT status, gate_reason FROM case_stage WHERE row_id = 1 AND stage = ?", (stage,)
+    ).fetchone()
+
+
+def test_a_runner_rescore_that_demotes_a_confirmed_row_resets_news_and_social(
+    config: Config, strict_config: Config, conn: sqlite3.Connection, registry: Registry
+) -> None:
+    seed_reference(conn)
+    confirmable_row(conn, config)
+    normal = Context(config=config, db=conn, log=logging.getLogger("t"))
+    run_all(conn, normal, registry, [1])
+    assert runner._identity_outcome(conn, 1) == "confirmed"
+    conn.execute(
+        "UPDATE case_stage SET status = 'done' WHERE row_id = 1 AND stage IN ('news', 'social')"
+    )
+    conn.commit()
+    strict = Context(config=strict_config, db=conn, log=logging.getLogger("t"))
+    run_all(conn, strict, registry, [1])  # what --recheck does after the data or the settings moved
+    assert runner._identity_outcome(conn, 1) == "needs_review"
+    assert stage_status(conn, "news") == ("pending", None) and stage_status(conn, "social") == (
+        "pending",
+        None,
+    )
+
+
+def test_a_runner_rescore_that_confirms_a_row_releases_the_stages_skipped_for_want_of_it(
+    config: Config, strict_config: Config, conn: sqlite3.Connection, registry: Registry
+) -> None:
+    seed_reference(conn)
+    confirmable_row(conn, config)
+    strict = Context(config=strict_config, db=conn, log=logging.getLogger("t"))
+    run_all(conn, strict, registry, [1])
+    assert runner._identity_outcome(conn, 1) == "needs_review"
+    conn.execute(
+        "UPDATE case_stage SET status = 'skipped', gate_reason = 'identity_unresolved' "
+        "WHERE row_id = 1 AND stage IN ('news', 'social')"
+    )
+    conn.commit()
+    normal = Context(config=config, db=conn, log=logging.getLogger("t"))
+    run_all(conn, normal, registry, [1])
+    assert runner._identity_outcome(conn, 1) == "confirmed"
+    assert stage_status(conn, "news") == ("pending", None) and stage_status(conn, "social") == (
+        "pending",
+        None,
+    )
+
+
+def test_a_rescore_through_the_runner_leaves_an_operators_downstream_alone(
+    config: Config, conn: sqlite3.Connection, registry: Registry
+) -> None:
+    seed_reference(conn)
+    confirmable_row(conn, config)
+    ctx = Context(config=config, db=conn, log=logging.getLogger("t"))
+    run_all(conn, ctx, registry, [1])
+    human(conn, 1, "confirmed")
+    conn.execute("UPDATE case_stage SET status = 'done' WHERE row_id = 1 AND stage = 'news'")
+    conn.commit()
+    run_all(conn, ctx, registry, [1])  # the operator's decision stands, so nothing downstream moves
+    assert stage_status(conn, "news")[0] == "done"

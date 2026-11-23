@@ -43,6 +43,10 @@ class Known:
     params: tuple[Any, ...]
     expected: float | str
     tolerance: float = 0.0
+    # A value read from one real file is only checked where that file is loaded: ``when`` is a query
+    # that must return a truthy value (for example "the by-state table has over a million rows");
+    # otherwise the check is reported as not applicable rather than failed.
+    when: str | None = None
 
 
 @dataclass
@@ -305,6 +309,17 @@ class Dataset:
             raise RuntimeError("the reference loaders need the database")
         out: list[Check] = []
         for known in self.known:
+            if known.when is not None:
+                applies = conn.execute(known.when).fetchone()
+                if not (applies and applies[0]):
+                    out.append(
+                        Check(
+                            f"known: {known.description}",
+                            True,
+                            "not checked: the full file is not the one loaded",
+                        )
+                    )
+                    continue
             row = conn.execute(known.sql, known.params).fetchone()
             got = None if row is None else row[0]
             if isinstance(known.expected, str):

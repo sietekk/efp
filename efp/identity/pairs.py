@@ -129,7 +129,10 @@ class PairBuilder:
             "surname": surname or None,
             "surname_dm": metaphone_codes(surname),
             "given_name": given or None,
-            "given_forms": self.nicknames.forms(given),
+            "given_forms": [
+                *self.nicknames.forms(given),
+                *(letters(n) for n in person.extras.get("nicknames", ()) if letters(n)),
+            ],
             "middle": _middle(person),
             "dob": dob.isoformat() if dob else None,
             "by_lo": lo,

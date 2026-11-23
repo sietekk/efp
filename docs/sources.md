@@ -94,6 +94,10 @@ Bulk datasets loaded once into the `ref_*` tables; raw files live under `~/efp-d
 
 | Dataset | Part | Vintage | Size (bytes) | Rows | SHA-256 | License |
 |---|---|---|---:|---:|---|---|
+| `census_surnames` |  | 2010 | 12,874,389 | 162,253 | `117c41cb4668727b7627b2845b6df3f83eb2a22a1813f42c0ff4bdcab86de135` | Public domain (U.S. Census Bureau) |
+| `ssa_names` | national | 1880-latest (146 `yobYYYY.txt` files) | 7,860,026 | 2,181,032 | `cd78e975ed7bb358e018dd62fbe14ced89295e9581c49172ca4eedcb011b3724` | Public domain (Social Security Administration) |
+| `ssa_names` | state | 1880-latest (51 `XX.TXT` files) | 24,383,479 | 6,696,687 | `e8aaf58e3838ec2a2aa880635014744ba20f74941a2688ac36723acaf604d66a` | Public domain (Social Security Administration) |
+| `dime` |  | 4.0 (cycles 1979-2024) | 150,575,220 | 359,653 candidate rows (173,515 candidates; 119,849 committee rows set aside) | `adc8e06da2b30a6b4e3dd6cd8b3f6e4d09ecf9b5b9294d67ad88f0aae770219e` | ODC-BY 1.0 (DIME, Stanford) |
 | `census_population` |  | 2020-2023 | 764,676 | 3,672 | `9ea3dcf173d24ba7e339352b64e060ed8d5ad9ee6b0bad0cd21b566e4ca3e03a` | Public domain (U.S. Census Bureau) |
 | `congress` | current | current+historical | 1,081,187 | 539 | `bd32e62b1c89e9585e4ec49df5676563510e9435d779c061ff50139833f73a49` | CC0 1.0 (congress-legislators, unitedstates project) |
 | `congress` | historical | current+historical | 8,997,407 | 12,231 | `9641615f336b3113d6f89152e3441128cbdc3f61ccf87c65da3a015076c78c91` | CC0 1.0 (congress-legislators, unitedstates project) |
@@ -131,10 +135,17 @@ Bulk datasets loaded once into the `ref_*` tables; raw files live under `~/efp-d
 
 | Dataset | Reason | What to do |
 |---|---|---|
-| `census_surnames` (Census 2010 surnames, `names.zip`) | the host returns a "Request Rejected" web page to the capture layer, with the project identity **and** with a browser-style `User-Agent` (`reference.download_user_agent`, see below) | download `names.zip` in a browser and run `efp reference import census_surnames names.zip` |
-| `ssa_names` (SSA `names.zip` and `namesbystate.zip`) | HTTP 403 for the same two attempts | download both in a browser, then `efp reference import ssa_names names.zip` and `efp reference import ssa_names namesbystate.zip` |
-| `dime` (DIME v4.0 recipients) | no download URL is configured: the Stanford Data Repository serves it through its own page and the SQLite build may be very large | set `reference.dime_url` to the file's address, or download it and `efp reference import dime <file>`; `reference.max_gb` caps a download |
-| `ftm` (FollowTheMoney state candidates) | no export URL is configured; the site is unmaintained and its API needs an account key | if you have an export, `efp reference import ftm <file>`; otherwise the candidate index simply lacks FTM |
+| `ftm` (FollowTheMoney state candidates) | verified gated: an account key is needed (about 1,000 records a year per account), the site has not been maintained since the OpenSecrets merger, and its data stop at 2024 | nothing; `ftm_url` stays empty and the module is skipped with that reason, so the candidate index lacks FTM (DIME covers state candidates) |
+
+### Imported by hand (2026-11-23)
+
+These refuse automated downloads (Census: a "Request Rejected" page, with the project identity and with a browser-style `User-Agent`; SSA: HTTP 403; DIME: no stable URL), so the operator downloaded them and loaded them with `efp reference import` on 2026-11-23; each is recorded as a `reference` capture and a `ref_sources` row.
+
+- Where each comes from: the Census 2010 surnames page (`census.gov/topics/population/genealogy/data/2010_surnames.html`), the SSA baby-names page (`ssa.gov/oact/babynames/limits.html`; `names.zip` national and `namesbystate.zip`), the DIME page (`data.stanford.edu/dime`, v4.0 recipients, 1979-2024). The operator downloaded each by hand; the file shown is the one loaded. The Census `names.zip` was fetched with `curl` from the Census site's own link (the same link failed in a browser).
+- `census_surnames`: `names.zip` holds `Names_2010Census.csv` (162,253 surnames and the `ALL OTHER NAMES` row; `(S)` appears only in the percentage columns) and its `.xlsx`. The surname floor is half the smallest listed proportion: 0.01695 per 100,000 (smallest listed count 100, denominator 294,977,843).
+- `ssa_names`: the national `names.zip` (a different file from the Census one that shares its name; the dataset and `--part national` decide where it lands) and `namesbystate.zip`; the smallest count in either is 5 (names under five births a year are absent).
+- `dime`: `dime_recipients_1979_2024.csv` (the `.csv.gz` decompressed). 479,502 rows: 359,653 candidate rows and 119,849 committee rows (`recipient.type`); only candidates are loaded.
+- Attribution: the sentence in `Dataset.attribution` for each (`efp reference status`); DIME: Bonica, Adam. Database on Ideology, Money in Politics, and Elections (DIME), v4.0, Stanford University Libraries, ODC-BY 1.0.
 
 **The `User-Agent` override (an operator decision).** `reference.download_user_agent` is empty by default. When set, a download from a host in `reference.download_user_agent_hosts` that was refused (HTTP error or a web page where a file should be) is tried once more with that `User-Agent`; nothing else about the request changes, no challenge is solved, and the capture's manifest records `headers_overridden: ["User-Agent"]`. It was tried for Census and SSA on 2026-11-23 and did not get past either host's filter, so those two are imported by hand.
 
@@ -147,5 +158,5 @@ Bulk datasets loaded once into the `ref_*` tables; raw files live under `~/efp-d
 - State legislators, current and retired: the OpenStates people repository (CC0).
 - Site definitions: WhatsMyName project, Micah Hoffman (WebBreacher), CC BY-SA 4.0; any list derived from it is shared under the same license.
 - Population prior: Census 2010 surnames (U.S. Census Bureau) and SSA baby names (Social Security Administration), public domain, once imported.
-- Candidate universe: DIME v4.0 (Bonica, Stanford University Libraries, ODC-BY 1.0) and FollowTheMoney (National Institute on Money in Politics), once imported.
+- Candidate universe: DIME v4.0 (Bonica, Stanford University Libraries, ODC-BY 1.0). FollowTheMoney is not used (gated).
 - Party in these tables is an identity signal for public figures only; it is never evidence of motive (build 18 enforces this). The Harvard database's party values are estimates and are flagged `party_imputed`.

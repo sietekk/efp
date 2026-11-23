@@ -199,8 +199,8 @@ congress_historical_url = "https://unitedstates.github.io/congress-legislators/l
 openstates_archive_url = "https://github.com/openstates/people/archive/refs/heads/main.zip"
 wmn_url = "https://raw.githubusercontent.com/WebBreacher/WhatsMyName/main/wmn-data.json"
 harvard_osf_node = "mv5e6"        # OSF project of the Harvard local elections database (doi 10.17605/OSF.IO/MV5E6)
-dime_url = ""                     # Stanford Data Repository file URL; empty until you give one (access may need a form): the DIME loader is then skipped with that reason
-ftm_url = ""                      # FollowTheMoney state candidates export; empty = skipped (the site is unmaintained: import a file you have with `efp reference import ftm FILE`)
+dime_url = ""                     # DIME v4 has no stable download URL: the file was downloaded by hand and loaded with `efp reference import dime FILE` (loaded 2026-11-23); set this only to fetch it again
+ftm_url = ""                      # FollowTheMoney is gated (an account key, an unmaintained site, data to 2024): leave empty; the module is skipped with that reason
 
 [llm]
 provider = "anthropic"

@@ -560,3 +560,73 @@ def test_cli_dry_run_and_status_change_nothing_on_a_database_one_migration_behin
     ) == before
     assert before[1] == newest.id - 1  # the dry run did not apply the newest migration
     conn.close()
+
+
+def test_recheck_also_revisits_rows_waiting_in_the_review_band(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
+    """A needs_review row is settled like a done one: new data revisits it, an unchanged hash does not."""
+    component = FakeComponent("resolve_links", needs_review={1})
+    run(db, full_config, "resolve_links", component)
+    assert stage_of(db, 1, "resolve_links")["status"] == "needs_review"
+    component.batches.clear()
+    unchanged = run(db, full_config, "resolve_links", component, recheck=True)
+    assert 1 not in component.seen and unchanged.noop >= 1  # the same inputs: nothing to do
+    component.hash_value = "h2"  # a reference load changes every row's input hash
+    component.needs_review = set()
+    component.batches.clear()
+    run(db, full_config, "resolve_links", component, recheck=True)
+    assert 1 in component.seen
+    assert stage_of(db, 1, "resolve_links")["input_hash"] == "h2"
+    assert stage_of(db, 1, "resolve_links")["status"] == "done"
+
+
+def test_a_plain_run_still_leaves_review_band_rows_alone(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
+    component = FakeComponent("resolve_links", needs_review={1})
+    run(db, full_config, "resolve_links", component)
+    component.batches.clear()
+    run(db, full_config, "resolve_links", component)
+    assert 1 not in component.seen
+
+
+def test_a_crash_during_a_recheck_returns_a_review_band_row_to_needs_review(
+    full_config: Config, db
+) -> None:  # type: ignore[no-untyped-def]
+    """A claimed row is `running`; recovery must put a settled row back as it was, not as pending,
+    or a review-band row drops out of `efp review` until the stage is run again."""
+    from efp.runner import recover
+
+    component = FakeComponent("resolve_links", needs_review={1})
+    run(db, full_config, "resolve_links", component)
+    assert stage_of(db, 1, "resolve_links")["status"] == "needs_review"
+
+    class Crash(FakeComponent):
+        def run(self, batch, ctx):  # type: ignore[no-untyped-def]
+            raise KeyboardInterrupt  # the process dies: nothing records an outcome
+
+    crashing = Crash("resolve_links", hash_value="h2")
+    with pytest.raises(KeyboardInterrupt):
+        run(db, full_config, "resolve_links", crashing, recheck=True)
+    assert stage_of(db, 1, "resolve_links")["status"] == "running"
+    recover(db, "resolve_links", stale_after_minutes=None, force=True)
+    db.commit()
+    row = stage_of(db, 1, "resolve_links")
+    assert (
+        row["status"] == "needs_review" and row["attempts"] == 1
+    )  # as before; the attempt is not counted
+    # a done row is put back as done (its last result stands), a pending one as pending
+    assert stage_of(db, 3, "resolve_links")["status"] in ("done", "pending")
+
+
+def test_recovery_returns_a_pending_row_to_pending(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
+    from efp.runner import recover
+
+    class Crash(FakeComponent):
+        def run(self, batch, ctx):  # type: ignore[no-untyped-def]
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run(db, full_config, "resolve_links", Crash("resolve_links"), limit=1)
+    running = [r for r in range(1, 7) if stage_of(db, r, "resolve_links")["status"] == "running"]
+    assert running
+    recover(db, "resolve_links", stale_after_minutes=None, force=True)
+    db.commit()
+    assert all(stage_of(db, r, "resolve_links")["status"] == "pending" for r in running)
