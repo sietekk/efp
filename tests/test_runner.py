@@ -560,3 +560,28 @@ def test_cli_dry_run_and_status_change_nothing_on_a_database_one_migration_behin
     ) == before
     assert before[1] == newest.id - 1  # the dry run did not apply the newest migration
     conn.close()
+
+
+def test_recheck_also_revisits_rows_waiting_in_the_review_band(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
+    """A needs_review row is settled like a done one: new data revisits it, an unchanged hash does not."""
+    component = FakeComponent("resolve_links", needs_review={1})
+    run(db, full_config, "resolve_links", component)
+    assert stage_of(db, 1, "resolve_links")["status"] == "needs_review"
+    component.batches.clear()
+    unchanged = run(db, full_config, "resolve_links", component, recheck=True)
+    assert 1 not in component.seen and unchanged.noop >= 1  # the same inputs: nothing to do
+    component.hash_value = "h2"  # a reference load changes every row's input hash
+    component.needs_review = set()
+    component.batches.clear()
+    run(db, full_config, "resolve_links", component, recheck=True)
+    assert 1 in component.seen
+    assert stage_of(db, 1, "resolve_links")["input_hash"] == "h2"
+    assert stage_of(db, 1, "resolve_links")["status"] == "done"
+
+
+def test_a_plain_run_still_leaves_review_band_rows_alone(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
+    component = FakeComponent("resolve_links", needs_review={1})
+    run(db, full_config, "resolve_links", component)
+    component.batches.clear()
+    run(db, full_config, "resolve_links", component)
+    assert 1 not in component.seen

@@ -381,3 +381,65 @@ def test_the_rarest_surnames_are_ranked_by_the_census_proportion_floor_first(
         s for s, _ in identity_checks.ranked_surnames(workbook, PriorModel(conn), rarest=False)
     ]
     assert common[0] == "Commonsurname"
+
+
+# ---- a reference load must reach the rows waiting in the review band --------------------------
+
+
+def test_a_recheck_after_a_reference_load_rescores_review_band_rows_but_not_an_operators_decision(
+    full_config: Config, conn: sqlite3.Connection
+) -> None:
+    from efp.builtin_modules import register_builtin
+    from efp.modules import REGISTRY
+    from efp.runner import RunOptions, make_context, run_stage
+    from tests.dbhelpers import STAMP
+
+    register_builtin(REGISTRY)
+    seed_reference(conn)
+    for row_id in (1, 2):
+        seed_row(conn, row_id, f"Jane Marie Rare{'a' if row_id == 1 else 'b'}surname")
+        seed_candidate(
+            conn,
+            "fec",
+            f"F{row_id}",
+            f"RARE{'A' if row_id == 1 else 'B'}SURNAME",
+            "JANE",
+            middle="MARIE",
+        )
+    ctx = make_context(full_config, conn)
+    first = run_stage(conn, full_config, RunOptions(stage="identity"), ctx)
+    assert first.needs_review == 2
+    conn.execute(  # the operator decides row 2; its stage becomes done
+        "INSERT INTO decisions (row_id, kind, outcome, rationale, decided_by, decided_at, stage) "
+        "VALUES (2, 'review', 'unresolved', 'not her', 'XX', ?, 'identity')",
+        (STAMP,),
+    )
+    conn.execute("UPDATE case_stage SET status = 'done' WHERE row_id = 2 AND stage = 'identity'")
+    conn.commit()
+    again = run_stage(conn, full_config, RunOptions(stage="identity", recheck=True), ctx)
+    assert again.claimed == 0  # nothing changed: the review-band row is a no-op, like a done row
+    conn.execute(  # a new reference load becomes current
+        "INSERT INTO ref_sources (dataset, status, current, loaded_at) VALUES ('census_place_county', 'loaded', 1, 'x')"
+    )
+    conn.commit()
+    before = conn.execute("SELECT count(*) FROM decisions WHERE kind = 'identity'").fetchone()[0]
+    ran = run_stage(conn, full_config, RunOptions(stage="identity", recheck=True), ctx)
+    assert ran.claimed >= 1  # row 1 sat in the review band and is revisited
+    rows_decided = [
+        r[0]
+        for r in conn.execute(
+            "SELECT row_id FROM decisions WHERE kind = 'identity' ORDER BY decision_id"
+        )
+    ]
+    assert rows_decided.count(1) == 2  # re-scored: a new decision for the review-band row
+    after = conn.execute("SELECT count(*) FROM decisions WHERE kind = 'identity'").fetchone()[0]
+    assert after > before
+    from efp import runner
+
+    assert runner._identity_outcome(conn, 2) == "unresolved"  # the operator's decision stands
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decisions WHERE row_id = 2 AND kind = 'identity'"
+        ).fetchone()[0]
+        == 1
+    )

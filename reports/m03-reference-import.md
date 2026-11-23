@@ -138,6 +138,10 @@ The reviewer (cold, once) found no high-severity problem and confirmed the loade
 | Identity `TOOL_VERSION` not bumped | bumped to 3; every row re-run, outcomes unchanged |
 | Docs: 205,225 called candidates; claims before the report existed; no source pages; "DIME refuses downloads" | corrected; source pages added; the claims now rest on this report |
 
+### `--recheck` now reaches the review band
+
+After the place-key re-run the 13 review-band rows turned out not to be claimed by `--recheck` (the runner treated only `done` rows as settled), so a reference load could leave their scores behind the data; I had worked around it with `--reset`. The runner now treats `needs_review` like `done` for `--recheck` and `--force` (revisited when the input hash changed, a no-op otherwise; a plain run still leaves them alone), for every stage. Tests: `tests/test_runner.py` (both cases) and `tests/test_reference_m03.py` (after a reference load the review-band row is re-scored and a row the operator decided keeps the decision, with no new decision written).
+
 ### A place-key fix merged from build 12
 
 After this branch was raised, a review found that `place_key` stripped every trailing "city" ("Salt Lake City" became `SALTLAKE`; "Jersey City" collided with "Jersey Village"). The fix is on `build/12-identity` (PR #16) and merged into this branch: the Census loader strips exactly one legal suffix (loader version 2, so the identical place file reloaded: 33,611 rows) and the identity side never shortens a name as written. Identity was re-run on the corrected table; **no outcome changed** (13 review band, 1,468 unresolved).
@@ -177,7 +181,7 @@ Filled in by the operator at merge time.
 ## Carried forward
 
 - 13, 15: the 13 review-band rows block the news gate until a `review` decision is recorded; 0 rows are `confirmed`, so no row is open to news or social yet; the stages read `pending` for every row.
-- 13, 16, 19: every main-batch identity decision now carries `params=provisional;prior=census;nick:v1`; there is no `prior=ceiling` decision. A decision's `decided_by` says which load of the reference tables it rests on only through the settings tag: a new load changes every row's input hash, so `efp run identity --recheck` revisits them.
+- 13, 16, 19: every main-batch identity decision now carries `params=provisional;prior=census;nick:v1`; there is no `prior=ceiling` decision. A decision's `decided_by` says which load of the reference tables it rests on only through the settings tag: a new load changes every row's input hash, so `efp run identity --recheck` revisits them, review-band rows included.
 - 16, 18: a DIME candidate's `identity_candidates.fields_json.person.extras` carries `party_code` (raw), `won`, `primary_won`, `ico_status`, `fecyear`, `gender` and, when a build has one, `nicknames`; its mapped party (`DEM`/`REP`/`IND`) is `ref_candidates_all.party` and is never scored. Party is an identity signal, never evidence of motive.
 - 19: DIME contributes no alias in v4.0 (no `nname`); the candidate's `person.suffix` is the latest non-empty DIME suffix.
 - All: the 150 label pairs are queued (`efp identity labels status`); the audit has nothing to sample until a row is confirmed.
@@ -186,4 +190,4 @@ Filled in by the operator at merge time.
 
 - "`efp reference status` shows `census_surnames`, `ssa_names` (both parts) and `dime` loaded with row counts; `efp selftest --reference` passes with known values for all three; `ref_candidates_all` has a non-zero `dime` count and the report carries the before/after coverage tables." **Holds**: loads 37 to 40; 37 checks, 0 failed, with SMITH 828.19, Mary 1880 national, Mary 1950 Connecticut (614) and the DIME 2012 House count (1,823); `dime` 205,225; the tables are above.
 - "`efp identity rescore` and `efp run identity --recheck` (sample, then all rows) have run; `efp status` shows no `prior=ceiling` decision in the main batch; `efp selftest --identity` passes with the extended guarantee and the report states both highest posteriors." **Holds**: 0 ceiling decisions; both guarantees pass, 0.036 and 0.5.
-- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,353 passed; ruff, format and mypy clean; the review section is filled in.
+- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,356 passed; ruff, format and mypy clean; the review section is filled in.
