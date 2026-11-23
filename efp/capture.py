@@ -72,8 +72,14 @@ SENSITIVE_HEADERS = frozenset(
 )
 # Always stripped from stored URLs.
 _ALWAYS_PARAMS = frozenset(
-    {"api_key", "apikey", "api-key", "access_token", "client_secret", "password"}
-)
+    {
+        "api_key", "apikey", "api-key", "access_token", "client_secret", "password",
+        # presigned-URL credentials (an object store a download redirects to): short-lived, but
+        # still a credential, so they are never stored
+        "x-amz-signature", "x-amz-credential", "x-amz-security-token", "x-goog-signature",
+        "x-goog-credential", "googleaccessid",
+    }
+)  # fmt: skip
 # Also stripped when the call is an API call (kind="api"), where these names are credentials.
 _API_PARAMS = frozenset({"key", "token", "auth", "secret", "signature", "sig"})
 # What the HTTP cache must not key or store on.
@@ -704,6 +710,11 @@ class Capture:
             except requests.RequestException as exc:
                 raise CaptureError(scrub_text(f"{redact_url(current, api=True)}: {exc}")) from exc
             with response:
+                log.info(  # every network call is logged, a HEAD included
+                    "head %s status=%s stage=resolve",
+                    scrub_text(redact_url(current, api=True))[:200],
+                    response.status_code,
+                )
                 if response.status_code in _REDIRECT_STATUS and response.headers.get("Location"):
                     current = urljoin(current, response.headers["Location"])
                     continue

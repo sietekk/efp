@@ -81,7 +81,7 @@ def test_a_redirected_download_is_followed_hop_by_hop_and_recorded_as_a_referenc
         ).fetchone()
         assert row == ("reference", None, "bulk_download", bucket)
         (loaded,) = ops.load(ctx, ["fec_candidates"])["fec_candidates"]
-        assert (loaded.status, loaded.rows) == ("loaded", 3)
+        assert (loaded.status, loaded.rows) == ("loaded", 4)
         assert (
             conn.execute("SELECT capture_id FROM ref_sources WHERE status='loaded'").fetchone()[0]
             == fetched.capture_id
@@ -346,10 +346,10 @@ def test_congress_and_openstates_enrich_by_id_with_their_keys(
 ) -> None:
     ctx, cap = h.make_ctx(config, conn)
     rsps.get(
-        "https://api.congress.gov/v3/member/S000001",
+        "https://api.congress.gov/v3/member/X999001",
         json={
             "member": {
-                "bioguideId": "S000001",
+                "bioguideId": "X999001",
                 "directOrderName": "John Q. Smith",
                 "birthYear": "1960",
                 "partyHistory": [{"partyName": "Democratic"}],
@@ -377,7 +377,7 @@ def test_congress_and_openstates_enrich_by_id_with_their_keys(
         },
     )
     try:
-        member = congress.enrich(ctx, ConfirmedMatch(bioguide_id="S000001"))
+        member = congress.enrich(ctx, ConfirmedMatch(bioguide_id="X999001"))
         assert member["name"] == "John Q. Smith" and member["terms"] == [{"chamber": "House"}]
         person = openstates.enrich(ctx, ConfirmedMatch(openstates_id="ocd-person/aaa"))
         assert person["district"] == "12" and person["other_names"] == ["Johnny Smith"]
@@ -393,7 +393,7 @@ def test_a_missing_key_or_a_refusal_is_api_unavailable_not_a_crash(
     rsps.get("https://api.open.fec.gov/v1/candidate/X/", status=403, json={})
     try:
         with pytest.raises(ApiUnavailable, match="CONGRESS_API_KEY is not set"):
-            congress.enrich(ctx, ConfirmedMatch(bioguide_id="S000001"))
+            congress.enrich(ctx, ConfirmedMatch(bioguide_id="X999001"))
         with pytest.raises(ApiUnavailable, match="HTTP 403"):
             openfec.enrich(ctx, ConfirmedMatch(fec_candidate_id="X"))
     finally:
@@ -427,3 +427,132 @@ def test_ballotpedia_page_is_read_for_office_party_and_years(
     assert page.offices == ["U.S. House Connecticut District 1"] and page.capture_id
     assert not missing.found and missing.reason == "HTTP 404"
     assert ballotpedia.parse("<html><h1>X</h1>does not have an article</html>", "u").found is False
+
+
+# --- review round 1 -------------------------------------------------------------------------------------------
+
+
+def test_a_refused_refresh_never_touches_the_good_file_on_disk(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    config = make(write_config)
+    ctx, cap = h.make_ctx(config, conn)
+    good = h.zip_bytes({"Names_2010Census.csv": h.CENSUS_CSV})
+    path = h.place(config, "census_surnames", "names.zip", good)
+    rsps.head(CENSUS, status=200, content_type="text/html")
+    rsps.get(CENSUS, body=REJECTED, content_type="text/html")
+    try:
+        (fetched,) = ops.download(ctx, ["census_surnames"], refresh=True)["census_surnames"]
+        assert fetched.status == "gated"
+        assert path.read_bytes() == good  # the earlier copy survived a refused refresh
+        assert not path.with_name("names.zip.new").exists()
+        rsps.replace(responses.GET, CENSUS, status=403, body="denied")
+        assert (
+            ops.download(ctx, ["census_surnames"], refresh=True)["census_surnames"][0].status
+            == "gated"
+        )
+        assert path.read_bytes() == good
+        (loaded,) = ops.load(ctx, ["census_surnames"])["census_surnames"]
+        assert loaded.status == "loaded"  # and it still loads
+    finally:
+        cap.close()
+
+
+def test_the_browser_user_agent_does_not_follow_a_redirect_to_an_unlisted_host(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    config = with_ua(write_config)
+    ctx, cap = h.make_ctx(config, conn)
+    elsewhere = "https://bucket.example.test/names.zip"
+    rsps.head(CENSUS, status=200, content_type="text/html")
+    rsps.get(CENSUS, body=REJECTED, content_type="text/html")  # the listed host refuses
+    rsps.get(elsewhere, body=REJECTED, content_type="text/html")
+    try:
+        # an unlisted address is never sent the override, whatever redirected there
+        from efp.reference import files
+
+        assert files._ua_allowed_for(config, CENSUS) and not files._ua_allowed_for(
+            config, elsewhere
+        )
+        (fetched,) = ops.download(ctx, ["census_surnames"])["census_surnames"]
+    finally:
+        cap.close()
+    assert fetched.status == "gated"
+    assert all(
+        c.request.headers["User-Agent"] != BROWSER
+        for c in rsps.calls
+        if "bucket.example" in c.request.url
+    )
+
+
+def test_only_a_refusal_gets_the_user_agent_retry_not_a_server_error(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp.reference import files
+
+    assert files._is_refusal("https://x/names.zip: HTTP 403") and files._is_refusal(
+        "refused: the host returned a web page"
+    )
+    assert not files._is_refusal("https://x/names.zip: HTTP 503") and not files._is_refusal(
+        "ReadTimeout: slow"
+    )
+
+
+def test_resolving_a_url_logs_each_hop(
+    write_config: Callable[..., Path],
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = make(write_config)
+    _ctx, cap = h.make_ctx(config, conn)
+    rsps.head(
+        "https://www.fec.gov/a.zip",
+        status=302,
+        headers={"Location": "https://bucket.example.test/a.zip"},
+    )
+    rsps.head("https://bucket.example.test/a.zip", status=200, headers={"Content-Length": "5"})
+    try:
+        with caplog.at_level("INFO"):
+            resolved = cap.resolve_url("https://www.fec.gov/a.zip")
+    finally:
+        cap.close()
+    assert resolved.url == "https://bucket.example.test/a.zip" and resolved.size == 5
+    heads = [r.getMessage() for r in caplog.records if r.getMessage().startswith("head ")]
+    assert len(heads) == 2 and "status=302" in heads[0] and "status=200" in heads[1]
+
+
+def test_an_api_key_is_in_no_capture_not_the_warc_not_the_cache(
+    config: Config, conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from tests.capturehelpers import warc_records
+
+    ctx, cap = h.make_ctx(config, conn)
+    rsps.get(
+        "https://api.open.fec.gov/v1/candidate/H0CT01001/",
+        json={"results": [{"candidate_id": "H0CT01001"}]},
+    )
+    try:
+        openfec.enrich(ctx, ConfirmedMatch(fec_candidate_id="H0CT01001"))
+    finally:
+        cap.close()
+    blob = repr(warc_records(config)) + repr(conn.execute("SELECT * FROM captures").fetchall())
+    assert "SENTINEL-fec" not in blob
+    cache = config.paths.cache
+    for path in cache.rglob("*") if cache.exists() else []:
+        if path.is_file():
+            assert b"SENTINEL-fec" not in path.read_bytes()
+
+
+def test_a_presigned_url_credentials_are_never_stored_and_the_recorded_source_has_no_query(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    from efp.capture import redact_url
+
+    signed = (
+        "https://objects.example.test/file?response-content-disposition=attachment"
+        "&X-Amz-Credential=AKIAEXAMPLE%2F2026%2Fs3&X-Amz-Signature=deadbeefcafe&X-Amz-Expires=60"
+    )
+    stored = redact_url(signed, api=True)
+    assert "deadbeefcafe" not in stored and "AKIAEXAMPLE" not in stored
+    assert "X-Amz-Expires=60" in stored  # only the credentials go

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 from dataclasses import dataclass
@@ -99,12 +100,17 @@ def earlier_capture(conn: sqlite3.Connection, dest: Path, sha256: str) -> int | 
             manifest = json.loads(body or "{}")
         except ValueError:
             continue
-        if manifest.get("sha256") == sha256 and manifest.get("path") == str(dest):
+        if manifest.get("sha256") == sha256 and Path(str(manifest.get("path", ""))).name in (
+            dest.name,
+            dest.name + ".new",
+        ):
             return int(capture_id)
     return None
 
 
-def _ua_retry_allowed(config: Config, url: str) -> bool:
+def _ua_allowed_for(config: Config, url: str) -> bool:
+    """The browser-style User-Agent may go only to a host named in the config, and is tested for
+    each address a request is actually sent to (a redirect can lead elsewhere)."""
     ref = config.reference
     host = (urlsplit(url).hostname or "").lower()
     return bool(ref.download_user_agent) and host in {
@@ -112,8 +118,20 @@ def _ua_retry_allowed(config: Config, url: str) -> bool:
     }
 
 
+_REFUSAL_STATUS = re.compile(r"HTTP (401|403|406)\b")
+
+
+def _is_refusal(reason: str) -> bool:
+    """A refusal (401, 403 or 406, or a web page where a file should be): the only things a
+    different User-Agent could change. A timeout, a budget wait or a 5xx is not one."""
+    return bool(_REFUSAL_STATUS.search(reason)) or "web page" in reason
+
+
 def fetch(ctx: Context, dataset: str, part: Part, *, refresh: bool = False) -> Fetched:
-    """Download one file (or find it already there) and say what came of it."""
+    """Download one file (or find it already there) and say what came of it.
+
+    The download goes to ``<file>.new`` and replaces the loaded file only after it has passed the
+    leading-bytes check, so a refusal (or a web page) never touches a good copy already on disk."""
     config, conn, capture = ctx.config, ctx.db, ctx.capture
     if conn is None or capture is None:
         raise RuntimeError("the reference loaders need the database and the capture client")
@@ -143,17 +161,20 @@ def fetch(ctx: Context, dataset: str, part: Part, *, refresh: bool = False) -> F
                 f"{resolved.size / 1e9:.1f} GB is over reference.max_gb "
                 f"({config.reference.max_gb:g})",
             )  # fmt: skip
-    attempts: list[dict[str, str]] = [{}]
-    if _ua_retry_allowed(config, part.url):
-        attempts.append({"User-Agent": config.reference.download_user_agent})
+    staged = dest.with_name(dest.name + ".new")
     last_reason = first_error
-    for extra in attempts:
-        target, record = url, None
+    for override in (False, True):
+        if override and not (_is_refusal(last_reason) and _ua_allowed_for(config, part.url)):
+            break  # the second attempt is for a refusal from a listed host, nothing else
+        target, record, used = url, None, False
         try:
             for _hop in range(4):  # a download does not follow redirects: ask again from each
+                headers = None
+                if override and _ua_allowed_for(config, target):
+                    headers, used = {"User-Agent": config.reference.download_user_agent}, True
                 try:
                     record = capture.download(
-                        target, dest, stage="reference", row_id=None, extra_headers=extra or None
+                        target, staged, stage="reference", row_id=None, extra_headers=headers
                     )
                     break
                 except CaptureRedirect as moved:
@@ -162,16 +183,17 @@ def fetch(ctx: Context, dataset: str, part: Part, *, refresh: bool = False) -> F
                 raise CaptureError("too many redirects")
         except CaptureError as exc:
             last_reason = str(exc)
-            dest.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
             continue
-        problem = sniff(dest, part.kind)
+        problem = sniff(staged, part.kind)
         if problem is None:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            staged.replace(dest)  # only now does the new file replace the old one
             return Fetched(part, dest, "ok", capture_id=int(record.capture_id),
                            sha256=sha256_file(dest), size=dest.stat().st_size,
-                           ua_override=bool(extra))  # fmt: skip
+                           ua_override=used)  # fmt: skip
         last_reason = problem
-        rejected = dest.with_name(dest.name + ".rejected")
-        shutil.move(str(dest), str(rejected))  # kept for inspection, never loaded
+        shutil.move(str(staged), str(dest.with_name(dest.name + ".rejected")))  # kept to inspect
     return Fetched(part, None, "gated", f"refused: {last_reason}")
 
 

@@ -138,6 +138,11 @@ def main(
     state = AppState(config=config, config_error=config_error)
     ctx.obj = state
     register_builtin()
+    if config is not None:  # the pinned WhatsMyName file lives under paths.bulk, not in the repo
+        from efp import instruments
+        from efp.reference.wmn import wmn_path
+
+        instruments.override("wmn_data", str(wmn_path(config)))
 
     secret_values: list[str] = []
     if config is not None:

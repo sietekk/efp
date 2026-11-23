@@ -1,4 +1,4 @@
-# Sources the court stage reads (build 07)
+# Sources (court stage, build 07; reference datasets, build 11)
 
 Every one of these is reached only through the capture layer (`efp/capture.py`): budgeted per
 domain, every response a `captures` row. "Verified" below means the

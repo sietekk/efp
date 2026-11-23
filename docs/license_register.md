@@ -11,7 +11,7 @@ Spec section 12. Build 11 adds the reference datasets; build 20 completes the re
 | OpenStates people repository | CC0 1.0 | None |
 | DIME v4.0 (Stanford) | ODC-BY 1.0 | Attribute |
 | Harvard local elections database (OSF `mv5e6`) | CC-BY 4.0 | Attribute; its party values are estimates and are flagged `party_imputed`, never asserted |
-| FollowTheMoney state candidates | Attribution | Attribute FollowTheMoney / National Institute on Money in Politics; mirrored because the site is unmaintained |
+| FollowTheMoney state candidates | Attribution | Attribute FollowTheMoney / National Institute on Money in Politics; the site is unmaintained (not mirrored yet: no key or file) |
 | WhatsMyName `wmn-data.json` | CC BY-SA 4.0 | Attribute Micah Hoffman; a published allowlist derived from it is share-alike |
 | nameparser (library) | LGPL | Fine as an imported library; not vendored |
 | OpenFEC, Congress.gov, OpenStates APIs | Terms of each service; free keys | Enrichment of confirmed matches only; budgets at 80% of the published limits |

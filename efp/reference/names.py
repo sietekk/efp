@@ -34,9 +34,9 @@ def split_name(full: str | None) -> Split:
     text = (full or "").strip()
     if not text:
         return Split("", "", "")
-    try:
-        from nameparser import parse
+    from nameparser import parse  # 3.x; an ImportError is a broken install, never a fallback
 
+    try:
         parsed = parse(text)
         family, given, middle = str(parsed.family), str(parsed.given), str(parsed.middle)
     except Exception:  # a name the parser cannot read is still a name

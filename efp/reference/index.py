@@ -112,3 +112,17 @@ def coverage_by_source_year(conn: sqlite3.Connection) -> list[tuple[str, int, in
         "SELECT c.source, y.n, count(*) FROM ref_candidates_all c JOIN y "
         "ON y.n BETWEEN c.first_year AND c.last_year GROUP BY 1, 2 ORDER BY 1, 2"
     ).fetchall()
+
+
+def expected_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """What each source would contribute if the index were rebuilt now."""
+    return {
+        source: int(conn.execute(f"SELECT count(*) FROM ({select})").fetchone()[0])
+        for source, select in _SOURCES.items()
+    }
+
+
+def is_stale(conn: sqlite3.Connection) -> bool:
+    """True when the index does not match the current loads (a load happened since it was built)."""
+    have = counts(conn)
+    return any(have.get(source, 0) != n for source, n in expected_counts(conn).items())

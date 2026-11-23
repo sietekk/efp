@@ -184,7 +184,21 @@ class CensusPopulation(Dataset):
         "State Population by Characteristics."
     )
     version = "2020-2023"
-    known: ClassVar[list[Known]] = []
+    known: ClassVar[list[Known]] = [
+        Known(
+            "Connecticut civilian population, 2023 (about 3.6 million)",
+            "SELECT sum(count) FROM ref_population_current WHERE state = 'CT' AND year = 2023",
+            (),
+            3_600_000,
+            200_000,
+        ),
+        Known(
+            "jurisdictions in the state file (50 states and DC)",
+            "SELECT count(DISTINCT state) FROM ref_population_current",
+            (),
+            51,
+        ),
+    ]
 
     def parts(self, ctx: Context) -> list[Part]:
         return [Part("", ctx.config.reference.census_population_url, "state_agesex.csv", "csv")]

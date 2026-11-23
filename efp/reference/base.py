@@ -41,7 +41,7 @@ class Known:
     description: str
     sql: str
     params: tuple[Any, ...]
-    expected: float
+    expected: float | str
     tolerance: float = 0.0
 
 
@@ -185,11 +185,17 @@ class Dataset:
             return LoadResult(self.name, part.key, "unchanged", "same file already loaded",
                               int(same[1] or 0), int(same[0]))  # fmt: skip
         capture_id = files.earlier_capture(conn, path, sha)
+        url = part.url
+        if not url and capture_id is not None:  # a file found through a listing: where it came from
+            got = conn.execute(
+                "SELECT url_requested FROM captures WHERE capture_id = ?", (capture_id,)
+            ).fetchone()
+            url = str(got[0]).split("?")[0] if got else ""  # never a signed query
         cursor = conn.execute(
             "INSERT INTO ref_sources (dataset, part, url, version, retrieved_at, file_sha256, "
             "file_size, capture_id, license, attribution, status, current, loaded_at) "
             "VALUES (?,?,?,?,?,?,?,?,?,?, 'failed', 0, ?)",
-            (self.name, part.key, part.url or None, self.version, files.now(), sha,
+            (self.name, part.key, url or None, self.version, files.now(), sha,
              path.stat().st_size, capture_id, self.license, self.attribution, files.now()),
         )  # fmt: skip
         load_id = int(cursor.lastrowid or 0)
@@ -296,7 +302,10 @@ class Dataset:
         for known in self.known:
             row = conn.execute(known.sql, known.params).fetchone()
             got = None if row is None else row[0]
-            ok = got is not None and abs(float(got) - known.expected) <= known.tolerance
+            if isinstance(known.expected, str):
+                ok = got is not None and str(got) == known.expected
+            else:
+                ok = got is not None and abs(float(got) - known.expected) <= known.tolerance
             out.append(
                 Check(f"known: {known.description}", ok, f"{got} (expected {known.expected})")
             )

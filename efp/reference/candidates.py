@@ -21,7 +21,7 @@ from typing import Any, ClassVar
 
 from efp.capture import CaptureError
 from efp.reference import files
-from efp.reference.base import Counter, Dataset, LayoutError, batches
+from efp.reference.base import Counter, Dataset, Known, LayoutError, batches
 from efp.reference.files import Fetched, Part
 from efp.reference.names import Split, split_name, split_parts
 from efp.reference.states import state_code
@@ -64,6 +64,22 @@ class FecCandidates(Dataset):
     license = "Public domain (Federal Election Commission)"
     attribution = "Federal candidates: Federal Election Commission, Candidate Master bulk files."
     version = "cycles"
+    known: ClassVar[list[Known]] = [
+        Known(
+            "FEC candidate P80001571, 2016 cycle: party REP",
+            "SELECT party FROM ref_fec_candidates_current "
+            "WHERE cand_id = 'P80001571' AND cycle = 2016",
+            (),
+            "REP",
+        ),
+        Known(
+            "FEC candidate P80000722, 2020 cycle: party DEM",
+            "SELECT party FROM ref_fec_candidates_current "
+            "WHERE cand_id = 'P80000722' AND cycle = 2020",
+            (),
+            "DEM",
+        ),
+    ]
 
     def parts(self, ctx: Context) -> list[Part]:
         ref = ctx.config.reference
@@ -111,6 +127,14 @@ class Congress(Dataset):
     license = "CC0 1.0 (congress-legislators, unitedstates project)"
     attribution = "Federal officeholders and ID crosswalk: the congress-legislators project (CC0)."
     version = "current+historical"
+    known: ClassVar[list[Known]] = [
+        Known(
+            "bioguide B000944: given name Sherrod",
+            "SELECT given FROM ref_congress_current WHERE bioguide = 'B000944'",
+            (),
+            "Sherrod",
+        )
+    ]
 
     def parts(self, ctx: Context) -> list[Part]:
         ref = ctx.config.reference
@@ -181,7 +205,12 @@ class OpenStates(Dataset):
     def read(self, ctx: Context, part: Part, path: Path, load_id: int) -> Counter:
         conn = ctx.db
         assert conn is not None  # noqa: S101
-        archive = zipfile.ZipFile(path)
+        with zipfile.ZipFile(path) as archive:
+            return self._read_archive(conn, archive, load_id)
+
+    def _read_archive(
+        self, conn: sqlite3.Connection, archive: zipfile.ZipFile, load_id: int
+    ) -> Counter:
         members = [n for n in archive.namelist() if _OS_MEMBER.search(n)]
         if not members:
             raise LayoutError(
@@ -440,7 +469,7 @@ class Ftm(Dataset):
     license = "Attribution (FollowTheMoney / National Institute on Money in Politics)"
     attribution = (
         "State candidates: FollowTheMoney, National Institute on Money in Politics "
-        "(followthemoney.org), mirrored because the site is no longer maintained."
+        "(followthemoney.org); the site is no longer maintained."
     )
     version = "through 2024"
     needs_url: ClassVar[str | None] = "ftm_url"

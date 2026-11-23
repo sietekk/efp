@@ -94,7 +94,7 @@ def test_census_population_is_banded_by_five_years_for_states_only(ctx, config, 
 def test_fec_candidates_names_are_split_and_the_cycle_is_the_files(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
     h.place(config, "fec_candidates", "cn24.zip", h.zip_bytes({"cn.txt": h.FEC_CN}))
     results = [r for r in loaded(ctx, "fec_candidates") if r.status == "loaded"]
-    assert [r.part for r in results] == ["2024"] and results[0].rows == 3
+    assert [r.part for r in results] == ["2024"] and results[0].rows == 4
     smith = conn.execute(
         "SELECT surname, given, middle, surname_key, party, state, office, cycle FROM ref_fec_candidates WHERE cand_id='H0CT01001'"
     ).fetchone()
@@ -107,7 +107,7 @@ def test_congress_crosswalk_and_terms(ctx, config, conn) -> None:  # type: ignor
     assert result.rows == 2
     row = conn.execute(
         "SELECT fec_ids, opensecrets, name_full, surname, given, first_year, last_year, state, party "
-        "FROM ref_congress WHERE bioguide='S000001'"
+        "FROM ref_congress WHERE bioguide='X999001'"
     ).fetchone()
     assert json.loads(row[0]) == ["H0CT01001", "S0CT00099"]
     assert row[1:] == ("N0000001", "John Q. Smith", "Smith", "John", 2005, 2013, "CT", "Democrat")
@@ -296,7 +296,7 @@ def test_the_candidate_index_unifies_every_source_in_one_shape(
     result = index.rebuild(conn)
     assert result.counts == {
         "dime": 2,
-        "fec": 3,
+        "fec": 4,
         "ftm": 2,
         "harvard_local": 2,
         "congress": 2,
@@ -316,7 +316,7 @@ def test_the_candidate_index_unifies_every_source_in_one_shape(
         2012,
         2014,
     ) in smith  # DIME's cycles collapse to one candidate
-    assert ("congress", "S000001", "2005-2013", 2005, 2013) in smith
+    assert ("congress", "X999001", "2005-2013", 2005, 2013) in smith
     imputed = rows(
         conn, "SELECT DISTINCT party_imputed FROM ref_candidates_all WHERE source='harvard_local'"
     )
@@ -408,3 +408,136 @@ def test_every_dataset_is_a_module_of_the_reference_chain_and_says_why_it_cannot
     assert all(m.registered for m in listed.values())
     assert not listed["reference.dime"].ok and "dime_url" in listed["reference.dime"].reason
     assert listed["reference.census_surnames"].ok
+
+
+# --- review round 1: the index follows the loads, known values, the chain, names -----------------------------
+
+
+def test_two_fec_cycles_of_one_candidate_collapse_to_one_index_row(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
+    h.place(
+        config,
+        "fec_candidates",
+        "cn22.zip",
+        h.zip_bytes({"cn.txt": h.FEC_CN.replace("|2024|", "|2022|")}),
+    )
+    h.place(config, "fec_candidates", "cn24.zip", h.zip_bytes({"cn.txt": h.FEC_CN}))
+    loaded(ctx, "fec_candidates")
+    index.rebuild(conn)
+    got = conn.execute(
+        "SELECT years, first_year, last_year FROM ref_candidates_all WHERE source_id = 'H0CT01001'"
+    ).fetchall()
+    assert got == [("2022-2024", 2022, 2024)]  # one candidate across cycles, one row
+
+
+def test_an_implausible_year_is_null_in_the_index_but_kept_in_the_source_table(
+    ctx, config, conn
+) -> None:  # type: ignore[no-untyped-def]
+    bad = h.FEC_CN.replace("|2024|CT|H|", "|2990|CT|H|")
+    h.place(config, "fec_candidates", "cn24.zip", h.zip_bytes({"cn.txt": bad}))
+    loaded(ctx, "fec_candidates")
+    index.rebuild(conn)
+    assert conn.execute(
+        "SELECT election_year FROM ref_fec_candidates WHERE cand_id='H0CT01001'"
+    ).fetchone() == (2990,)
+    assert conn.execute(
+        "SELECT first_year, last_year, years FROM ref_candidates_all WHERE source_id='H0CT01001'"
+    ).fetchone() == (None, None, None)
+
+
+def test_loading_a_candidate_dataset_rebuilds_the_index_and_a_stale_index_is_a_failed_selftest(
+    ctx, config, conn
+) -> None:  # type: ignore[no-untyped-def]
+    from efp.reference import ops
+
+    h.place(config, "congress", "legislators-current.yaml", h.CONGRESS_YAML)
+    ops.load(ctx, ["congress"])
+    assert index.counts(conn) == {"congress": 2} and not index.is_stale(conn)  # rebuilt by the load
+    assert all(c.ok for c in reference_checks(config, conn) if c.name == "reference.candidates_all")
+    h.place(config, "openstates", "people-main.zip", h.zip_bytes(h.OPENSTATES))
+    datasets()["openstates"].load(ctx)  # loaded without going through ops.load: the index is behind
+    assert index.is_stale(conn)
+    stale = next(c for c in reference_checks(config, conn) if c.name == "reference.candidates_all")
+    assert not stale.ok and stale.required and "STALE" in stale.detail
+
+
+def test_with_nothing_loaded_the_selftest_reports_and_fails_nothing(config, conn) -> None:  # type: ignore[no-untyped-def]
+    checks = reference_checks(config, conn)
+    assert checks and not [c for c in checks if not c.ok and c.required]
+    assert all(c.detail == "not loaded" or c.name == "reference.candidates_all" for c in checks)
+
+
+def test_known_values_run_on_the_candidate_and_population_data(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
+    h.place(
+        config,
+        "fec_candidates",
+        "cn16.zip",
+        h.zip_bytes({"cn.txt": h.FEC_CN.replace("|2024|", "|2016|")}),
+    )
+    h.place(config, "census_population", "state_agesex.csv", h.POPULATION_CSV)
+    loaded(ctx, "fec_candidates")
+    loaded(ctx, "census_population")
+    known = {c.name: c for c in reference_checks(config, conn) if c.name.startswith("known:")}
+    assert known["known: FEC candidate P80001571, 2016 cycle: party REP"].ok
+    assert not known[
+        "known: jurisdictions in the state file (50 states and DC)"
+    ].ok  # one state in the fixture
+    assert all(c.required for c in known.values())
+
+
+def test_verify_fails_when_the_recorded_file_is_missing(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
+    path = h.place(config, "wmn", "wmn-data.json", h.WMN_JSON)
+    loaded(ctx, "wmn")
+    path.unlink()
+    check = next(c for c in reference_checks(config, conn) if c.name == "reference.wmn")
+    assert not check.ok
+
+
+def test_the_reference_chain_in_config_decides_which_datasets_run(write_config) -> None:  # type: ignore[no-untyped-def]
+    from efp.config import load_config
+    from efp.reference import ops
+
+    only = load_config(
+        write_config({'"reference.ssa_names", ': "", '"reference.census_surnames", ': ""})
+    )
+    names = [d.name for d in ops.configured(only)]
+    assert "ssa_names" not in names and "census_surnames" not in names and "wmn" in names
+    with pytest.raises(ops.UnknownDataset):
+        ops.select(only, ["ssa_names"])
+
+
+def test_the_pinned_wmn_instrument_is_found_in_a_fresh_process_state(
+    config, conn, monkeypatch, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    from typer.testing import CliRunner
+
+    from efp import instruments
+    from efp.cli import app
+
+    h.place(config, "wmn", "wmn-data.json", h.WMN_JSON)
+    monkeypatch.setattr(
+        instruments, "_REGISTRY", dict(instruments._REGISTRY)
+    )  # undo after the test
+    monkeypatch.setenv("EFP_CONFIG", str(tmp_path / "config.toml"))
+    result = CliRunner().invoke(app, ["reference", "status"])
+    assert result.exit_code == 0, result.output
+    assert instruments.pin("wmn_data").files == ("wmn-data.json",)
+
+
+def test_names_need_nameparser_3_and_do_not_fall_back_silently(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    monkeypatch.setitem(sys.modules, "nameparser", None)  # an install without it
+    with pytest.raises(ImportError):
+        split_name("SMITH, JOHN")
+
+
+def test_a_hand_imported_file_records_where_it_came_from_as_the_dataset_url(
+    ctx, config, conn, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    from efp.reference import ops
+
+    mine = h.write(tmp_path / "h.csv", h.HARVARD_CSV)
+    ops.import_by_hand(ctx, "harvard_local", mine)
+    assert conn.execute(
+        "SELECT url FROM ref_sources WHERE dataset='harvard_local' AND status='loaded'"
+    ).fetchone() == ("manual:harvard_local/local_elections.csv",)

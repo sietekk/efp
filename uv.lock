@@ -1797,7 +1797,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=5" },
     { name = "maigret", marker = "extra == 'social'", specifier = ">=0.6" },
     { name = "mediacloud", specifier = ">=5.1" },
-    { name = "nameparser", specifier = ">=2.3" },
+    { name = "nameparser", specifier = ">=3.1" },
     { name = "naminter", marker = "extra == 'social'", specifier = ">=1.0.9" },
     { name = "ocrmypdf", marker = "extra == 'documents'", specifier = ">=17" },
     { name = "openpyxl", specifier = ">=3.1" },

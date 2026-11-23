@@ -51,15 +51,16 @@ FEC_CN = (
     "H0CT01001|SMITH, JOHN Q|DEM|2024|CT|H|01|I|C|C001|1 MAIN ST||HARTFORD|CT|06101\n"
     "S0CT00002|DOE, JANE|REP|2022|CT|S|00|C|C|C002|2 MAIN ST||HARTFORD|CT|06101\n"
     "P00000001|EXAMPLE, ALEX|IND|2024|US|P|00|O|N|C003|||||\n"
+    "P80001571|EXAMPLE, PAT|REP|2016|US|P|00|C|C|C004|||||\n"
 )
 CONGRESS_YAML = """\
-- id: {bioguide: S000001, fec: [H0CT01001, S0CT00099], opensecrets: N0000001, icpsr: 11111, govtrack: 400001}
+- id: {bioguide: X999001, fec: [H0CT01001, S0CT00099], opensecrets: N0000001, icpsr: 11111, govtrack: 400001}
   name: {first: John, last: Smith, middle: Q., official_full: John Q. Smith}
   bio: {birthday: '1960-05-01', gender: M}
   terms:
   - {type: rep, start: '2005-01-04', end: '2007-01-03', state: CT, party: Democrat, district: 1}
   - {type: sen, start: '2007-01-04', end: '2013-01-03', state: CT, party: Democrat}
-- id: {bioguide: D000002}
+- id: {bioguide: X999002}
   name: {first: Jane, last: Doe}
   terms:
   - {type: rep, start: '2019-01-03', end: '2021-01-03', state: NY, party: Republican, district: 3}

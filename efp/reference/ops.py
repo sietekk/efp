@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from efp import modules as chain
+from efp.config import Config
 from efp.reference import datasets, index
 from efp.reference.base import Dataset, LayoutError, LoadResult
 from efp.reference.files import Fetched, import_file
@@ -21,21 +23,33 @@ class UnknownDataset(Exception):
     pass
 
 
-def select(names: list[str] | None) -> list[Dataset]:
+def configured(config: Config) -> list[Dataset]:
+    """The datasets of the ``[stages.reference]`` chain, in its order (a module removed from the
+    chain in ``config.toml`` is not run)."""
     every = datasets()
+    names = [m.removeprefix("reference.") for m in chain.chains_for(config, "reference")[0].modules]
+    return [every[n] for n in names if n in every]
+
+
+def select(config: Config, names: list[str] | None) -> list[Dataset]:
+    active = configured(config)
     if not names:
-        return list(every.values())
-    missing = [n for n in names if n not in every]
+        return active
+    known = {d.name: d for d in active}
+    missing = [n for n in names if n not in known]
     if missing:
-        raise UnknownDataset(f"unknown dataset {missing}; known: {sorted(every)}")
-    return [every[n] for n in names]
+        raise UnknownDataset(
+            f"unknown or unconfigured dataset {missing}; the [stages.reference] chain has "
+            f"{sorted(known)}"
+        )
+    return [known[n] for n in names]
 
 
 def download(
     ctx: Context, names: list[str] | None = None, *, refresh: bool = False
 ) -> dict[str, list[Fetched]]:
     out: dict[str, list[Fetched]] = {}
-    for dataset in select(names):
+    for dataset in select(ctx.config, names):
         avail = dataset.available(ctx)
         if not avail.ok:
             out[dataset.name] = [
@@ -48,14 +62,18 @@ def download(
 
 def load(ctx: Context, names: list[str] | None = None) -> dict[str, list[LoadResult]]:
     out: dict[str, list[LoadResult]] = {}
-    for dataset in select(names):
+    for dataset in select(ctx.config, names):
         out[dataset.name] = dataset.load(ctx)
+    conn = ctx.db
+    assert conn is not None  # noqa: S101
+    if any(r.status == "loaded" for rs in out.values() for r in rs) or index.is_stale(conn):
+        index.rebuild(conn)  # the candidate index follows the current loads
     return out
 
 
 def verify(ctx: Context, names: list[str] | None = None) -> list[Check]:
     checks: list[Check] = []
-    for dataset in select(names):
+    for dataset in select(ctx.config, names):
         checks.extend(dataset.verify(ctx))
     return checks
 
@@ -64,7 +82,7 @@ def import_by_hand(
     ctx: Context, name: str, source: Path, key: str | None = None
 ) -> tuple[Fetched, list[LoadResult]]:
     """Copy a hand-downloaded file in, record it, and load it."""
-    (dataset,) = select([name])
+    (dataset,) = select(ctx.config, [name])
     try:
         part = dataset.import_part(ctx, source, key)
     except LayoutError as exc:
@@ -90,7 +108,7 @@ def status(ctx: Context) -> list[StatusRow]:
     conn = ctx.db
     assert conn is not None  # noqa: S101
     rows: list[StatusRow] = []
-    for dataset in select(None):
+    for dataset in select(ctx.config, None):
         avail = dataset.available(ctx)
         got = conn.execute(
             "SELECT status, COALESCE(SUM(CASE WHEN status = 'loaded' AND current = 1 "
