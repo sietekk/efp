@@ -53,6 +53,10 @@ doj_harvest_pages_per_row = 5
 ag_harvest_pages_per_row = 3
 ag_harvest_max_pages = 20
 ag_max_candidates = 5
+docket_terms_cleared = []
+docket_assisted_limit = 5
+docket_max_hits = 3
+docket_browser_image = "example/browsertrix:test"
 pacer_queue = "queues/pacer.csv"
 
 [rate_limits]

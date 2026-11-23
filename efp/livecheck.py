@@ -123,6 +123,23 @@ def _ag_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> list
     return out
 
 
+def _docket_live(capture: Capture, config: Config) -> list[Check]:
+    """One load of each cleared automated docket portal's entry point (never a search)."""
+    from efp.court.adapters.docket import adapters
+
+    out: list[Check] = []
+    for state, cls in adapters().items():
+        if state not in config.court.docket_terms_cleared:
+            continue
+        name = f"live: state docket {state}"
+        try:
+            record = capture.fetch(cls.portal, row_id=None, stage="selftest", kind="page")
+            out.append(Check(name, record.ok, f"entry point answered HTTP {record.http_status}"))
+        except CaptureError as exc:
+            out.append(Check(name, False, str(exc)))
+    return out
+
+
 def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
     capture = Capture(config, conn)
     checks: list[Check] = []
@@ -140,6 +157,7 @@ def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
             checks.append(Check("live: wayback cdx", False, str(exc)))
         checks.extend(_court_live(capture, config))
         checks.extend(_ag_live(capture, config, conn))
+        checks.extend(_docket_live(capture, config))
         digest = hashlib.sha256(b"efp selftest").digest()
         request = (
             TimestampRequestBuilder()

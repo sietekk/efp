@@ -110,6 +110,25 @@ def _ag_freshness(row: Row, ctx: Context, hosts: list[str]) -> str | None:
     return "past" if int(newest[:4]) > row.year + ctx.config.court.doj_year_slack else newest
 
 
+def _docket_state(row: Row, ctx: Context, hosts: list[str]) -> str | None:
+    """The docket portal's recorded mode, and whether the operator has cleared the state, for rows
+    the docket module can apply to: a probe that changes a state's mode, or a state added to
+    ``court.docket_terms_cleared``, makes ``--recheck`` revisit exactly those rows."""
+    from efp.court.adapters.docket.module import recorded_portal
+
+    state = doj.normalize_state(row.state)
+    if state is None or not row.year or ctx.db is None:
+        return None
+    found = recorded_portal(ctx.db, state)
+    if found is None:
+        return None
+    if classify(row.source.get("details"), row.source.get("source_raw"), hosts).kind == "federal":
+        return None
+    if not parse_name(str(row.source.get("name") or "")).usable:
+        return None
+    return f"{found[0]}:{state in ctx.config.court.docket_terms_cleared}"
+
+
 def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     """The row's inputs, the modules that can run, and the bulk dataset: a new quarter or a newly
     enabled module changes it, so ``--recheck`` revisits exactly the rows that could change."""
@@ -127,6 +146,7 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
         ctx.config.court.pin_report_urls,
         _doj_freshness(row, ctx, hosts),
         _ag_freshness(row, ctx, hosts),
+        _docket_state(row, ctx, hosts),
     )
 
 
@@ -136,8 +156,11 @@ def court_status(
     quota_exhausted: bool = False,
     errored: bool = False,
     coverage_gap: bool = False,
+    gated_portal: bool = False,
 ) -> str:
     """``primary_record`` needs a docket that is not weak; weak dockets are ``candidate_only``.
+    ``gated_portal`` (the docket portal is assisted or wants an account or a fee) wins over a
+    press release or other non-docket record, since the docket search never ran.
     A row whose search could not be completed (a module failed, the API budget ran out, the DOJ
     harvest did not reach its years) is ``deferred_error`` / ``deferred_quota`` /
     ``deferred_coverage`` even when a press release was found: the docket search is unfinished, so
@@ -153,6 +176,11 @@ def court_status(
         return "deferred_quota"
     if coverage_gap:
         return "deferred_coverage"  # the DOJ harvest did not reach the row's years
+    if gated_portal:
+        # the docket search did not run: the portal wants an account, a fee, or a human (assisted).
+        # A press release found meanwhile does not finish the row (like a deferral, this wins over
+        # ``press_release_only``): it stays visible as waiting on the operator
+        return "gated_portal"
     if any(not item.weak for item in located):
         return "press_release_only"  # a press release (or other record) that is not a candidate
     # only weak records (a release whose state is not corroborated, a report paragraph): a
@@ -372,9 +400,17 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     identifiers = _insert_identifiers(conn, row.row_id, state)
 
     errored = bool(run.errors)
-    coverage_gap = bool(state.flags.get("doj_coverage_gap") or state.flags.get("ag_coverage_gap"))
+    coverage_gap = bool(
+        state.flags.get("doj_coverage_gap")
+        or state.flags.get("ag_coverage_gap")
+        or state.flags.get("docket_coverage_gap")
+    )
     status = court_status(
-        state.located, quota_exhausted=quota_hit, errored=errored, coverage_gap=coverage_gap
+        state.located,
+        quota_exhausted=quota_hit,
+        errored=errored,
+        coverage_gap=coverage_gap,
+        gated_portal=bool(state.flags.get("gated_portal")),
     )
     summary: dict[str, Any] = {
         "court_status": status,
@@ -399,6 +435,9 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         "recap": {str(k): v for k, v in recap.items()},
         "pacer_queued": queued,
         "notes": state.notes[:10],
+        "assisted": state.flags.get(
+            "assisted"
+        ),  # the constructed query, for the operator's session
         "errors": run.errors[:10],  # a module that raised: the row is retried, not a negative
         "flags": state.flags,
         "modules": run.records,

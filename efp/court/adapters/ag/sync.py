@@ -25,19 +25,21 @@ def write(
     adapter_module: str | None,
     reason: str | None,
     verified: str | None = None,
+    kind: str = "ag",
 ) -> None:
-    """Insert or update one ``kind = 'ag'`` row (update first: the schema guard forbids upserts)."""
+    """Insert or update one ``state_adapters`` row (update first: the schema guard forbids
+    upserts). ``kind`` is ``'ag'`` (press releases) or ``'docket'`` (court dockets)."""
     stamp = verified or today()
     updated = conn.execute(
         "UPDATE state_adapters SET portal = ?, adapter_module = ?, mode = ?, reason = ?, "
-        "last_verified = ? WHERE state = ? AND kind = 'ag'",
-        (portal, adapter_module, mode, reason, stamp, state),
+        "last_verified = ? WHERE state = ? AND kind = ?",
+        (portal, adapter_module, mode, reason, stamp, state, kind),
     ).rowcount
     if not updated:
         conn.execute(
             "INSERT INTO state_adapters (state, kind, portal, adapter_module, mode, reason, "
-            "last_verified) VALUES (?, 'ag', ?, ?, ?, ?, ?)",
-            (state, portal, adapter_module, mode, reason, stamp),
+            "last_verified) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (state, kind, portal, adapter_module, mode, reason, stamp),
         )
     conn.commit()
 
@@ -75,9 +77,11 @@ def seed(conn: sqlite3.Connection) -> int:
     return len(adapters())
 
 
-def recorded(conn: sqlite3.Connection, state: str) -> tuple[str, str | None] | None:
-    """(mode, reason) recorded for a state's AG adapter, if any."""
+def recorded(
+    conn: sqlite3.Connection, state: str, kind: str = "ag"
+) -> tuple[str, str | None] | None:
+    """(mode, reason) recorded for a state's adapter of this kind, if any."""
     found = conn.execute(
-        "SELECT mode, reason FROM state_adapters WHERE state = ? AND kind = 'ag'", (state,)
+        "SELECT mode, reason FROM state_adapters WHERE state = ? AND kind = ?", (state, kind)
     ).fetchone()
     return None if found is None else (found[0], found[1])
