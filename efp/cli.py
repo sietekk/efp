@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import duckdb
 import typer
@@ -56,6 +56,8 @@ spn_app = typer.Typer(help="Save Page Now queue.", no_args_is_help=True)
 app.add_typer(spn_app, name="spn")
 links_app = typer.Typer(help="Link survival and the source-domain table.", no_args_is_help=True)
 app.add_typer(links_app, name="links")
+reference_app = typer.Typer(help="Reference datasets (build 11).", no_args_is_help=True)
+app.add_typer(reference_app, name="reference")
 court_app = typer.Typer(help="Court-record tools.", no_args_is_help=True)
 app.add_typer(court_app, name="court")
 bulk_app = typer.Typer(help="The CourtListener bulk-data index.", no_args_is_help=True)
@@ -1154,9 +1156,28 @@ def selftest(
     live: bool = typer.Option(
         False, "--live", help="Also run the checks that use the real network (CDX, RFC 3161)."
     ),
+    reference: bool = typer.Option(
+        False, "--reference", help="Check the reference datasets: counts, hashes, known values."
+    ),
 ) -> None:
     """Report versions, secrets present (names only), data directory, env file and extras."""
     state: AppState = ctx.obj
+    if reference:
+        from efp.reference.checks import reference_checks
+
+        if state.config is None:
+            typer.echo(f"configuration error: {state.config_error}", err=True)
+            raise typer.Exit(1)
+        ref_checks = reference_checks(state.config)
+        ref_width = max(len(c.name) for c in ref_checks)
+        for ref_check in ref_checks:
+            mark = "ok    " if ref_check.ok else ("FAILED" if ref_check.required else "absent")
+            typer.echo(f"[{mark}] {ref_check.name:<{ref_width}}  {ref_check.detail}")
+        ref_failed = [c for c in ref_checks if not c.ok and c.required]
+        typer.echo(f"\n{len(ref_checks)} check(s) run, {len(ref_failed)} failed")
+        if ref_failed:
+            raise typer.Exit(1)
+        return
     if db:
         if state.config is None:
             typer.echo(f"configuration error: {state.config_error}", err=True)
@@ -1188,3 +1209,142 @@ def selftest(
         )
     if strict and missing:
         raise typer.Exit(1)
+
+
+# --- reference datasets (build 11) ---------------------------------------------------------
+
+
+def _ref_context(state: AppState) -> tuple[Any, Any]:
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    return runner.make_context(config, conn), conn
+
+
+_DATASET_OPT: Any = typer.Option(
+    None, "--dataset", "-d", help="Only these datasets (repeatable). Default: all."
+)
+
+
+@reference_app.command("status")
+def reference_status(ctx: typer.Context) -> None:
+    """Each dataset: whether it can run, its last load and why not."""
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        for row in ops.status(run_ctx):
+            note = f"  ({row.reason})" if row.reason and row.status != "loaded" else ""
+            typer.echo(
+                f"{row.dataset:<18} {row.status:<10} {row.rows:>11,} rows  "
+                f"{row.loaded_at[:10]:<10} {row.sha}{note}"
+            )
+    finally:
+        conn.close()
+
+
+@reference_app.command("download")
+def reference_download(
+    ctx: typer.Context,
+    dataset: list[str] | None = _DATASET_OPT,
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Download again even if the file is here."
+    ),
+) -> None:
+    """Download the bulk files through the capture layer (each recorded as a capture)."""
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        for name, fetched in ops.download(run_ctx, dataset, refresh=refresh).items():
+            for f in fetched:
+                label = f"{name}{' ' + f.part.key if f.part.key else ''}"
+                size = f"{(f.size or 0) / 1e6:8.1f} MB" if f.size else " " * 11
+                how = (
+                    " (cached)"
+                    if f.from_cache
+                    else (" (browser User-Agent)" if f.ua_override else "")
+                )
+                typer.echo(f"{label:<28} {f.status:<8} {size}{how} {f.reason}")
+    finally:
+        conn.close()
+
+
+@reference_app.command("load")
+def reference_load(ctx: typer.Context, dataset: list[str] | None = _DATASET_OPT) -> None:
+    """Load the downloaded files into the ref_* tables (a byte-identical file is a no-op)."""
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        for name, results in ops.load(run_ctx, dataset).items():
+            for r in results:
+                label = f"{name}{' ' + r.part if r.part else ''}"
+                typer.echo(f"{label:<28} {r.status:<10} {r.rows:>11,} rows  {r.reason}")
+    finally:
+        conn.close()
+
+
+@reference_app.command("verify")
+def reference_verify(ctx: typer.Context, dataset: list[str] | None = _DATASET_OPT) -> None:
+    """Row counts and file hashes of every current load."""
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        checks = ops.verify(run_ctx, dataset)
+        for check in checks:
+            typer.echo(f"{'ok  ' if check.ok else 'FAIL'} {check.name}: {check.detail}")
+        if any(not c.ok and c.required for c in checks):
+            raise typer.Exit(1)
+    finally:
+        conn.close()
+
+
+@reference_app.command("import")
+def reference_import(
+    ctx: typer.Context,
+    dataset: str = typer.Argument(..., help="Dataset name, e.g. census_surnames."),
+    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="The file you downloaded."),
+    part: str | None = typer.Option(
+        None, "--part", help="Which file of the dataset, if it has several."
+    ),
+) -> None:
+    """Take a file downloaded by hand (for a site that refuses automated downloads) and load it."""
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        try:
+            fetched, loaded = ops.import_by_hand(run_ctx, dataset, file, part)
+        except ops.UnknownDataset as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from None
+        if fetched.status != "ok":
+            typer.echo(f"not imported: {fetched.reason}", err=True)
+            raise typer.Exit(1)
+        typer.echo(
+            f"imported {file.name} ({(fetched.size or 0) / 1e6:.1f} MB, sha256 {fetched.sha256})"
+        )
+        for r in loaded:
+            typer.echo(f"{dataset} {r.part}: {r.status} {r.rows:,} rows {r.reason}")
+    finally:
+        conn.close()
+
+
+@reference_app.command("index")
+def reference_index(ctx: typer.Context) -> None:
+    """Rebuild ref_candidates_all from the current loads and show where it is thin."""
+    from efp.reference import index as ref_index
+    from efp.reference import ops
+
+    run_ctx, conn = _ref_context(ctx.obj)
+    try:
+        result = ops.rebuild_index(run_ctx)
+        for source, n in sorted(result.counts.items()):
+            typer.echo(f"{source:<14} {n:>10,}")
+        typer.echo(f"{'total':<14} {result.total:>10,}")
+        thin = ref_index.coverage_by_state(conn)[:8]
+        if thin:
+            typer.echo("thinnest states: " + ", ".join(f"{s} {n:,}" for s, n, _a, _b in thin))
+    finally:
+        conn.close()

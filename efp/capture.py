@@ -108,6 +108,16 @@ _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
 
 @dataclass(frozen=True)
+class ResolvedUrl:
+    """Where a URL finally points, and what a ``HEAD`` there said (size may be unknown)."""
+
+    url: str
+    status: int
+    size: int | None
+    content_type: str | None
+
+
+@dataclass(frozen=True)
 class LlmResult:
     """What one model call returned, and the capture that holds its request and response."""
 
@@ -510,9 +520,12 @@ class Capture:
         stage: str,
         row_id: int | None = None,
         expected_size: int | None = None,
+        extra_headers: Mapping[str, str] | None = None,
         _resumes: int = 0,
     ) -> CaptureRecord:
-        """Stream a large file to ``dest`` (resumable), hashing as it goes.
+        """Stream a large file to ``dest`` (resumable), hashing as it goes. ``extra_headers`` are
+        sent with the request (a per-host ``User-Agent`` override is the one use), and a manifest
+        that used them says so, so the capture records how the file was obtained.
 
         Bulk datasets run to tens of gigabytes, so they are not copied into the WARC or the
         content store. The call still takes the domain's budget and is recorded: the ``captures``
@@ -534,6 +547,7 @@ class Capture:
             part.unlink()  # longer than the file can be: not a prefix of it, start over
             digest, have = hashlib.sha256(), 0
         headers = {"Range": f"bytes={have}-"} if have else {}
+        override = dict(extra_headers or {})
         tag_file = part.with_name(part.name + ".etag")  # the validator the part was started under
         tag = ""
         if have and tag_file.is_file():
@@ -556,7 +570,7 @@ class Capture:
         if expected_size is not None and have == expected_size:
             status = 200  # a complete .part (killed before the rename): finalize without a request
         else:
-            response = self._open_download(url, headers)
+            response = self._open_download(url, {**headers, **override})
             with response:
                 status = response.status_code
                 if status == 416 and have:
@@ -628,6 +642,7 @@ class Capture:
                             stage=stage,
                             row_id=row_id,
                             expected_size=expected_size,
+                            extra_headers=extra_headers,
                             _resumes=_resumes + 1,
                         )
                     etag = response.headers.get("ETag")
@@ -644,6 +659,9 @@ class Capture:
             "sha256": digest.hexdigest(),
             "etag": etag,
             "last_modified": modified,
+            "headers_overridden": sorted(
+                override
+            ),  # names only: which headers were not the default
         }
         return self.store_bytes(
             json.dumps(manifest, sort_keys=True).encode(),
@@ -657,6 +675,36 @@ class Capture:
             tool_version=package_version(),
             headers=manifest,
         )
+
+    def resolve_url(self, url: str, *, max_hops: int = 5) -> ResolvedUrl:
+        """Follow redirects with ``HEAD`` (budgeted like any request) and say where the file lives
+        and how big it is, so a download can be made from the final address (``download`` does not
+        follow redirects) and refused beforehand if it is too large. Nothing is stored."""
+        current = url
+        for _hop in range(max_hops + 1):
+            try:
+                with self.session.cache_disabled():
+                    response = self.session.head(
+                        current,
+                        timeout=self.config.capture.timeout_seconds,
+                        allow_redirects=False,
+                    )
+            except RateLimitTimeout as exc:
+                raise CaptureBudgetError(str(exc)) from exc
+            except requests.RequestException as exc:
+                raise CaptureError(scrub_text(f"{redact_url(current, api=True)}: {exc}")) from exc
+            with response:
+                if response.status_code in _REDIRECT_STATUS and response.headers.get("Location"):
+                    current = urljoin(current, response.headers["Location"])
+                    continue
+                length = response.headers.get("Content-Length", "")
+                return ResolvedUrl(
+                    url=current,
+                    status=response.status_code,
+                    size=int(length) if length.isdigit() else None,
+                    content_type=response.headers.get("Content-Type"),
+                )
+        raise CaptureError(f"{redact_url(url, api=True)}: too many redirects")
 
     def _open_download(self, url: str, headers: dict[str, str]) -> requests.Response:
         """GET for a download, retried with a pause on 429/5xx like ``fetch`` (a download is the

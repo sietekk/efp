@@ -172,7 +172,35 @@ class Stages(_Section):
     social: SocialStage
     extract: ExtractStage
     archive: _Chain
+    reference: _Chain
     validate_: ValidateStage = Field(alias="validate")
+
+
+class ReferenceCfg(_Section):
+    max_gb: float = Field(gt=0)
+    download_user_agent: str
+    download_user_agent_hosts: list[str]
+    fec_first_cycle: int = Field(ge=1980)
+    fec_last_cycle: int = Field(ge=1980)
+    census_surnames_url: str
+    ssa_national_url: str
+    ssa_state_url: str
+    census_population_url: str
+    fec_url_template: str
+    congress_current_url: str
+    congress_historical_url: str
+    openstates_archive_url: str
+    wmn_url: str
+    harvard_osf_node: str
+    dime_url: str
+    ftm_url: str
+
+    @field_validator("download_user_agent")
+    @classmethod
+    def _ua_balanced(cls, v: str) -> str:
+        if v.count("(") != v.count(")"):
+            raise ValueError("download_user_agent has unbalanced parentheses")
+        return v
 
 
 class IdentityCfg(_Section):
@@ -295,6 +323,7 @@ class Config(_Section):
     stages: Stages
     identity: IdentityCfg
     documents: DocumentsCfg
+    reference: ReferenceCfg
     llm: Llm
     search: Search
     export: Export

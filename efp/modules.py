@@ -124,7 +124,7 @@ _CHAIN_KEYS: dict[str, tuple[tuple[str, str], ...]] = {
 
 # Configured chains that belong to commands rather than to runner stages; ``efp modules`` lists
 # them too, because the gated-source list in the report must not leave them out.
-COMMAND_CHAINS = ("import", "archive", "validate")
+COMMAND_CHAINS = ("import", "archive", "validate", "reference")
 _ATTR = {"import": "import_", "validate": "validate_"}  # keyword / BaseModel clashes
 
 

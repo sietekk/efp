@@ -50,6 +50,18 @@ EXPECTED_TABLES: tuple[str, ...] = (
     # documents (0010)
     "document_pages",
     "llm_calls",
+    # reference datasets (0011)
+    "ref_sources",
+    "ref_surname_freq",
+    "ref_given_freq",
+    "ref_population",
+    "ref_dime",
+    "ref_fec_candidates",
+    "ref_ftm",
+    "ref_local",
+    "ref_congress",
+    "ref_state_leg",
+    "ref_candidates_all",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -88,6 +100,23 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_llm_calls_row",
     "idx_llm_calls_capture",
     "idx_documents_one_current",
+    # reference datasets (0011)
+    "idx_ref_sources_dataset",
+    "idx_ref_sources_capture",
+    "idx_ref_sources_loaded_file",
+    "idx_ref_surname_load",
+    "idx_ref_given_load",
+    "idx_ref_given_state",
+    "idx_ref_population_load",
+    "idx_ref_dime_load",
+    "idx_ref_fec_load",
+    "idx_ref_ftm_load",
+    "idx_ref_local_load",
+    "idx_ref_congress_load",
+    "idx_ref_state_leg_load",
+    "idx_ref_candidates_surname",
+    "idx_ref_candidates_source",
+    "idx_ref_candidates_load",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (
