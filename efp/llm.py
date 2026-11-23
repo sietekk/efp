@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +35,8 @@ from efp.config import Config
 log = logging.getLogger(__name__)
 UNLOGGED = "llm_unlogged.jsonl"  # in paths.logs: calls the database could not record
 LOG_ATTEMPTS = 3
+_LEDGER_MARK = "from the fallback ledger: "
+_LEDGER_ID = re.compile(r"\[from the fallback ledger: ([0-9a-f]{32})\]")
 
 TEMPERATURE_POLICY = "omitted"  # in every request signature: a change here revisits rows
 TEMPERATURE_NOTE = (
@@ -86,6 +90,16 @@ def _unlogged_records(config: Config) -> list[dict[str, Any]]:
     return out
 
 
+def _ledger_ids_in_table(conn: sqlite3.Connection) -> set[str]:
+    """The fallback-ledger records already moved into ``llm_calls`` (their rows carry the id)."""
+    ids: set[str] = set()
+    for (error,) in conn.execute(
+        "SELECT error FROM llm_calls WHERE error LIKE ?", (f"%{_LEDGER_MARK}%",)
+    ):
+        ids.update(_LEDGER_ID.findall(str(error)))
+    return ids
+
+
 def spent_this_month(
     conn: sqlite3.Connection,
     now: datetime | None = None,
@@ -103,10 +117,13 @@ def spent_this_month(
     ).fetchone()
     total = float(row[0])
     if config is not None:
+        moved = _ledger_ids_in_table(conn)  # moved already: counted in the table, not twice
         total += sum(
             float(r.get("cost", 0))
             for r in _unlogged_records(config)
-            if str(r.get("called_at", "")) >= start and purpose in (None, r.get("purpose"))
+            if str(r.get("called_at", "")) >= start
+            and purpose in (None, r.get("purpose"))
+            and r.get("ledger_id") not in moved
         )
     return total
 
@@ -219,6 +236,7 @@ def _record(
             time.sleep(0.2 * (attempt + 1))
     message = f"llm_calls could not be written ({type(last).__name__}); cost kept in {UNLOGGED}"
     record = {
+        "ledger_id": uuid.uuid4().hex,  # moving it into llm_calls twice is impossible: see flush
         "called_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "cost": fields.get("cost"),
         **{
@@ -246,9 +264,13 @@ def flush_unlogged(conn: sqlite3.Connection, config: Config) -> int:
     records = _unlogged_records(config)
     if not records:
         return 0
+    already = _ledger_ids_in_table(conn)
     kept: list[dict[str, Any]] = []
     moved = 0
     for r in records:
+        ledger_id = r.get("ledger_id")
+        if ledger_id in already:
+            continue  # a previous flush moved it but could not tidy the file: never insert twice
         try:
             log_call(
                 conn,
@@ -264,7 +286,14 @@ def flush_unlogged(conn: sqlite3.Connection, config: Config) -> int:
                 cost=float(r.get("cost") or 0),
                 request_id=r.get("request_id"),
                 ok=bool(r.get("ok")),
-                error=(str(r.get("error") or "") + " [from the fallback ledger]").strip(),
+                error=(
+                    str(r.get("error") or "")
+                    + (
+                        f" [{_LEDGER_MARK}{ledger_id}]"
+                        if ledger_id
+                        else " [from the fallback ledger]"
+                    )
+                ).strip(),
             )
             moved += 1
         except sqlite3.Error:
@@ -277,7 +306,7 @@ def flush_unlogged(conn: sqlite3.Connection, config: Config) -> int:
         else:
             path.unlink(missing_ok=True)
     except OSError:
-        pass
+        log.warning("could not tidy %s; moved records are skipped by id next time", UNLOGGED)
     return moved
 
 

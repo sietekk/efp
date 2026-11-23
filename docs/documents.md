@@ -9,7 +9,10 @@ survive OCR" is spec section 7.
 Every PDF the court stage captured for a row, found through `court_records_current`: a record's own
 capture (a PIN report), the filings a RECAP docket lists, the capture ids in a state docket's
 `basis_json.document_captures`, and any capture with `manual_source` (build 14's import). A capture
-counts as a PDF when its body starts with `%PDF-` in the first kilobyte. The captured PDF in the
+counts as a PDF when its body starts with `%PDF-` in the first kilobyte. A body that cannot be
+opened at all is kept (and reported as unreadable, with any earlier text left current) unless its
+content type is plainly something else (`text/html`, say): a PDF served as `application/octet-stream`,
+or a manual import with no type, must not vanish on a momentary disk error. The captured PDF in the
 store is only ever read.
 
 ## The ladder, per page
@@ -63,7 +66,8 @@ every kind of failure) lives in `efp/llm.py` (`call_model`), the one path the st
 replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). If the `llm_calls` write fails (a locked database), `call_model` retries it, then writes the call
 to a fallback ledger, `llm_unlogged.jsonl` in `paths.logs`, returns the answer intact with
 `CallResult.log_error` set, and counts the ledger against the cap; the next call moves it into
-`llm_calls`. A billed answer is never discarded unaccounted.
+`llm_calls`, once: each ledger record has an id that the moved row carries, so a flush that cannot
+tidy the file never inserts a call twice and the cap never counts it twice. A billed answer is never discarded unaccounted.
 
 `call_model` itself refuses a call the cap cannot afford (no API call, no log row), so no caller can
 overspend by forgetting to check. A call is made only if this month's logged spend plus the call's worst-case

@@ -1348,3 +1348,79 @@ def test_a_billed_answer_survives_a_ledger_that_stays_broken_and_counts_against_
         in conn.execute("SELECT error FROM llm_calls ORDER BY call_id").fetchone()[0]
     )
     assert not llm.unlogged_path(config).exists()
+
+
+# --- review round 11: unopenable captures that are not typed as PDF; an idempotent ledger flush ---------------
+
+
+@pytest.mark.parametrize("content_type", ["application/octet-stream", ""])
+def test_a_pdf_not_typed_as_pdf_keeps_its_text_through_a_momentary_disk_error(
+    content_type: str, write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config = doc_config(write_config)
+    add_row(conn)
+    capture_id = add_filing(
+        conn, config, pdfgen.born_digital([pdfgen.LINES_A]), content_type=content_type
+    )
+    assert run_row(config, conn).summary_json["documents_status"] == "read"
+    sha = conn.execute(
+        "SELECT content_sha256 FROM captures WHERE capture_id = ?", (capture_id,)
+    ).fetchone()[0]
+    path = store_path(sha, config.paths.store)
+    hidden = path.with_name(path.name + ".away")
+    path.rename(hidden)  # the store momentarily cannot open it
+    try:
+        again = run_row(config, conn)
+    finally:
+        hidden.rename(path)
+    assert again.summary_json["documents"][0]["kept_previous_text"] is True
+    assert again.input_hash.endswith(":unreadable")  # retried by --recheck
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM documents WHERE current = 1").fetchone()[0] == 1
+
+
+def test_an_unopenable_capture_that_is_plainly_a_web_page_is_still_ignored(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from tests.documents_helpers import store_capture
+
+    config = doc_config(write_config)
+    add_row(conn)
+    html = store_capture(conn, config, b"<html>x</html>", content_type="text/html")
+    conn.execute(
+        "INSERT INTO court_records (row_id, source_kind, document_kind, capture_id, found_at) "
+        "VALUES (1, 'doj_release', 'release', ?, '2026-01-01T00:00:00+00:00')",
+        (html,),
+    )
+    conn.commit()
+    sha = conn.execute(
+        "SELECT content_sha256 FROM captures WHERE capture_id = ?", (html,)
+    ).fetchone()[0]
+    store_path(sha, config.paths.store).unlink()
+    assert run_row(config, conn).summary_json["documents_status"] == "no_documents"
+
+
+def test_a_flush_that_cannot_tidy_the_ledger_never_inserts_a_call_twice(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = doc_config(write_config, **SONNET)
+    real = llm.log_call
+
+    def broken(*a: Any, **k: Any) -> int:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(llm, "log_call", broken)
+    monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+    done = _model_call(config, conn, monkeypatch)  # one billed call, only in the fallback ledger
+    monkeypatch.setattr(llm, "log_call", real)
+
+    def cannot_unlink(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(Path, "unlink", cannot_unlink)
+    assert llm.flush_unlogged(conn, config) == 1  # moved into llm_calls ...
+    assert llm.unlogged_path(config).exists()  # ... but the file could not be tidied
+    assert llm.spent_this_month(conn, config=config) == pytest.approx(done.cost)  # not double
+    assert llm.flush_unlogged(conn, config) == 0  # the next flush skips it by id
+    assert conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 1
+    assert llm.spent_this_month(conn, config=config) == pytest.approx(done.cost)

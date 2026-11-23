@@ -123,8 +123,21 @@ def pdf_inputs(conn: sqlite3.Connection, ctx: Context, row_id: int) -> list[PdfI
             with path.open("rb") as handle:
                 head = handle.read(1024)
         except OSError:
-            if "pdf" in content_type.lower():
-                out.append(PdfInput(capture_id, record_id, sha, path))  # reported as unreadable
+            # The body cannot be opened, so its type cannot be told from its bytes. Keep it (it is
+            # then reported as unreadable, and any earlier text stays) unless it is plainly not a
+            # PDF: the server's content type is whatever it sent, and a PDF served as
+            # application/octet-stream, or with none (a manual import), must not vanish on a
+            # momentary disk error. A PDF this stage already read is always kept.
+            known = conn.execute(
+                "SELECT 1 FROM documents WHERE row_id = ? AND capture_id = ? LIMIT 1",
+                (row_id, capture_id),
+            ).fetchone()
+            lowered = content_type.lower()
+            plainly_other = bool(lowered) and not any(
+                k in lowered for k in ("pdf", "octet-stream", "binary", "force-download")
+            )
+            if known is not None or not plainly_other:
+                out.append(PdfInput(capture_id, record_id, sha, path))
             continue
         if pdfio.is_pdf(head):
             out.append(PdfInput(capture_id, record_id, sha, path))

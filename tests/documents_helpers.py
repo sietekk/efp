@@ -79,12 +79,18 @@ def add_filing(
     *,
     via: str = "record",
     docket_id: int = 77,
+    content_type: str = "application/pdf",
 ) -> int:
     """A PDF a court record points to. ``via``: record (pin_report capture), basis (a state docket
     lists it in basis_json.document_captures), filing (RECAP: a filing under a current docket),
     manual (an import with manual_source)."""
     capture_id = store_capture(
-        conn, config, data, row_id, manual_source="westlaw" if via == "manual" else None
+        conn,
+        config,
+        data,
+        row_id,
+        content_type=content_type,
+        manual_source="westlaw" if via == "manual" else None,
     )
     if via == "record":
         conn.execute(
