@@ -66,11 +66,12 @@ def _candidate(
     *,
     bbox_source: str = "word",
     confidences: list[float] | None = None,
+    flags: tuple[str, ...] = (),
 ) -> ModuleResult:
     score = score_lines(_texts(lines), confidences)
     if score.empty:
         return ModuleResult(Outcome.miss)
-    task.p.add(Candidate(method, lines, score, size, bbox_source))
+    task.p.add(Candidate(method, lines, score, size, bbox_source, flags))
     return ModuleResult(Outcome.hit, quality=score.score)
 
 
@@ -86,11 +87,11 @@ class Pdfplumber:
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task = _task(row)
-        lines, size = pdfio.native_page(task.d.path, task.page_no - 1)
+        lines, size = task.d.reader(task.d.path).native_page(task.page_no - 1)
         if lines:
             return _candidate(task, "native", lines, size)
         try:  # no text layer: a page with no ink is blank, not a failure
-            image = pdfio.render_page(task.d.path, task.page_no - 1, 100)
+            image = task.d.reader(task.d.path).render_page(task.page_no - 1, 100)
         except pdfio.PdfError:
             return ModuleResult(Outcome.miss)
         if pdfio.is_blank_image(image):
@@ -203,7 +204,7 @@ class Ocrmypdf:
                 doc.ocr_error = f"ocrmypdf could not start: {type(exc).__name__}"
         if doc.ocr_error or doc.ocr_path is None:
             return ModuleResult(Outcome.error, error=doc.ocr_error or "no OCR output")
-        lines, size = pdfio.native_page(doc.ocr_path, task.page_no - 1)
+        lines, size = doc.reader(doc.ocr_path).native_page(task.page_no - 1)
         return _candidate(task, "tesseract", lines, size)
 
 
@@ -272,10 +273,10 @@ class Paddleocr:
         task = _task(row)
         cfg = ctx.config.documents
         task.p.ran.add("paddleocr")
-        image = pdfio.render_page(task.d.path, task.page_no - 1, cfg.render_dpi)
+        image = task.d.reader(task.d.path).render_page(task.page_no - 1, cfg.render_dpi)
         result = _paddle(_lang(cfg.ocr_language)).predict(numpy.array(image))
         lines, confidences = parse_paddle(result, 72 / cfg.render_dpi)
-        size = pdfio.page_size(task.d.path, task.page_no - 1)
+        size = task.d.reader(task.d.path).page_size(task.page_no - 1)
         return _candidate(
             task, "paddleocr", lines, size, bbox_source="line_split", confidences=confidences
         )
@@ -352,7 +353,8 @@ class ClaudeTranscribe:
         if conn is None or capture is None or key is None:
             return ModuleResult(Outcome.error, error="no database, capture client or API key")
         image = pdfio.shrink(
-            pdfio.render_page(task.d.path, task.page_no - 1, cfg.render_dpi), MODEL_IMAGE_MAX_SIDE
+            task.d.reader(task.d.path).render_page(task.page_no - 1, cfg.render_dpi),
+            MODEL_IMAGE_MAX_SIDE,
         )
         data = base64.standard_b64encode(pdfio.png_bytes(image)).decode("ascii")
         system = PROMPT.read_bytes()
@@ -407,14 +409,16 @@ class ClaudeTranscribe:
         )  # fmt: skip
         if reply.stop_reason == "refusal" or not reply.text.strip():
             return ModuleResult(Outcome.miss)
-        size = pdfio.page_size(task.d.path, task.page_no - 1)
+        size = task.d.reader(task.d.path).page_size(task.page_no - 1)
         lines = [
             [Word(tok, 0.0, 0.0, size.width, size.height) for tok in ln.split()]
             for ln in reply.text.splitlines()
             if ln.split()
         ]
         task.d.transcribed_pages += 1
-        return _candidate(task, "model", lines, size, bbox_source="page")
+        # a reply cut off at max_tokens is part of a page: kept, and said so
+        cut = ("truncated",) if reply.stop_reason == "max_tokens" else ()
+        return _candidate(task, "model", lines, size, bbox_source="page", flags=cut)
 
 
 MODULES: tuple[Any, ...] = (Pdfplumber, Docling, Ocrmypdf, Paddleocr, ClaudeTranscribe)

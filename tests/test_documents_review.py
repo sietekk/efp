@@ -180,13 +180,13 @@ def test_the_tools_work_on_a_copy_not_on_the_stored_file(
     ).fetchone()[0]
     stored = store_path(sha, config.paths.store)
     opened: list[Path] = []
-    real = pdfio.native_page
+    real = pdfio.PdfReader.native_page
 
-    def spy(path: Path, index: int) -> Any:
-        opened.append(path)
-        return real(path, index)
+    def spy(self: pdfio.PdfReader, index: int) -> Any:
+        opened.append(self.path)
+        return real(self, index)
 
-    monkeypatch.setattr(pdfio, "native_page", spy)
+    monkeypatch.setattr(pdfio.PdfReader, "native_page", spy)
     run_row(config, conn)
     assert opened and all(p != stored for p in opened)
 
@@ -351,3 +351,79 @@ def test_running_ocr_leaves_pdfplumber_reading_standard_fonts_correctly(
         "WHERE d.row_id = 2"
     ).fetchall()
     assert got[0][0] == "native" and got[0][1] >= 0.85  # not "(cid:..)" garbage
+
+
+# --- review round 3 ---------------------------------------------------------------------------------------
+
+
+def test_the_checked_in_config_does_not_send_court_pages_off_the_machine() -> None:
+    from efp.config import load_config
+
+    repo = Path(__file__).resolve().parents[1]
+    for name in ("config.toml", "config.example.toml"):
+        assert load_config(repo / name).documents.llm_transcription_fallback is False, name
+
+
+def test_a_pdf_is_opened_once_for_all_its_pages(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.documents import pdfio
+
+    config = doc_config(write_config)
+    add_row(conn)
+    add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A] * 6))
+    opens: list[Path] = []
+    real = pdfio._open
+
+    def counting(path: Path) -> Any:
+        opens.append(path)
+        return real(path)
+
+    monkeypatch.setattr(pdfio, "_open", counting)
+    run_row(config, conn)
+    assert len(pages(conn)) == 6
+    assert len(opens) <= 2  # the page-count probe, then one handle shared by every page
+
+
+def pages(conn: sqlite3.Connection) -> list[tuple[Any, ...]]:
+    return conn.execute(
+        "SELECT page_no, method, quality, flagged FROM document_pages_current"
+    ).fetchall()
+
+
+def test_a_short_ocr_page_is_flagged_because_its_score_says_little(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from tests.documents_helpers import scripted, scripted_registry
+
+    config = doc_config(write_config, 'modules = ["documents.pdfplumber", "documents.ocrmypdf"]')
+    add_row(conn)
+    add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A, pdfgen.LINES_B]))
+    registry = scripted_registry(
+        native=scripted("documents.pdfplumber", {2: "Page 2"}),  # a short text-layer page
+        ocr=scripted("documents.ocrmypdf", {1: "xqzv kjwp lmnb"}),  # short garbled OCR
+    )
+    run_row(config, conn, registry=registry)
+    got = conn.execute(
+        "SELECT page_no, method, flagged, flag_reasons FROM document_pages_current ORDER BY page_no"
+    ).fetchall()
+    assert got[0][1:3] == ("tesseract", 1) and "short_unverified" in json.loads(got[0][3])
+    assert got[1][1:3] == ("native", 0)  # a short page read from the text layer is exact
+
+
+def test_a_model_reply_cut_off_at_max_tokens_is_flagged_truncated(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = Stub(stop="max_tokens")
+    monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
+    config = doc_config(
+        write_config,
+        'modules = ["documents.pdfplumber", "documents.ocrmypdf", "documents.claude_transcribe"]',
+        **SONNET,
+        **{"llm_transcription_fallback = true": "llm_transcription_fallback = true"},
+    )
+    add_row(conn)
+    add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A]))
+    run_row(config, conn, registry=model_registry())
+    reasons = conn.execute("SELECT flag_reasons FROM document_pages_current").fetchone()[0]
+    assert json.loads(reasons) == ["model_transcribed", "truncated"]

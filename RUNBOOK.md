@@ -125,9 +125,10 @@ flagged, and `efp run documents --recheck` re-reads those rows once the tool is 
 Docling and PaddleOCR download their model weights from the internet the first time they run, outside the
 capture layer (so not logged or rate-limited); run them once with the network on, then they work offline.
 
-Model transcription needs `ANTHROPIC_API_KEY` in `~/.config/efp/.env`. It reads only pages every other rung
-failed on, never exceeds `llm.max_monthly_usd`, and marks every page it writes for review. `efp status` shows
-this month's spend.
+Model transcription is **off** (`documents.llm_transcription_fallback = false`): turning it on sends page
+images of court documents to api.anthropic.com. If you choose to, set it to `true` and put `ANTHROPIC_API_KEY`
+in `~/.config/efp/.env`. It then reads only pages an installed OCR engine failed on, never exceeds
+`llm.max_monthly_usd`, and marks every page it writes for review. `efp status` shows this month's spend.
 
 ## 7. Where things land
 

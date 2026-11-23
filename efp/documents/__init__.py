@@ -151,6 +151,10 @@ def settle(task: PageTask, records: list[dict[str, Any]], threshold: float) -> P
         reasons.append("below_threshold")
     if best.method == "model":
         reasons.append("model_transcribed")  # model errors are silent: always for review
+    reasons.extend(best.flags)
+    if best.score.short and best.method in ("tesseract", "paddleocr"):
+        # a score from a few characters says little: letters of garbled OCR look clean
+        reasons.append("short_unverified")
     text = canonical.PageText(
         page,
         best.method,
@@ -185,7 +189,7 @@ def process_pdf(
         copy = Path(scratch) / "original.pdf"
         copy.write_bytes(original)
         try:
-            count = pdfio.page_count(copy)
+            count = pdfio.page_count(copy)  # (a throwaway open: the pages below share one)
         except pdfio.PdfError as exc:
             out.unreadable = str(exc)
             return out
@@ -227,6 +231,7 @@ def process_pdf(
             if settled.method in ("tesseract", "paddleocr"):
                 doc.engines.add(settled.method)
             out.pages.append(settled)
+        doc.close()  # the open PDFs (original and OCR copy) before the scratch directory goes
         # the OCR output lives in the scratch directory: read it before that is removed
         if doc.ocr_path is not None and any(p.method == "tesseract" for p in out.pages):
             out.ocr_bytes = doc.ocr_path.read_bytes()

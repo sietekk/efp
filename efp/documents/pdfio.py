@@ -51,11 +51,6 @@ def _open(path: Path) -> Any:
         raise PdfError(f"{type(exc).__name__}: {str(exc)[:120]}") from exc
 
 
-def page_count(path: Path) -> int:
-    with _open(path) as pdf:
-        return len(pdf.pages)
-
-
 def group_lines(words: list[Word]) -> list[list[Word]]:
     """Words into lines: top to bottom, left to right. A word joins the current line when its
     vertical centre is within 0.6 of the line's tallest word from the line's mean centre."""
@@ -72,30 +67,83 @@ def group_lines(words: list[Word]) -> list[list[Word]]:
     return [sorted(line, key=lambda w: w.x0) for line in lines]
 
 
-def native_page(path: Path, index: int) -> tuple[list[list[Word]], PageSize]:
-    """The text layer of page ``index`` (0-based) as lines of words with boxes, and its size."""
-    with _open(path) as pdf:
+class PdfReader:
+    """One PDF held open for the life of a document: pdfplumber parses the file and builds every
+    page object on open, so opening it once per page would cost quadratic time on a long filing."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._pdf: Any = None
+
+    def _open(self) -> Any:
+        if self._pdf is None:
+            self._pdf = _open(self.path)
+        return self._pdf
+
+    def close(self) -> None:
+        if self._pdf is not None:
+            self._pdf.close()
+            self._pdf = None
+
+    def __enter__(self) -> PdfReader:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def page_count(self) -> int:
+        return len(self._open().pages)
+
+    def _page(self, index: int) -> Any:
         try:
-            page = pdf.pages[index]
+            return self._open().pages[index]
+        except PdfError:
+            raise
+        except Exception as exc:
+            raise PdfError(f"page {index + 1}: {type(exc).__name__}") from exc
+
+    def native_page(self, index: int) -> tuple[list[list[Word]], PageSize]:
+        """The text layer of page ``index`` (0-based) as lines of words with boxes, and its size."""
+        page = self._page(index)
+        try:
             raw = page.extract_words(keep_blank_chars=False, use_text_flow=False)
             size = PageSize(float(page.width), float(page.height))
         except Exception as exc:
             raise PdfError(f"page {index + 1}: {type(exc).__name__}") from exc
-    words = [
-        Word(str(w["text"]), float(w["x0"]), float(w["top"]), float(w["x1"]), float(w["bottom"]))
-        for w in raw
-        if str(w.get("text", "")).strip()
-    ]
-    return group_lines(words), size
+        finally:
+            page.flush_cache()
+        words = [
+            Word(
+                str(w["text"]), float(w["x0"]), float(w["top"]), float(w["x1"]), float(w["bottom"])
+            )
+            for w in raw
+            if str(w.get("text", "")).strip()
+        ]
+        return group_lines(words), size
 
-
-def render_page(path: Path, index: int, dpi: int) -> Any:
-    """The page as a PIL image (pdfplumber renders through pypdfium2)."""
-    with _open(path) as pdf:
+    def render_page(self, index: int, dpi: int) -> Any:
+        """The page as a PIL image (pdfplumber renders through pypdfium2)."""
+        page = self._page(index)
         try:
-            return pdf.pages[index].to_image(resolution=dpi).original.convert("RGB")
+            return page.to_image(resolution=dpi).original.convert("RGB")
         except Exception as exc:
             raise PdfError(f"page {index + 1} render: {type(exc).__name__}") from exc
+        finally:
+            page.flush_cache()
+
+    def page_size(self, index: int) -> PageSize:
+        page = self._page(index)
+        return PageSize(float(page.width), float(page.height))
+
+
+def page_count(path: Path) -> int:
+    with PdfReader(path) as reader:
+        return reader.page_count()
+
+
+def native_page(path: Path, index: int) -> tuple[list[list[Word]], PageSize]:
+    with PdfReader(path) as reader:
+        return reader.native_page(index)
 
 
 def is_blank_image(image: Any, *, ink_share: float = 0.0002) -> bool:
@@ -113,15 +161,6 @@ def png_bytes(image: Any) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
-
-
-def page_size(path: Path, index: int) -> PageSize:
-    with _open(path) as pdf:
-        try:
-            page = pdf.pages[index]
-            return PageSize(float(page.width), float(page.height))
-        except Exception as exc:
-            raise PdfError(f"page {index + 1}: {type(exc).__name__}") from exc
 
 
 def shrink(image: Any, max_side: int) -> Any:

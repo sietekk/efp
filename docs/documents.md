@@ -14,6 +14,8 @@ store is only ever read.
 
 ## The ladder, per page
 
+Each PDF is opened once (`pdfio.PdfReader`) and shared by every page of it.
+
 Policy `ladder` in `[stages.documents]`; the bar is `documents.ocr_quality_threshold` (0.85). The
 first candidate that meets the bar ends the page; otherwise every rung runs and the highest-scoring
 candidate is kept (a tie goes to the earlier rung).
@@ -31,7 +33,9 @@ reason in `documents.methods_json`, and the next one runs. A page no rung could 
 (flagged). A page with an existing poor-quality text layer is not re-OCR'd by `--skip-text`; it
 falls to PaddleOCR and the model, which read the page image.
 
-**When the model may read a page.** Only when at least one OCR engine (Tesseract, PaddleOCR) ran
+**Off by default.** `documents.llm_transcription_fallback = false`: turning it on sends page images
+of court documents (names, addresses, dockets) to api.anthropic.com, which CLAUDE.md otherwise keeps
+under `~/efp-data/`. It is the operator's opt-in. **When the model may read a page** (once on): only when at least one OCR engine (Tesseract, PaddleOCR) ran
 on that page, every installed engine in the chain has, and the page has no text layer. A machine
 with no OCR installed never sends a page to the model (the page is `failed`, flagged, and the row
 is revisited with `:tools`); a born-digital page with a low score (a ledger of digits) is kept as
@@ -60,7 +64,8 @@ renormalised over those present.
 | lines | 0.15 | share of lines with 2+ words or 10+ characters, less the excess of one-short-token lines over 30%. Absent under 3 lines | 0.30 | 0.90 |
 | confidence | 0.15 | the engine's mean word confidence (PaddleOCR only) | 0.50 | 0.95 |
 
-A page under 40 characters is scored on charset alone and marked `short`. A page with no text scores
+A page under 40 characters is scored on charset alone and marked `short`; a short page read by
+Tesseract or PaddleOCR is flagged `short_unverified` (one read from a text layer is exact). A page with no text scores
 0. A page with no text and almost no ink (under 0.02% of pixels darker than 240 of 255, rendered at
 100 dpi) is `blank`; pale scans are not. The word list is `words_alpha.txt` from dwyl/english-words (public domain) plus
 `reference/wordlist_legal.txt`; see `reference/wordlist.SOURCE.md`. It is pinned as the `wordlist`
@@ -72,7 +77,9 @@ pages have no score).
 
 ## Flags
 
-A page is flagged when it is below the threshold, when a model transcribed it, or when it has no
+A page is flagged when it is below the threshold, when a model transcribed it (and `truncated`
+when the reply hit `transcribe_max_tokens`), when OCR gave it under 40 characters
+(`short_unverified`: a score from a few characters says little), or when it has no
 text (`failed`, `not_read` past `documents.max_pages`). `document_pages.flag_reasons` lists why. A
 database CHECK makes a `model` or `failed` page impossible to store unflagged.
 **`document_pages_extractable`** is the only view extraction (build 16) may read: current,

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from efp.documents.pdfio import PageSize, Word
+from efp.documents.pdfio import PageSize, PdfReader, Word
 from efp.documents.quality import PageScore
 from efp.types import Row
 
@@ -26,6 +26,7 @@ class Candidate:
     score: PageScore
     size: PageSize
     bbox_source: str = "word"  # word | item | line_split | page
+    flags: tuple[str, ...] = ()  # review reasons the rung itself knows (truncated)
 
 
 @dataclass
@@ -69,6 +70,18 @@ class DocState:
     docling_pages: dict[int, tuple[list[list[Word]], PageSize]] = field(default_factory=dict)
     engines: set[str] = field(default_factory=set)  # OCR engines that produced a used page
     transcribed_pages: int = 0
+    readers: dict[Path, PdfReader] = field(default_factory=dict)
+
+    def reader(self, path: Path) -> PdfReader:
+        """The PDF at ``path`` held open for the life of this document."""
+        if path not in self.readers:
+            self.readers[path] = PdfReader(path)
+        return self.readers[path]
+
+    def close(self) -> None:
+        for reader in self.readers.values():
+            reader.close()
+        self.readers.clear()
 
 
 class PageTask(Row):

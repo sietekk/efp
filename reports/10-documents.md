@@ -25,8 +25,8 @@ Changes the approved plan made to the prompt, and two answers you gave at planni
 - Config (documented in `config.example.toml`): `documents.ocr_language`, `render_dpi`, `max_pages`, `ocr_timeout_seconds`, `transcribe_max_tokens`; `llm.send_temperature`, `price_input_per_mtok`, `price_output_per_mtok`.
 - CI installs the `documents` extra and `tesseract-ocr` / `ghostscript`, so the OCR test runs there. `pyproject.toml`: `layout` extra, mypy overrides for the optional packages; `uv.lock` re-locked.
 - Docs: `docs/documents.md` (the score, the canonical text, the storage layout), `RUNBOOK.md`.
-- Tests: `tests/test_documents.py`, `tests/test_documents_model.py` and `tests/test_documents_review.py` (54 tests), `tests/pdfgen.py` (synthetic PDFs: born-digital, image-only, degraded, blank, mixed), `tests/documents_helpers.py`.
-- Results: `uv run pytest -m "not live"`: 1055 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_documents.py`, `tests/test_documents_model.py` and `tests/test_documents_review.py` (60 tests), `tests/pdfgen.py` (synthetic PDFs: born-digital, image-only, degraded, blank, mixed), `tests/documents_helpers.py`.
+- Results: `uv run pytest -m "not live"`: 1059 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## Review findings (done-when-reviewer) and what was done
 
@@ -42,6 +42,10 @@ Changes the approved plan made to the prompt, and two answers you gave at planni
 | Faint scans were recorded as `blank` | the cut is 240 of 255 at 100 dpi; a pale scan is read or flagged, never `blank` (test with a pale-grey page) |
 | The status spend line counted every model call | it counts `purpose = transcribe_page`; the cap still counts every purpose |
 | **Found while fixing these: importing `ocrmypdf` broke pdfplumber for the rest of the process** (it monkeypatches pdfminer.six, so a standard-font PDF read as `(cid:72)(cid:101)...` and, because `cid` is a word, scored 0.98) | OCRmyPDF now runs as a subprocess and is never imported; the score treats `(cid:N)` text as unreadable; test runs OCR then reads a digital PDF in the same process. (The reviewer's single failing run in the full suite was this bug.) |
+| Page images of court documents go to api.anthropic.com, and the fallback defaulted to on | `llm_transcription_fallback = false` in `config.toml` and `config.example.toml`; a test pins it; decision 4 says why and how to opt in |
+| Each PDF was reopened for every page (quadratic on long filings) | `pdfio.PdfReader` keeps one handle per document (and one for the OCR copy), page caches flushed; test counts opens |
+| A short OCR page (under 40 characters) scored on charset alone could pass unflagged | flagged `short_unverified` for Tesseract and PaddleOCR (a short text-layer page is exact and is not) |
+| A model reply cut off at `max_tokens` was taken as a full page | flagged `truncated` (the partial text is kept) |
 | Docling ran only after a page fell past pdfplumber, so a born-digital document got no structure | new `documents.docling_always` (default false): true runs Docling over every PDF; test with a fake Docling |
 | `anthropic` had no version floor | `anthropic>=2` in the `documents` extra |
 
@@ -94,9 +98,9 @@ Not measurable yet: no real rows have PDFs. The status report gives, once they d
 ## Decisions needed from the operator
 
 1. **The temperature rule (CLAUDE.md) cannot be met as written**: the pinned model rejects it. Default taken: omit it, log NULL and the reason, and send it only where `llm.send_temperature = true`. Say whether CLAUDE.md should be amended, or a model that accepts temperature chosen.
-2. **Model weights come from the internet outside the capture layer** (Docling from Hugging Face, PaddleOCR from Baidu's mirror): not logged, rate-limited or hash-pinned. Default taken (your planning answer): allowed. Say if the weights should instead be fetched once, hashed and pinned.
+2. **Model weights come from the internet outside the capture layer** (raised again in review; your planning answer stands, so no change was made) (Docling from Hugging Face, PaddleOCR from Baidu's mirror): not logged, rate-limited or hash-pinned. Default taken (your planning answer): allowed. Say if the weights should instead be fetched once, hashed and pinned.
 3. **The score constants are first-pass.** The weights, the mapping ranges and the 0.85 threshold are in `docs/documents.md` and `quality.py`; the word list is a general English list, not a legal one. Default: as documented. Calibrate on the first 50 real pages you spot-check.
-4. **Model transcription is on by default** (`llm_transcription_fallback = true`, cap `llm.max_monthly_usd` = 150), but only for a page an installed OCR engine failed on and that has no text layer. On a machine with no OCR installed it never runs (pages are `failed`, flagged, and revisited with `:tools`). Default taken: as stated. Say if it should also run when no OCR engine is installed, or default off.
+4. **Model transcription is off by default** (`llm_transcription_fallback = false`). It sends page images of court documents (names, addresses, dockets) to api.anthropic.com, and CLAUDE.md keeps row-level identity data under `~/efp-data/` and says to take the option that sends less; the spec and plan do name this fallback, so it is built and one flag away. When on: only a page an installed OCR engine failed on that has no text layer, within `llm.max_monthly_usd` (150); with no OCR installed it never runs (pages `failed`, flagged, revisited with `:tools`). Default taken: off. Say if you opt in, and whether it should then also run when no OCR engine is installed.
 5. **A page with an existing poor text layer is not re-OCR'd** (`--skip-text`, as the prompt specifies): it goes to PaddleOCR and the model. Default: as specified.
 6. **Docling is a separate extra and not in CI**; PaddleOCR (`ocr-fallback`) is untested live here (paddlepaddle is not in the lock). Default: both are skipped with a reason when absent.
 7. **The model id `claude-sonnet-5-5` was not checked against the API** (build 01 decision 6): no live call was made. Say if you want one transcription call made to check it (one page, a few cents).
