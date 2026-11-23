@@ -95,9 +95,9 @@ modules = ["documents.pdfplumber"]
 policy = "ladder"
 
 [stages.identity]
-candidate_modules = ["identity.cand.court"]
+candidate_modules = ["identity.cand.court", "identity.cand.dime", "identity.cand.fec", "identity.cand.ftm", "identity.cand.harvard_local", "identity.cand.legislators", "identity.cand.voter_file"]
 candidate_policy = "all"
-parameter_modules = ["identity.params.published_priors"]
+parameter_modules = ["identity.params.labeled_pairs", "identity.params.published_priors"]
 parameter_policy = "first_available"
 
 [stages.news]
@@ -121,7 +121,7 @@ policy = "first_available"
 require_sample_approval = false
 
 [stages.reference]
-modules = ["reference.census_surnames", "reference.ssa_names", "reference.census_population", "reference.fec_candidates", "reference.congress", "reference.openstates", "reference.harvard_local", "reference.dime", "reference.ftm", "reference.wmn"]
+modules = ["reference.census_surnames", "reference.ssa_names", "reference.census_population", "reference.census_place_county", "reference.fec_candidates", "reference.congress", "reference.openstates", "reference.harvard_local", "reference.dime", "reference.ftm", "reference.wmn"]
 policy = "all"
 
 [stages.archive]
@@ -137,6 +137,14 @@ confirm_threshold = 0.99
 review_threshold = 0.90
 labeled_pairs_required = 150
 audit_sample = 50
+ssa_state_min_births = 100000     # the by-state SSA file is used when the state has this many births in the cohort and sex
+prior_pseudocount = 20            # labeled fit: weight (in pairs) given to the published value
+common_surname_rank = 1000        # Census rank at or below which a surname is "common" (F3 strata, label strata)
+reviewer_initials = ""            # decided_by on your labels and verdicts; empty = you are asked once
+label_seed = 12                   # fixed seeds: the 150-pair queue and the 50-row audit draw are reproducible
+audit_seed = 12
+bootstrap_resamples = 10000
+tf_adjustment_cap = true          # term-frequency adjustment may lower a match weight but never raise it (build 12, decision 1)
 
 [documents]
 ocr_quality_threshold = 0.85
@@ -161,6 +169,7 @@ census_surnames_url = "https://www2.census.gov/topics/genealogy/2010surnames/nam
 ssa_national_url = "https://www.ssa.gov/oact/babynames/names.zip"
 ssa_state_url = "https://www.ssa.gov/oact/babynames/state/namesbystate.zip"
 census_population_url = "https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/state/asrh/sc-est2023-agesex-civ.csv"
+census_place_county_url = "https://www2.census.gov/geo/docs/reference/codes2020/national_place_by_county2020.txt"
 fec_url_template = "https://www.fec.gov/files/bulk-downloads/{year}/cn{yy}.zip"
 congress_current_url = "https://unitedstates.github.io/congress-legislators/legislators-current.yaml"
 congress_historical_url = "https://unitedstates.github.io/congress-legislators/legislators-historical.yaml"

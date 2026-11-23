@@ -64,6 +64,10 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "ref_candidates_all",
     # reference loader version and index state (0012)
     "ref_index_state",
+    # identity (0013)
+    "identity_label_queue",
+    "identity_audit_sample",
+    "ref_place_county",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -121,6 +125,12 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_ref_candidates_load",
     # reference loader version and index state (0012)
     "idx_ref_index_state_built",
+    # identity (0013)
+    "idx_decisions_row_kind_batch",
+    "idx_identity_candidates_current",
+    "idx_ref_place_county",
+    "idx_identity_label_queue_row",
+    "idx_identity_audit_sample_decision",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (
@@ -143,6 +153,11 @@ EXPECTED_TRIGGERS: tuple[str, ...] = (
     "documents_no_delete",
     "documents_current_only",
     "document_pages_no_update",
+    # identity (0013)
+    "identity_label_queue_no_update",
+    "identity_label_queue_no_delete",
+    "identity_audit_sample_no_update",
+    "identity_audit_sample_no_delete",
     "document_pages_no_delete",
     "llm_calls_no_update",
     "llm_calls_no_delete",

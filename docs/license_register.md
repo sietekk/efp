@@ -5,6 +5,8 @@ Spec section 12. Build 11 adds the reference datasets; build 20 completes the re
 | Component | License | Implication |
 |---|---|---|
 | Census 2010 surnames, Census state population estimates | Public domain (U.S. Government works) | None |
+| Census place-by-county codes (2020) | Public domain (U.S. Government works) | None |
+| `doublemetaphone` (Python package) | Artistic License | Permissive; a runtime dependency, not redistributed |
 | SSA baby names | Public domain (U.S. Government works) | None |
 | FEC Candidate Master bulk files | Public domain | None |
 | congress-legislators | CC0 1.0 | None |

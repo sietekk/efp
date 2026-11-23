@@ -877,8 +877,14 @@ def review(
         False, "--assisted", help="court only: the rows waiting on your own docket-portal search."
     ),
     state_code: str | None = typer.Option(None, "--state", help="With --assisted: one state."),
+    label: bool = typer.Option(False, "--label", help="identity: label the queued pairs."),
+    audit_mode: bool = typer.Option(False, "--audit", help="identity: verdicts on the F3 sample."),
 ) -> None:
-    """Interactive queue over needs_review rows (``--assisted`` is built; the rest is not yet)."""
+    """Interactive queues: identity (the review band, ``--label``, ``--audit``) and court
+    ``--assisted``; the other stages are not built yet."""
+    if stage == "identity" and not assisted:
+        _review_identity(ctx.obj, label=label, audit_mode=audit_mode, limit=sample)
+        return
     if not assisted:
         _not_built("04")
     if stage != "court":
@@ -918,10 +924,232 @@ def import_(
     _not_built("14")
 
 
+identity_labels_app = typer.Typer(help="The 150-pair labeling queue.", no_args_is_help=True)
+identity_app.add_typer(identity_labels_app, name="labels")
+identity_audit_app = typer.Typer(help="The F3 audit of confirmed rows.", no_args_is_help=True)
+identity_app.add_typer(identity_audit_app, name="audit")
+
+
+def _identity_context(state: AppState) -> tuple[Any, Any]:
+    config = _need_config(state)
+    conn = _open_db(state, migrate=True)
+    return runner.make_context(config, conn), conn
+
+
 @identity_app.command("explain")
-def identity_explain(row_id: int = typer.Argument(..., help="Row id.")) -> None:
-    """Print the waterfall and spans behind an identity decision."""
-    _not_built("12")
+def identity_explain(ctx: typer.Context, row_id: int = typer.Argument(..., help="Row id.")) -> None:
+    """Print the prior, each comparison's Bayes factor, the posterior and the spans behind it."""
+    from efp.identity.explain import explain
+
+    _, conn = _identity_context(ctx.obj)
+    try:
+        typer.echo(explain(conn, row_id))
+    finally:
+        conn.close()
+
+
+def _print_rescore(summary: Any) -> None:
+    typer.echo(
+        f"batch {summary.batch}: {summary.rows} rows scored with {summary.settings}; "
+        f"{len(summary.changed)} written, {summary.unchanged} unchanged, "
+        f"{summary.skipped_reviewed} left to the operator's own decision"
+    )
+    typer.echo(
+        "outcomes now: " + ", ".join(f"{k} {v}" for k, v in sorted(summary.outcomes.items()))
+    )
+    if summary.batch == "main" and summary.changed:
+        typer.echo(
+            f"{len(summary.changed)} row(s) changed outcome; rows skipped downstream for lack of "
+            "an "
+            "identity are pending again (`efp run news`)"
+        )
+
+
+@identity_app.command("rescore")
+def identity_rescore(
+    ctx: typer.Context,
+    confirm: float | None = typer.Option(
+        None,
+        "--confirm-threshold",
+        help="A confirm threshold other than the pre-registered one (0.995 for the sensitivity "
+        "check) writes to the separate 'sensitivity' batch and never to the main one.",
+    ),
+    review: float | None = typer.Option(None, "--review-threshold", help="Likewise."),
+) -> None:
+    """Re-score the stored candidates with the current parameters and reference tables."""
+    from efp import identity
+    from efp.identity import rescore
+    from efp.modules import REGISTRY
+    from efp.types import Row
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    try:
+        settings = identity.resolve_settings(run_ctx, REGISTRY, Row(row_id=0))
+        _print_rescore(rescore.rescore(run_ctx, settings, confirm=confirm, review=review))
+    finally:
+        conn.close()
+
+
+@identity_app.command("refit")
+def identity_refit(ctx: typer.Context) -> None:
+    """Fit m and u from the labeled pairs, save the stability chart and re-score what changes."""
+    from efp.identity import charts, params, rescore
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    config = run_ctx.config
+    try:
+        examples = params.labeled_examples(conn)
+        need = config.identity.labeled_pairs_required
+        if len(examples) < need:
+            typer.echo(
+                f"{len(examples)} of {need} labeled pairs: label more with "
+                "`efp review identity --label` (the stage keeps running on the published priors)",
+                err=True,
+            )
+            raise typer.Exit(1)
+        published = params.load_published()
+        settings = params.fit(published, examples, config.identity.prior_pseudocount)
+        target = params.fitted_dir(config.paths.data_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"{settings.name}.json").write_text(params.canonical(settings.params))
+        boots = params.bootstrap_fits(
+            published,
+            examples,
+            config.identity.prior_pseudocount,
+            resamples=200,
+            seed=config.identity.label_seed,
+        )
+        estimates = {"published_priors_v1": published, settings.name: settings}
+        estimates.update({f"bootstrap {i}": b for i, b in enumerate(boots, 1)})
+        html, _ = charts.write("labeled_pairs", estimates)
+        typer.echo(f"fitted {settings.name} from {len(examples)} labels; chart {html}")
+        _print_rescore(rescore.rescore(run_ctx, settings))
+    finally:
+        conn.close()
+
+
+@identity_labels_app.command("build")
+def identity_labels_build(ctx: typer.Context) -> None:
+    """Build (or top up) the stratified labeling queue from the scored candidates."""
+    from efp.identity import labels
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    config = run_ctx.config
+    try:
+        out = labels.build_queue(
+            conn,
+            size=config.identity.labeled_pairs_required,
+            seed=config.identity.label_seed,
+            common_rank=config.identity.common_surname_rank,
+        )
+        typer.echo(f"queue: {out.total} pairs ({out.added} added)")
+        for key, n in sorted(out.by_stratum.items()):
+            typer.echo(f"  {key:<28}{n:>4}")
+        if out.short:
+            typer.echo("strata with nothing left to draw: " + ", ".join(sorted(out.short)))
+        if out.total < config.identity.labeled_pairs_required:
+            typer.echo(
+                f"only {out.total} of {config.identity.labeled_pairs_required} pairs exist so far: "
+                "run the identity stage on more rows and build again"
+            )
+    finally:
+        conn.close()
+
+
+@identity_labels_app.command("status")
+def identity_labels_status(ctx: typer.Context) -> None:
+    """How many pairs are queued, labeled (match / non-match / unsure) and waiting."""
+    from efp.identity import labels
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    try:
+        need = run_ctx.config.identity.labeled_pairs_required
+        p = labels.progress(conn)
+        typer.echo(
+            f"queued {p['queued']}, match {p['match']}, non-match {p['nonmatch']}, "
+            f"unsure {p['unsure']}, waiting {p['waiting']} (a fit needs {need} match or non-match)"
+        )
+    finally:
+        conn.close()
+
+
+@identity_audit_app.command("build")
+def identity_audit_build(
+    ctx: typer.Context,
+    out: Path | None = typer.Option(
+        None, "--out", help="Where the ids-only sheet goes (default reports/identity/f3_audit.md)."
+    ),
+) -> None:
+    """Draw the F3 sample of confirmed rows and write the audit sheets."""
+    from efp.identity import audit
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    config = run_ctx.config
+    try:
+        drawn = audit.build_sample(
+            conn,
+            size=config.identity.audit_sample,
+            seed=config.identity.audit_seed,
+            common_rank=config.identity.common_surname_rank,
+            review=config.identity.review_threshold,
+            confirm=config.identity.confirm_threshold,
+        )
+        typer.echo(f"drew {len(drawn)} confirmed rows")
+        repo_sheet = out or (
+            Path(__file__).resolve().parents[1] / "reports" / "identity" / "f3_audit.md"
+        )
+        sheet, full = audit.write_sheets(conn, str(config.paths.data_dir), repo_sheet)
+        typer.echo(f"sheet (ids only): {sheet}\nfull sheet (names, spans; stays here): {full}")
+        typer.echo("record verdicts with `efp review identity --audit`")
+    finally:
+        conn.close()
+
+
+@identity_audit_app.command("rate")
+def identity_audit_rate(ctx: typer.Context) -> None:
+    """The false-confirmation rate by stratum, with a bootstrap interval, and what is pending."""
+    from efp.identity import audit
+
+    run_ctx, conn = _identity_context(ctx.obj)
+    config = run_ctx.config
+    try:
+        items = audit.rates(
+            conn, resamples=config.identity.bootstrap_resamples, seed=config.identity.audit_seed
+        )
+        typer.echo(audit.render_rates(items))
+        for item in items:
+            for note in item.notes:
+                typer.echo(f"  {item.stratum}: {note}")
+    finally:
+        conn.close()
+
+
+def _review_identity(state: AppState, *, label: bool, audit_mode: bool, limit: int | None) -> None:
+    from efp.identity import review as rv
+
+    run_ctx, conn = _identity_context(state)
+    config = run_ctx.config
+    try:
+        initials = config.identity.reviewer_initials or typer.prompt(
+            "Your initials (set identity.reviewer_initials in config.toml to stop being asked)"
+        )
+
+        def ask(prompt: str, choices: Any) -> str:
+            while True:
+                answer = typer.prompt(prompt, default="", show_default=False).strip().lower()[:1]
+                if answer in choices:
+                    return str(answer)
+
+        def ask_text(prompt: str) -> str:
+            return str(typer.prompt(prompt, default="", show_default=False))
+
+        loop = rv.label_loop if label else rv.audit_loop if audit_mode else rv.band_loop
+        tally = loop(
+            conn, reviewer=initials, ask=ask, ask_text=ask_text, say=typer.echo, limit=limit
+        )
+        typer.echo(f"answered {tally.answered}, skipped {tally.skipped}: {tally.by_answer}")
+    finally:
+        conn.close()
 
 
 @app.command("audit")
@@ -1164,9 +1392,28 @@ def selftest(
     reference: bool = typer.Option(
         False, "--reference", help="Check the reference datasets: counts, hashes, known values."
     ),
+    identity_flag: bool = typer.Option(
+        False, "--identity", help="Check the identity model: settings, nicknames, the guarantee."
+    ),
 ) -> None:
     """Report versions, secrets present (names only), data directory, env file and extras."""
     state: AppState = ctx.obj
+    if identity_flag:
+        from efp.identity.checks import identity_checks
+
+        if state.config is None:
+            typer.echo(f"configuration error: {state.config_error}", err=True)
+            raise typer.Exit(1)
+        id_checks = identity_checks(state.config)
+        id_width = max(len(c.name) for c in id_checks)
+        for id_check in id_checks:
+            mark = "ok    " if id_check.ok else ("FAILED" if id_check.required else "absent")
+            typer.echo(f"[{mark}] {id_check.name:<{id_width}}  {id_check.detail}")
+        id_failed = [c for c in id_checks if not c.ok and c.required]
+        typer.echo(f"\n{len(id_checks)} check(s) run, {len(id_failed)} failed")
+        if id_failed:
+            raise typer.Exit(1)
+        return
     if reference:
         from efp.reference.checks import reference_checks
 

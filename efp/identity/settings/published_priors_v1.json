@@ -1,0 +1,174 @@
+{
+ "comparisons": {
+  "case_number": {
+   "levels": {
+    "else": {
+     "basis": "design",
+     "m": 0.4,
+     "note": "m: the same person's other case (design). Bayes factor 0.4.",
+     "u": 0.999999
+    },
+    "exact": {
+     "basis": "design",
+     "m": 0.6,
+     "note": "u: one in a million, an assumed order of magnitude (about 5,000 federal criminal cases a district-year, 94 districts, 20 years is an unsourced estimate), so the Bayes factor is large but not infinite. m: 60% of true-match pairs share the case (a person may have several cases and a document may cite another).",
+     "u": 1e-06
+    }
+   }
+  },
+  "city": {
+   "levels": {
+    "conflict": {
+     "basis": "design",
+     "m": 0.05,
+     "note": "m: a person recorded in another state (design). u: candidates are gathered by state, so this is rare; neutral (Bayes factor 1) until labels say otherwise.",
+     "u": 0.05
+    },
+    "exact": {
+     "basis": "design",
+     "m": 0.7,
+     "note": "m: a person recorded in the same city in two documents (design). u: a namesake in the same city, about 2% of those in the same state (sum of squared city shares, order of magnitude).",
+     "u": 0.02
+    },
+    "same_county": {
+     "basis": "design",
+     "m": 0.1,
+     "note": "m: moved within the county (design). u: a namesake in another city of the same county.",
+     "u": 0.03
+    },
+    "same_state": {
+     "basis": "design",
+     "m": 0.15,
+     "note": "m: moved within the state (design). u: the default for a namesake in the same state.",
+     "u": 0.9
+    }
+   }
+  },
+  "dob": {
+   "levels": {
+    "conflict": {
+     "basis": "derived",
+     "m": 0.03,
+     "note": "m: the Splink guide's illustrative 2% data error for a date of birth plus a 1% remainder (design), 3%. u: the remainder after the other levels.",
+     "source": "splink_theory",
+     "u": 0.767
+    },
+    "exact": {
+     "basis": "derived",
+     "m": 0.45,
+     "note": "u: 1 / (365.25 x 30), a flat 30-year birth range (Splink theory guide: about 10,000 dates). m: an assumed half of true-match pairs compare two dates of birth (design; the other half involve an age), times 0.857 = 0.95^3, the day, month and year each at the 5% typographical error rate of Winkler 2006 = 0.43, rounded up to 0.45 (the Splink guide's 98% exact agreement is the upper bound).",
+     "source": "winkler2006",
+     "u": 9.1e-05
+    },
+    "within_1": {
+     "basis": "derived",
+     "m": 0.45,
+     "note": "u: 3 of 30 years (a gap of at most 1) less the exact share. m: true-match pairs with an age, which agree to within a year when recorded without error (design: the other half of pairs).",
+     "source": "splink_theory",
+     "u": 0.0999
+    },
+    "within_3": {
+     "basis": "derived",
+     "m": 0.07,
+     "note": "u: 7 of 30 years less the inner levels. m: the remaining true-match share (design).",
+     "source": "splink_theory",
+     "u": 0.133
+    }
+   }
+  },
+  "given_name": {
+   "levels": {
+    "else": {
+     "basis": "design",
+     "m": 0.01,
+     "note": "Different given names (Bayes factor 0.25).",
+     "u": 0.04
+    },
+    "exact": {
+     "basis": "design",
+     "m": 0.85,
+     "note": "Name agreement adds no evidence: the prior is computed for the row's name and every candidate is gathered by it, so m = u (Bayes factor 1).",
+     "u": 0.85
+    },
+    "jaro_winkler": {
+     "basis": "design",
+     "m": 0.025,
+     "note": "Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it.",
+     "u": 0.05
+    },
+    "nickname": {
+     "basis": "design",
+     "m": 0.05,
+     "note": "Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it.",
+     "u": 0.1
+    }
+   },
+   "tf_min_u": 0.0001,
+   "tf_weight": 0.5
+  },
+  "middle": {
+   "levels": {
+    "conflict": {
+     "basis": "derived",
+     "m": 0.1,
+     "note": "m: Winkler 2006 gives, as an illustration, a 10% typographical error rate for a name field; used here as the rate of a recorded middle name that disagrees (an assumption that a middle name behaves like a first name). u: the remainder.",
+     "source": "winkler2006",
+     "u": 0.93
+    },
+    "exact": {
+     "basis": "derived",
+     "m": 0.7,
+     "note": "m: 1 - the 10% first-name typographical error rate (Winkler 2006) less the share of true matches where one source gives only an initial (design, 20%). u: assumes about 100 effective distinct middle names (sum of squared shares), to be replaced by the SSA sum when the files are imported.",
+     "source": "winkler2006",
+     "u": 0.01
+    },
+    "initial": {
+     "basis": "derived",
+     "m": 0.2,
+     "note": "m: true matches where one source records an initial only (design, 20%). u: about 17 effective initials (sum of squared shares ~ 0.06).",
+     "source": "winkler2006",
+     "u": 0.06
+    }
+   }
+  },
+  "surname": {
+   "levels": {
+    "double_metaphone": {
+     "basis": "design",
+     "m": 0.015,
+     "note": "Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it.",
+     "u": 0.03
+    },
+    "else": {
+     "basis": "design",
+     "m": 0.005,
+     "note": "No agreement on the surname at all: Bayes factor 0.25. Candidates are gathered by surname, so this level is rare (an alias pair).",
+     "u": 0.02
+    },
+    "exact": {
+     "basis": "design",
+     "m": 0.9,
+     "note": "Name agreement adds no evidence: the prior is computed for the row's name and every candidate is gathered by it, so m = u (Bayes factor 1).",
+     "u": 0.9
+    },
+    "jaro_winkler": {
+     "basis": "design",
+     "m": 0.025,
+     "note": "Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it.",
+     "u": 0.05
+    }
+   },
+   "tf_min_u": 0.0001,
+   "tf_weight": 0.5
+  }
+ },
+ "description": "Provisional m and u for the identity evidence model, built from the literature and arithmetic alone. Replaced by identity.params.labeled_pairs once 150 pairs are labeled.",
+ "name": "published_priors",
+ "sources": {
+  "census2010": "U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census: Smith, 2,442,977 occurrences, 828.19 per 100,000 (the ceiling prior's p(surname))",
+  "splink_theory": "Splink documentation, Fellegi-Sunter topic guide (https://moj-analytical-services.github.io/splink/topic_guides/theory/fellegi_sunter.html), read 2026-11-23: for date of birth 'almost 100%, say 98%' exact agreement among true matches, 'maybe a 2% chance of a data error', and ~10,000 possible dates of birth over a flat 30-year range (u = 0.01%). Illustrative figures, not empirical estimates.",
+  "ssa_note139": "SSA Office of the Chief Actuary, Actuarial Note 139: the highest male given-name rate 1900-1997 is John in 1900, 62.9 per 1,000 male births (the ceiling prior's p(given))",
+  "winkler2006": "Winkler, W. E. (2006). Overview of Record Linkage and Current Research Directions. U.S. Census Bureau Statistical Research Division, Research Report Series (Statistics #2006-2), section 3 ('If first name has 10% typographical error rate and last name, day-of-birth, month-of-birth, and year-of-birth have 5% typographical error rates, then exact character-by-character matching ... could miss 25% of matches'). Read 2026-11-23 at https://www.census.gov/content/dam/Census/library/working-papers/2006/adrm/rrs2006-02.pdf"
+ },
+ "version": 1
+}

@@ -136,6 +136,18 @@ in `~/.config/efp/.env`. It then reads only pages an installed OCR engine failed
 
 Census surnames and the SSA names refuse automated downloads. Download them in a browser and import: `efp reference import census_surnames names.zip`, then `efp reference import ssa_names names.zip` and `efp reference import ssa_names namesbystate.zip`. DIME and FollowTheMoney need a URL in `[reference]` or an imported file. After new loads run `efp reference index` to rebuild `ref_candidates_all`. API keys (`FEC_API_KEY`, `CONGRESS_API_KEY`, `OPENSTATES_KEY`) go in `~/.config/efp/.env`; the clients only enrich already-confirmed matches by ID. <!-- pragma: allowlist secret -->
 
+### Identity (build 12)
+
+`efp run identity` (after `court`) resolves each row to `confirmed`, `needs_review` or `unresolved`; it runs today on **provisional parameters** (published priors) and, until the Census and SSA files are imported, on the **ceiling prior**; every decision says which (`efp identity explain ROW`, `efp status`). What is yours to do, in order:
+
+1. `efp reference import census_surnames names.zip`, then the SSA files (above), then `efp identity rescore`: the real prior replaces the ceiling and only the rows whose outcome changes are rewritten.
+2. `efp identity labels build`, then `efp review identity --label`: 150 pairs, shown blind (without the model's score). `efp identity labels status` counts them. Then `efp identity refit` fits m and u from your labels, writes the chart to `reports/identity/` and re-scores. Set `identity.reviewer_initials` in `config.toml` to stop being asked for your initials.
+3. `efp review identity` walks the review band (0.90 to 0.99): `c` confirms, `u` leaves it unresolved, with a rationale; your answer is a new decision and the model's is never edited.
+4. `efp identity audit build`, then re-derive each of the 50 rows from its captures (the sheet with names is in `~/efp-data/exports/identity/f3_audit_full.md`; the one in the repository has ids only), record verdicts with `efp review identity --audit`, and read `efp identity audit rate`.
+5. The sensitivity check at 0.995 is `efp identity rescore --confirm-threshold 0.995`; it writes a separate batch and changes nothing else.
+
+`efp selftest --identity` checks the model and runs the "name, state and year alone never reaches 0.90" guarantee on this workbook's ten commonest surnames.
+
 ## 7. Where things land
 
 | What | Where |

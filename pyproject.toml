@@ -47,6 +47,7 @@ dependencies = [
     "gdeltdoc>=1.12",
     "mediacloud>=5.1",
     "openpyxl>=3.1",
+    "doublemetaphone>=1.2",
 ]
 
 [project.optional-dependencies]
@@ -126,9 +127,14 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "yaml.*", "lxml.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*"]
+module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "yaml.*", "lxml.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*", "doublemetaphone.*", "usaddress.*", "pandas.*"]
 # optional extras (documents, layout, ocr-fallback): mypy also runs where they are not installed
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["efp.identity.model", "efp.identity.charts"]
+# Splink's public API is only partly annotated: the calls into it are checked by the tests
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

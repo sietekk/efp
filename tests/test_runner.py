@@ -119,10 +119,10 @@ def test_sample_restricts_to_the_frozen_rows(full_config: Config, db) -> None:  
 
 
 def test_a_stage_with_no_component_runs_nothing(full_config: Config, db) -> None:  # type: ignore[no-untyped-def]
-    _done(db, 1, "resolve_links", "court")  # identity's predecessor is satisfied for row 1
-    summary = run(db, full_config, "identity", None)  # no component is built for identity yet
+    _done(db, 1, "resolve_links", "court")
+    summary = run(db, full_config, "news", None)  # no component is built for news yet
     assert summary.no_component and summary.claimed == 0
-    assert set(statuses(db, "identity").values()) == {"pending"}
+    assert set(statuses(db, "news").values()) == {"pending"}
 
 
 def test_stage_validation(full_config: Config, write_config: Callable[..., Path]) -> None:
@@ -314,10 +314,10 @@ def test_reset_repends_without_touching_captures(full_config: Config, db) -> Non
     set_stage(db, 1, "identity", "skipped", gate_reason="court_not_done")
     set_stage(db, 1, "news", "skipped", gate_reason="court_not_done")
     set_stage(db, 2, "identity", "done")
-    summary = run(db, full_config, "identity", None, reset=True)  # (no identity component yet)
+    summary = run(db, full_config, "news", None, reset=True)  # (no news component yet)
     assert summary.reset == 6
-    assert stage_of(db, 1, "identity")["status"] == "pending"
-    assert stage_of(db, 2, "identity")["input_hash"] is None
+    assert stage_of(db, 1, "identity")["status"] == "skipped"  # only the selected stage is reset
+    assert stage_of(db, 2, "identity")["status"] == "done"
     assert stage_of(db, 1, "news")["status"] == "pending"  # a stranded skip is re-opened
     assert db.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
     assert stage_of(db, 2, "resolve_links")["status"] == "done"

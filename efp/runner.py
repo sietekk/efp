@@ -114,12 +114,23 @@ def _stage_status(conn: sqlite3.Connection, row_id: int, stage: str) -> str | No
 
 
 def _identity_outcome(conn: sqlite3.Connection, row_id: int) -> str | None:
+    """What the gates read: the latest identity decision of the pre-registered ``main`` batch.
+
+    That is the model's own ``identity`` decision, or the operator's later ``review`` /
+    ``override`` decision for the identity stage (``confirmed`` or ``unresolved``). An audit
+    verdict ``audit_wrong`` withdraws a confirmation (read as ``unresolved``); ``audit_correct``,
+    labels and the ``sensitivity`` batch are never read.
+    """
     found = conn.execute(
-        "SELECT outcome FROM decisions WHERE row_id = ? AND kind = 'identity' "
+        "SELECT outcome FROM decisions WHERE row_id = ? AND batch = 'main' AND ("
+        "  kind = 'identity' OR (kind IN ('review', 'override') AND stage = 'identity' "
+        "  AND outcome IN ('confirmed', 'unresolved', 'audit_wrong'))) "
         "ORDER BY decision_id DESC LIMIT 1",
         (row_id,),
     ).fetchone()
-    return None if found is None else str(found[0])
+    if found is None:
+        return None
+    return "unresolved" if str(found[0]) == "audit_wrong" else str(found[0])
 
 
 def gate_identity(conn: sqlite3.Connection, config: Config, row_id: int) -> str | None:

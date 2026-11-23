@@ -14,7 +14,6 @@ runner = CliRunner()
 STUBS: dict[tuple[str, ...], str] = {
     ("review", "court"): "04",
     ("import", "f.pdf", "--row", "1", "--source", "westlaw"): "14",
-    ("identity", "explain", "1"): "12",
     ("audit", "1"): "19",
     ("export",): "19",
 }

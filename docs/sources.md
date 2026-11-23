@@ -120,6 +120,7 @@ Bulk datasets loaded once into the `ref_*` tables; raw files live under `~/efp-d
 | Dataset | Source | Notes |
 |---|---|---|
 | `census_population` | `www2.census.gov/programs-surveys/popest/datasets/2020-2023/state/asrh/sc-est2023-agesex-civ.csv` | civilian resident population by state, single year of age, estimates 2020-2023; the loader sums to five-year bands (both sexes). Columns are `POPEST<year>_CIV` |
+| `census_place_county` | `www2.census.gov/geo/docs/reference/codes2020/national_place_by_county2020.txt` | 2020 national place-by-county codes, pipe-delimited (`STATE\|STATEFP\|COUNTYFP\|COUNTYNAME\|PLACEFP\|PLACENS\|PLACENAME\|TYPE\|CLASSFP\|FUNCSTAT`); identity's "same county" city level (build 12). The 2020 relationship files, which carry land areas, were not found at a stable URL |
 | `fec_candidates` | `fec.gov/files/bulk-downloads/<year>/cn<yy>.zip` (redirects to the FEC's S3 bucket; the loader follows it) | one file per two-year cycle 2000-2026; `cn.txt`, pipe-delimited, no header |
 | `congress` | `unitedstates.github.io/congress-legislators/legislators-{current,historical}.yaml` | CC0; the bioguide/FEC/OpenSecrets/ICPSR crosswalk |
 | `openstates` | `github.com/openstates/people/archive/refs/heads/main.zip` | the `legislature/` and `retired/` folders of every state; the executive and municipal folders are not read |

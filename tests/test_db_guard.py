@@ -114,6 +114,12 @@ def test_the_guard_can_see_the_probe_file() -> None:
 # NULL (build 05; reviewed by the operator). Nothing else may drop a trigger.
 ALLOWED_TRIGGER_REPLACEMENTS = {"0006_capture_support.sql": "captures_no_update"}
 
+# Migration 0013 adds three nullable / defaulted columns to decisions (stage, batch, candidate_id:
+# which stage a review decision is about, the pre-registered or the sensitivity batch, and the
+# candidate a label or verdict is about). Build 12; the operator reviews this exception at merge.
+# Only `ALTER TABLE decisions ADD COLUMN` is allowed, and the append-only triggers are untouched.
+ALLOWED_ALTERS = {"0013_identity.sql": ("decisions", 3)}
+
 
 def test_no_migration_drops_or_alters_the_protected_schema() -> None:
     """A later migration must not undo the guarantees: no DROP TRIGGER, no DROP/ALTER of the
@@ -130,6 +136,12 @@ def test_no_migration_drops_or_alters_the_protected_schema() -> None:
                 offenders.append(f"{path.name}: DROP TRIGGER other than a reviewed replacement")
         elif drops:
             offenders.append(f"{path.name}: DROP TRIGGER")
+        if path.name in ALLOWED_ALTERS:
+            table, count = ALLOWED_ALTERS[path.name]
+            adds = re.findall(rf"\bALTER\s+TABLE\s+{table}\s+ADD\s+COLUMN\b", text, re.I)
+            text = re.sub(rf"\bALTER\s+TABLE\s+{table}\s+ADD\s+COLUMN\b", "", text, flags=re.I)
+            if len(adds) != count:
+                offenders.append(f"{path.name}: expected {count} reviewed ADD COLUMN on {table}")
         if re.search(rf"\b(DROP|ALTER)\s+TABLE\s+(IF\s+EXISTS\s+)?{PROTECTED}\b", text, re.I):
             offenders.append(f"{path.name}: DROP/ALTER protected table")
     assert offenders == []
