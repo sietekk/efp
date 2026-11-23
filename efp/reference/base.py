@@ -53,6 +53,7 @@ class LoadResult:
     reason: str = ""
     rows: int = 0
     load_id: int | None = None
+    became_current: bool = False  # a load or a reload changed which load of the dataset is current
 
 
 @dataclass
@@ -82,6 +83,7 @@ class Dataset:
     license: ClassVar[str]
     attribution: ClassVar[str]
     version: ClassVar[str] = ""
+    loader_version: ClassVar[int] = 1  # bump when a parser fix should reload a file already loaded
     stage = "reference"
     needs_url: ClassVar[str | None] = None  # a [reference] key that must be set (dime_url, ftm_url)
     known: ClassVar[list[Known]] = []
@@ -175,15 +177,16 @@ class Dataset:
         sha = files.sha256_file(path)
         same = conn.execute(
             "SELECT load_id, row_count, current FROM ref_sources WHERE dataset = ? AND part = ? "
-            "AND file_sha256 = ? AND status = 'loaded'",
-            (self.name, part.key, sha),
+            "AND file_sha256 = ? AND loader_version = ? AND status = 'loaded'",
+            (self.name, part.key, sha, self.loader_version),
         ).fetchone()
         if same is not None:
-            if not same[2]:  # an older file loaded again: it becomes the current one
+            flipped = not same[2]
+            if flipped:  # an older file loaded again: it becomes the current one
                 self._make_current(conn, self.name, part.key, int(same[0]))
                 conn.commit()
             return LoadResult(self.name, part.key, "unchanged", "same file already loaded",
-                              int(same[1] or 0), int(same[0]))  # fmt: skip
+                              int(same[1] or 0), int(same[0]), became_current=flipped)  # fmt: skip
         capture_id = files.earlier_capture(conn, path, sha)
         url = part.url
         if not url and capture_id is not None:  # a file found through a listing: where it came from
@@ -193,10 +196,11 @@ class Dataset:
             url = str(got[0]).split("?")[0] if got else ""  # never a signed query
         cursor = conn.execute(
             "INSERT INTO ref_sources (dataset, part, url, version, retrieved_at, file_sha256, "
-            "file_size, capture_id, license, attribution, status, current, loaded_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?, 'failed', 0, ?)",
+            "file_size, capture_id, license, attribution, status, current, loaded_at, "
+            "loader_version) VALUES (?,?,?,?,?,?,?,?,?,?, 'failed', 0, ?, ?)",
             (self.name, part.key, url or None, self.version, files.now(), sha,
-             path.stat().st_size, capture_id, self.license, self.attribution, files.now()),
+             path.stat().st_size, capture_id, self.license, self.attribution, files.now(),
+             self.loader_version),
         )  # fmt: skip
         load_id = int(cursor.lastrowid or 0)
         try:
@@ -217,7 +221,8 @@ class Dataset:
         )
         self._make_current(conn, self.name, part.key, load_id)
         conn.commit()
-        return LoadResult(self.name, part.key, "loaded", rows=counted.rows, load_id=load_id)
+        return LoadResult(self.name, part.key, "loaded", rows=counted.rows, load_id=load_id,
+                          became_current=True)  # fmt: skip
 
     @staticmethod
     def _make_current(conn: sqlite3.Connection, dataset: str, part: str, load_id: int) -> None:

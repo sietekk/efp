@@ -62,6 +62,8 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "ref_congress",
     "ref_state_leg",
     "ref_candidates_all",
+    # reference loader version and index state (0012)
+    "ref_index_state",
 )
 
 EXPECTED_INDEXES: tuple[str, ...] = (
@@ -117,6 +119,8 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_ref_candidates_surname",
     "idx_ref_candidates_source",
     "idx_ref_candidates_load",
+    # reference loader version and index state (0012)
+    "idx_ref_index_state_built",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (

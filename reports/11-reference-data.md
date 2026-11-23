@@ -15,6 +15,7 @@ Changes the approved plan made to the prompt:
 
 ## What was built
 
+- `migrations/0012_reference_loader_version.sql`: `ref_sources.loader_version` (a parser fix can reload an identical file) and `ref_index_state` (what the candidate index was built from).
 - `migrations/0011_reference.sql`: `ref_sources`, `ref_surname_freq`, `ref_given_freq`, `ref_population`, `ref_dime`, `ref_fec_candidates`, `ref_ftm`, `ref_local`, `ref_congress`, `ref_state_leg`, `*_current` views, `ref_candidates_all`; `efp/dbcheck.py` lists them.
 - `efp/reference/`: `base.py` (the `Dataset` framework: `download`, `load`, `verify`, provenance, byte-identical no-op, gating), `files.py` (download through the capture layer, magic-byte checks, the host-scoped User-Agent retry, manual import), `population.py` (Census surnames with the floor rule, SSA national and by state, Census state population by five-year band), `candidates.py` (FEC, congress-legislators, OpenStates, Harvard local, DIME, FollowTheMoney), `wmn.py`, `index.py`, `names.py` (the one use of `nameparser` 3.x), `ops.py`, `checks.py`, `api/` (`openfec`, `congress`, `openstates`), `ballotpedia.py`.
 - `efp/capture.py`: `Capture.resolve_url` (HEAD, follows redirects, reports size), `extra_headers` on `Capture.download` (a manifest records which headers were overridden), and `CaptureRedirect` so a download can be re-asked from each hop.
@@ -22,7 +23,7 @@ Changes the approved plan made to the prompt:
 - Config (documented in `config.example.toml`): `[reference]` (`max_gb`, `download_user_agent`, `download_user_agent_hosts`, the source URLs, FEC cycles, `harvard_osf_node`, `dime_url`, `ftm_url`), `[stages.reference]`, rate limits for `api.congress.gov` (1.1/s) and `v3.openstates.org` (0.5/s); `pyyaml` and `lxml` declared as dependencies.
 - Docs: `docs/sources.md` (every loaded file with URL, vintage, size, rows, SHA-256, license and the attribution sentences), new `docs/license_register.md`, `RUNBOOK.md`.
 - Tests: `tests/test_reference.py` and `tests/test_reference_network.py` (58 tests) with synthetic files in each dataset's real format (`tests/reference_helpers.py`).
-- Results: `uv run pytest -m "not live"`: 1155 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Results: `uv run pytest -m "not live"`: 1162 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
@@ -169,6 +170,9 @@ Loaded (current), with counts (full hashes are in `docs/sources.md`):
 | The selftest opened the database read-write; an OpenStates zip was never closed; two places said FollowTheMoney was mirrored; docs title and a possibly real bioguide ID in the tests | read-only open; the zip is closed; wording fixed; title and synthetic IDs |
 | The `reference.max_gb` cap was checked only against a HEAD's Content-Length, so a refused HEAD, a chunked answer or a redirect with no length let a download stream with no limit | `Capture.download` takes `max_bytes`: a response announcing more is refused before a byte is written and a stream that passes the cap is abandoned and its partial file deleted; `files.fetch` passes the cap; tests (HEAD refused, chunked, announced) |
 | FEC `cn.txt` was split with `str.splitlines()`, which also breaks on U+0085 and similar characters that latin-1 makes from stray bytes, silently dropping a split record | split on newline only, `\r` stripped, and the skipped malformed lines are counted in `ref_sources.notes_json` (`skipped_malformed_lines`, first line numbers); test. Checked on the real files: the old logic and the new one both give 86,199 records, so nothing was lost |
+| Harvard `party` could hold a missing-value marker or a model score (a plain-string comparison against real party codes would be wrong) | **In the real file `pid_est` is a letter (`D`/`R`), not a score, but 15,877 rows held the literal `NA` as a party**: a missing marker or a number is now NULL; the estimate's letter stays in `party` with `party_imputed = 1` (default kept, decision 5); migration 0012 adds `ref_sources.loader_version` so an improved loader reloads a byte-identical file as a new load (Harvard is version 2); reloaded on the real data: `D` 61,798, `R` 48,924, NULL 15,877 |
+| `Dime.read` opened its SQLite file through an unescaped `file:` URI, so a path with `?`, `#` or `%` was mis-parsed | `path.resolve().as_uri() + "?mode=ro"`; test with such a path |
+| A hand import, or reverting to an older identical file, left `ref_candidates_all` pointing at stale loads when the row counts matched; the OSF listing stopped silently after 10 pages | migration 0012 adds `ref_index_state` (the fingerprint of the current candidate loads at each rebuild): staleness is a fingerprint mismatch as well as a count mismatch; an import or any change of which load is current rebuilds the index; the OSF listing reads up to 50 pages and raises if there are more; tests |
 | **Found while backfilling the Harvard URL:** the OSF download redirects to a presigned object-store URL and its `X-Amz-Signature` was stored unredacted in one capture (id 57) | presigned-URL credential parameters are now redacted by `redact_url`; test. The one already-stored row is append-only and cannot be edited: its signature expired within 60 seconds of 2026-11-23 04:18 UTC |
 
 ## Spot-check guide for the operator
@@ -207,7 +211,7 @@ Loaded (current), with counts (full hashes are in `docs/sources.md`):
 - 18: party fields in the `ref_*` tables are identity signals for public figures, never evidence of motive.
 - 20: `docs/license_register.md` has the data rows; complete it.
 - All: read the reference tables through the `*_current` views (a changed file is a new load and the old rows stay with `current = 0`); `efp reference index` must be re-run after any load; a load of a byte-identical file is a no-op.
-- All: `efp reference load` rebuilds `ref_candidates_all` when a candidate dataset loaded or the index is stale; `efp selftest --reference` fails on a stale index.
+- All: `efp reference load` and `efp reference import` rebuild `ref_candidates_all` when a candidate dataset's current load changed or the index is stale (a fingerprint of the current candidate loads is kept in `ref_index_state`); a loader that is improved bumps `Dataset.loader_version` so the same file is read again; `efp selftest --reference` fails on a stale index.
 - All: `Capture.download` still refuses redirects (it raises `CaptureRedirect` with the location); `Capture.resolve_url` gives the final address and size first.
 
 ## Done-when check

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 
 def _y(column: str) -> str:
@@ -67,6 +68,23 @@ _COLUMNS = (
 )
 
 
+CANDIDATE_DATASETS = ("dime", "fec_candidates", "ftm", "harvard_local", "congress", "openstates")
+
+
+def fingerprint(conn: sqlite3.Connection) -> str:
+    """The current loads of the candidate datasets, sorted: what the index must be built from."""
+    marks = ",".join("?" * len(CANDIDATE_DATASETS))
+    ids = [
+        str(r[0])
+        for r in conn.execute(
+            f"SELECT load_id FROM ref_sources WHERE current = 1 AND status = 'loaded' "
+            f"AND dataset IN ({marks}) ORDER BY load_id",
+            CANDIDATE_DATASETS,
+        )
+    ]
+    return ",".join(ids)
+
+
 @dataclass
 class IndexResult:
     counts: dict[str, int] = field(default_factory=dict)
@@ -81,11 +99,15 @@ def rebuild(conn: sqlite3.Connection) -> IndexResult:
         for source, select in _SOURCES.items():
             cursor = conn.execute(f"INSERT INTO ref_candidates_all ({_COLUMNS}) {select}")
             result.counts[source] = max(cursor.rowcount, 0)
+        result.total = sum(result.counts.values())
+        conn.execute(
+            "INSERT INTO ref_index_state (built_at, fingerprint, total) VALUES (?, ?, ?)",
+            (datetime.now(UTC).isoformat(timespec="seconds"), fingerprint(conn), result.total),
+        )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    result.total = sum(result.counts.values())
     return result
 
 
@@ -123,6 +145,14 @@ def expected_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def is_stale(conn: sqlite3.Connection) -> bool:
-    """True when the index does not match the current loads (a load happened since it was built)."""
+    """True when the index was not built from the loads that are current now: a load, an import or
+    a reload changed which loads are current, or the row counts differ."""
+    built = conn.execute(
+        "SELECT fingerprint FROM ref_index_state ORDER BY built_at DESC, rowid DESC LIMIT 1"
+    ).fetchone()
+    if built is None:
+        return bool(fingerprint(conn))  # never built, and there is something to build from
+    if built[0] != fingerprint(conn):
+        return True
     have = counts(conn)
     return any(have.get(source, 0) != n for source, n in expected_counts(conn).items())

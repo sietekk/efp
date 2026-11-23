@@ -66,7 +66,7 @@ def load(ctx: Context, names: list[str] | None = None) -> dict[str, list[LoadRes
         out[dataset.name] = dataset.load(ctx)
     conn = ctx.db
     assert conn is not None  # noqa: S101
-    if any(r.status == "loaded" for rs in out.values() for r in rs) or index.is_stale(conn):
+    if any(r.became_current for rs in out.values() for r in rs) or index.is_stale(conn):
         index.rebuild(conn)  # the candidate index follows the current loads
     return out
 
@@ -90,7 +90,12 @@ def import_by_hand(
     fetched = import_file(ctx, dataset.name, part, source)
     if fetched.status != "ok":
         return fetched, []
-    return fetched, [r for r in dataset.load(ctx) if r.part == part.key]
+    results = [r for r in dataset.load(ctx) if r.part == part.key]
+    conn = ctx.db
+    assert conn is not None  # noqa: S101
+    if any(r.became_current for r in results) or index.is_stale(conn):
+        index.rebuild(conn)  # an import changes which load is current: the index follows
+    return fetched, results
 
 
 @dataclass

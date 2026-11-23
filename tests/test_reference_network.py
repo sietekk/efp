@@ -621,3 +621,27 @@ def test_a_response_announcing_more_than_the_cap_is_refused_before_a_byte_is_wri
     finally:
         cap.close()
     assert not dest.exists() and not dest.with_name("huge.bin.part").exists()
+
+
+def test_an_osf_listing_too_long_to_read_in_full_is_an_error_not_a_silent_truncation(
+    config: Config,
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from efp.capture import CaptureError
+    from efp.reference import candidates
+
+    _ctx, cap = h.make_ctx(config, conn)
+    monkeypatch.setattr(candidates, "MAX_OSF_PAGES", 3)
+    base = "https://api.osf.io/v2/nodes/x/files/osfstorage/"
+    for n in range(10):
+        rsps.get(
+            f"{base}?page={n}" if n else base,
+            json={"data": [], "links": {"next": f"{base}?page={n + 1}"}},
+        )
+    try:
+        with pytest.raises(CaptureError, match="longer than 3 pages"):
+            list(candidates._osf_files(cap, base))
+    finally:
+        cap.close()

@@ -285,6 +285,18 @@ def _csv_dicts(path: Path) -> Iterator[dict[str, Any]]:
         yield from csv.DictReader(handle)
 
 
+_NOT_A_PARTY = {"", "NA", "N/A", "NAN", "NULL", "NONE", "."}
+
+
+def _party_label(value: str) -> str:
+    """A party label, or "" when the cell is a missing-value marker ("NA") or a number (a modelled
+    probability is not a party)."""
+    text = value.strip()
+    if text.upper() in _NOT_A_PARTY or re.fullmatch(r"-?\d+(\.\d+)?", text):
+        return ""
+    return text
+
+
 def _split_from_row(row: dict[str, Any]) -> tuple[str, Split]:
     full = _pick(row, "name", "candidate", "candidate_name", "cand_name", "full_name")
     last = _pick(row, "lname", "lastname", "last_name", "last", "surname", "family_name")
@@ -297,9 +309,12 @@ def _split_from_row(row: dict[str, Any]) -> tuple[str, Split]:
     return full, split_name(full)
 
 
+MAX_OSF_PAGES = 50
+
+
 def _osf_files(capture: Any, url: str, depth: int = 0) -> Iterator[dict[str, Any]]:
     """Every file of an OSF storage listing, following its pages and its folders (to depth 3)."""
-    for _page in range(10):
+    for _page in range(MAX_OSF_PAGES):
         listing = capture.fetch(url, row_id=None, stage="reference", kind="api")
         payload = json.loads(capture.read_body(listing).decode("utf-8"))
         for entry in payload.get("data", []):
@@ -314,6 +329,7 @@ def _osf_files(capture: Any, url: str, depth: int = 0) -> Iterator[dict[str, Any
         url = (payload.get("links") or {}).get("next") or ""
         if not url:
             return
+    raise CaptureError(f"the OSF listing is longer than {MAX_OSF_PAGES} pages: not read in full")
 
 
 class HarvardLocal(Dataset):
@@ -325,6 +341,7 @@ class HarvardLocal(Dataset):
         "doi:10.17605/OSF.IO/MV5E6, CC-BY 4.0. Party is imputed where the race is nonpartisan."
     )
     version = "1989-2021"
+    loader_version: ClassVar[int] = 2  # 2: "NA" and numeric scores are not parties
 
     def parts(self, ctx: Context) -> list[Part]:
         return [Part("", "", "local_elections.csv", "csv")]
@@ -374,8 +391,8 @@ class HarvardLocal(Dataset):
                 full, split = _split_from_row(row)
                 if not split.surname:
                     continue
-                recorded = _pick(row, "party", "party_detailed", "party_clean")
-                estimated = "" if recorded else _pick(row, "pid_est")  # the modelled party ID
+                recorded = _party_label(_pick(row, "party", "party_detailed", "party_clean"))
+                estimated = "" if recorded else _party_label(_pick(row, "pid_est"))  # modelled ID
                 party: str | None = (recorded or estimated) or None
                 flagged = _pick(row, "party_imputed", "nonpartisan", "is_nonpartisan").lower()
                 # Party is IMPUTED, flagged and never asserted: where the race is nonpartisan, and
@@ -440,7 +457,7 @@ class Dime(Dataset):
             if part.kind == "csv":
                 yield from _csv_dicts(path)
                 return
-            lite = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            lite = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
             lite.row_factory = sqlite3.Row
             try:
                 tables = [

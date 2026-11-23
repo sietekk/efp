@@ -566,3 +566,121 @@ def test_a_stray_line_break_character_inside_a_fec_name_does_not_split_the_recor
         ).fetchone()[0]
         == 1
     )
+
+
+# --- review round 3 ---------------------------------------------------------------------------------------
+
+
+def test_harvard_party_never_holds_a_missing_marker_or_a_score(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
+    csv = (
+        "ledb_candid,full_name,firstname,lastname,state_abb,office_consolidated,year,pid_est\n"
+        "1,a one,a,one,CA,Mayor,2000,D\n"
+        "2,b two,b,two,CA,Mayor,2000,NA\n"
+        "3,c three,c,three,CA,Mayor,2000,0.83\n"
+        "4,d four,d,four,CA,Mayor,2000,\n"
+    )
+    h.place(config, "harvard_local", "local_elections.csv", csv)
+    loaded(ctx, "harvard_local")
+    got = rows(conn, "SELECT record_id, party, party_imputed FROM ref_local ORDER BY record_id")
+    assert got == [("1", "D", 1), ("2", None, 1), ("3", None, 1), ("4", None, 1)]
+    assert index.rebuild(conn).counts["harvard_local"] == 4
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_candidates_all WHERE party IN ('NA', '0.83')"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_an_improved_loader_reloads_a_byte_identical_file_as_a_new_load(
+    ctx, config, conn, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from efp.reference.candidates import HarvardLocal
+
+    h.place(config, "harvard_local", "local_elections.csv", h.HARVARD_CSV)
+    first = loaded(ctx, "harvard_local")[0]
+    assert loaded(ctx, "harvard_local")[0].status == "unchanged"
+    monkeypatch.setattr(HarvardLocal, "loader_version", 99)
+    again = loaded(ctx, "harvard_local")[0]
+    assert again.status == "loaded" and again.load_id != first.load_id and again.became_current
+    assert rows(
+        conn, "SELECT load_id, current, loader_version FROM ref_sources ORDER BY load_id"
+    ) == [
+        (first.load_id, 0, 2),
+        (again.load_id, 1, 99),
+    ]
+    assert conn.execute("SELECT count(*) FROM ref_local_current").fetchone()[0] == 2  # not doubled
+
+
+def test_dime_opens_a_database_whose_path_has_uri_special_characters(
+    ctx, config, conn, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    from efp.reference.candidates import Dime
+
+    odd = tmp_path / "weird #1 ?x%20y"
+    odd.mkdir()
+    odd_file = h.dime_sqlite(odd / "d.sqlite")
+    load_id = conn.execute(
+        "INSERT INTO ref_sources (dataset, status, loaded_at) VALUES ('dime', 'failed', 'x')"
+    ).lastrowid
+    ds = Dime()
+    counter = ds.read(
+        ctx, ds.import_part(ctx, odd_file, None), odd_file, load_id
+    )  # opened in place
+    assert counter.rows == 3
+
+
+def test_an_import_rebuilds_the_index_even_when_the_row_count_does_not_change(
+    ctx, config, conn, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    from efp.reference import ops
+
+    v1 = h.CONGRESS_YAML
+    v2 = h.CONGRESS_YAML.replace("Smith", "Smyth")  # same row count, different file
+    a = h.write(tmp_path / "a" / "legislators-current.yaml", v1)
+    b = h.write(tmp_path / "b" / "legislators-current.yaml", v2)
+    ops.import_by_hand(ctx, "congress", a)
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_candidates_all WHERE surname_key='SMITH'"
+        ).fetchone()[0]
+        == 1
+    )
+    ops.import_by_hand(ctx, "congress", b)
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_candidates_all WHERE surname_key='SMYTH'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert not index.is_stale(conn)
+    # back to the older file: "unchanged", yet it becomes current again and the index must follow
+    result = ops.import_by_hand(ctx, "congress", a)[1][0]
+    assert result.status == "unchanged" and result.became_current
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_candidates_all WHERE surname_key='SMITH'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_candidates_all WHERE surname_key='SMYTH'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert not index.is_stale(conn)
+
+
+def test_the_index_is_stale_when_the_current_loads_change_even_if_the_counts_match(
+    ctx, config, conn, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    h.place(config, "congress", "legislators-current.yaml", h.CONGRESS_YAML)
+    loaded(ctx, "congress")
+    index.rebuild(conn)
+    assert not index.is_stale(conn)
+    h.place(
+        config, "congress", "legislators-current.yaml", h.CONGRESS_YAML.replace("Smith", "Smyth")
+    )
+    loaded(ctx, "congress")  # same count, a different current load, no rebuild
+    assert index.is_stale(conn)
