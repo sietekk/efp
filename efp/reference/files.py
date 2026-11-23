@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from efp.capture import CaptureError
+from efp.capture import CaptureError, CaptureRedirect
 from efp.config import Config
 from efp.types import Context
 
@@ -148,10 +148,18 @@ def fetch(ctx: Context, dataset: str, part: Part, *, refresh: bool = False) -> F
         attempts.append({"User-Agent": config.reference.download_user_agent})
     last_reason = first_error
     for extra in attempts:
+        target, record = url, None
         try:
-            record = capture.download(
-                url, dest, stage="reference", row_id=None, extra_headers=extra or None
-            )
+            for _hop in range(4):  # a download does not follow redirects: ask again from each
+                try:
+                    record = capture.download(
+                        target, dest, stage="reference", row_id=None, extra_headers=extra or None
+                    )
+                    break
+                except CaptureRedirect as moved:
+                    target = moved.location
+            if record is None:
+                raise CaptureError("too many redirects")
         except CaptureError as exc:
             last_reason = str(exc)
             dest.unlink(missing_ok=True)

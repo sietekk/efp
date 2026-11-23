@@ -163,6 +163,15 @@ class LlmCallError(CaptureError):
         self.request_id = request_id
 
 
+class CaptureRedirect(CaptureError):
+    """A download answered with a redirect. ``download`` is made from the address given and does
+    not follow one; the caller reads ``location`` and asks again from there."""
+
+    def __init__(self, message: str, *, location: str) -> None:
+        super().__init__(message)
+        self.location = location
+
+
 class CaptureBudgetError(CaptureError):
     """The domain's rate budget did not free up in time (a spent daily quota, typically)."""
 
@@ -597,9 +606,10 @@ class Capture:
                         digest, have = hashlib.sha256(), 0
                         part.unlink()
                     elif status in _REDIRECT_STATUS:
-                        raise CaptureError(
+                        raise CaptureRedirect(
                             f"{redact_url(url, api=True)}: redirected; not followed (a "
-                            "download is made from the address listed): use the final address"
+                            "download is made from the address listed): use the final address",
+                            location=urljoin(url, response.headers.get("Location", "")),
                         )
                     elif status not in (200, 206):
                         raise CaptureError(f"{redact_url(url, api=True)}: HTTP {status}")

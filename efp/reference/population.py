@@ -198,7 +198,7 @@ class CensusPopulation(Dataset):
         year_cols = {
             int(m.group(1)): original
             for key, original in names.items()
-            if (m := re.fullmatch(r"POPESTIMATE(\d{4})", key))
+            if (m := re.fullmatch(r"POP(?:ESTIMATE|EST)(\d{4})(?:_CIV)?", key))
         }
         if not {"NAME", "SEX", "AGE"} <= set(names) or not year_cols:
             raise LayoutError(

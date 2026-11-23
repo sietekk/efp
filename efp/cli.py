@@ -1293,7 +1293,8 @@ def reference_verify(ctx: typer.Context, dataset: list[str] | None = _DATASET_OP
     try:
         checks = ops.verify(run_ctx, dataset)
         for check in checks:
-            typer.echo(f"{'ok  ' if check.ok else 'FAIL'} {check.name}: {check.detail}")
+            mark = "ok    " if check.ok else ("FAILED" if check.required else "absent")
+            typer.echo(f"{mark} {check.name}: {check.detail}")
         if any(not c.ok and c.required for c in checks):
             raise typer.Exit(1)
     finally:

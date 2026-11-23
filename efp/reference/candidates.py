@@ -243,14 +243,33 @@ def _csv_dicts(path: Path) -> Iterator[dict[str, Any]]:
 
 def _split_from_row(row: dict[str, Any]) -> tuple[str, Split]:
     full = _pick(row, "name", "candidate", "candidate_name", "cand_name", "full_name")
-    last = _pick(row, "lname", "last_name", "last", "surname", "family_name")
-    first = _pick(row, "fname", "first_name", "first", "given_name")
+    last = _pick(row, "lname", "lastname", "last_name", "last", "surname", "family_name")
+    first = _pick(row, "fname", "firstname", "first_name", "first", "given_name")
     middle = _pick(row, "mname", "middle_name", "middle")
     if last or first:
         return full or f"{first} {middle} {last}".replace("  ", " ").strip(), split_parts(
             last, first, middle
         )
     return full, split_name(full)
+
+
+def _osf_files(capture: Any, url: str, depth: int = 0) -> Iterator[dict[str, Any]]:
+    """Every file of an OSF storage listing, following its pages and its folders (to depth 3)."""
+    for _page in range(10):
+        listing = capture.fetch(url, row_id=None, stage="reference", kind="api")
+        payload = json.loads(capture.read_body(listing).decode("utf-8"))
+        for entry in payload.get("data", []):
+            attrs = entry.get("attributes") or {}
+            if attrs.get("kind") == "folder" and depth < 3:
+                link = ((entry.get("relationships") or {}).get("files") or {}).get("links") or {}
+                href = (link.get("related") or {}).get("href")
+                if href:
+                    yield from _osf_files(capture, href, depth + 1)
+            elif attrs.get("kind") == "file":
+                yield entry
+        url = (payload.get("links") or {}).get("next") or ""
+        if not url:
+            return
 
 
 class HarvardLocal(Dataset):
@@ -272,18 +291,20 @@ class HarvardLocal(Dataset):
         part = self.parts(ctx)[0]
         capture: Any = ctx.capture
         try:
-            listing = capture.fetch(
-                f"https://api.osf.io/v2/nodes/{ctx.config.reference.harvard_osf_node}/files/osfstorage/",
-                row_id=None, stage="reference", kind="api",
-            )  # fmt: skip
-            payload = json.loads(capture.read_body(listing).decode("utf-8"))
+            root = (
+                f"https://api.osf.io/v2/nodes/{ctx.config.reference.harvard_osf_node}"
+                "/files/osfstorage/"
+            )
             csvs = [
-                d for d in payload.get("data", [])
+                d
+                for d in _osf_files(capture, root)
                 if str((d.get("attributes") or {}).get("name", "")).lower().endswith(".csv")
-            ]  # fmt: skip
+            ]
             if not csvs:
                 raise CaptureError("the OSF listing has no CSV file")
-            best = max(csvs, key=lambda d: int((d.get("attributes") or {}).get("size") or 0))
+            # the candidate-level database; failing that, the largest CSV
+            named = [d for d in csvs if "candidatelevel" in d["attributes"]["name"].lower()]
+            best = (named or [max(csvs, key=lambda d: int(d["attributes"].get("size") or 0))])[0]
             link = (best.get("links") or {}).get("download")
             if not link:
                 raise CaptureError("the OSF listing gives no download link")
@@ -309,13 +330,23 @@ class HarvardLocal(Dataset):
                 full, split = _split_from_row(row)
                 if not split.surname:
                     continue
-                party = _pick(row, "party", "party_detailed", "party_clean") or None
+                recorded = _pick(row, "party", "party_detailed", "party_clean")
+                estimated = "" if recorded else _pick(row, "pid_est")  # the modelled party ID
+                party: str | None = (recorded or estimated) or None
                 flagged = _pick(row, "party_imputed", "nonpartisan", "is_nonpartisan").lower()
-                # party is IMPUTED where the race is nonpartisan: flagged, never asserted
-                imputed = 1 if flagged in ("1", "true", "yes", "t", "y") or party is None else 0
+                # Party is IMPUTED, flagged and never asserted: where the race is nonpartisan, and
+                # always when it is the database's own estimate (pid_est), not a recorded party.
+                imputed = (
+                    1
+                    if flagged in ("1", "true", "yes", "t", "y") or estimated or party is None
+                    else 0
+                )
                 yield (
-                    load_id, _pick(row, "id", "candidate_id", "record_id") or str(index), full,
-                    *_cols(split), state_code(_pick(row, "state", "state_abbrev", "st")) or None,
+                    load_id,
+                    _pick(row, "id", "ledb_candid", "candidate_id", "record_id") or str(index),
+                    full,
+                    *_cols(split),
+                    state_code(_pick(row, "state", "state_abb", "state_abbrev", "st")) or None,
                     _pick(row, "place", "city", "county", "jurisdiction", "geo_name") or None,
                     _pick(row, "office", "office_consolidated", "office_type") or None,
                     party, imputed,
