@@ -52,7 +52,7 @@ dependencies = [
 archive-docker = ["auto-archiver>=1.2.9"]
 # documents: born-digital text, OCR (needs the tesseract and ghostscript binaries) and the model
 # transcription fallback. layout: Docling (pulls torch, so it is separate); the ladder skips it when absent.
-documents = ["pdfplumber>=0.11", "pypdf>=6", "ocrmypdf>=17", "anthropic"]
+documents = ["pdfplumber>=0.11", "pypdf>=6", "ocrmypdf>=17", "anthropic>=2"]
 layout = ["docling>=2"]
 ocr-fallback = ["paddleocr>=3.7"]
 social = ["naminter>=1.0.9", "maigret>=0.6", "atproto>=0.0.72"]

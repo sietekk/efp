@@ -87,6 +87,7 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_documents_layout",
     "idx_llm_calls_row",
     "idx_llm_calls_capture",
+    "idx_documents_one_current",
 )
 
 EXPECTED_TRIGGERS: tuple[str, ...] = (
@@ -112,6 +113,7 @@ EXPECTED_TRIGGERS: tuple[str, ...] = (
     "document_pages_no_delete",
     "llm_calls_no_update",
     "llm_calls_no_delete",
+    "document_pages_below_threshold_flagged",
 )
 
 # Orphan captures (no rows parent) are allowed only for these stages.

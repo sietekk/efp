@@ -8,8 +8,9 @@ A weighted mean of the parts that can be measured for the page, renormalised ove
                     A page with no such word at all scores 0 here (symbols, bare digits).
   charset     0.30  share of characters that are letters, digits, white space or ordinary
                     punctuation, less 5x the share of replacement or control characters, less runs
-                    of 4+ identical symbols. 0.50 maps to 0, 0.95 to 1. Multiplied by how much of
-                    the page is letters and digits (0.25 maps to 0, 0.65 to 1).
+                    of 4+ identical symbols and `(cid:N)` unmapped glyphs. 0.50 maps to 0, 0.95
+                    to 1. Multiplied by how much of the page is letters and digits (0.25 maps
+                    to 0, 0.65 to 1).
   lines       0.15  share of lines that hold 2+ words or 10+ characters, less the excess of
                     one-short-token lines over 30% (column garbage). 0.30 maps to 0, 0.90 to 1.
                     Absent for a page of fewer than 3 lines.
@@ -38,6 +39,7 @@ _PUNCT = set(".,;:'\"()-/&$%§¶#@!?[]{}*+=_<>|\\~`^") | set(
     "\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u00b0"
 )
 _BAD = re.compile(r"[�\x00-\x08\x0b\x0e-\x1f]")
+_CID = re.compile(r"\(cid:\d+\)")  # glyphs pdfminer could not map to characters
 _RUN = re.compile(r"([^\w\s\-_.=*])\1{3,}")
 _TOKEN = re.compile(r"[A-Za-z]{3,}")
 
@@ -76,6 +78,7 @@ def _charset(text: str) -> float:
     ok = sum(1 for c in text if c.isalnum() or c.isspace() or c in _PUNCT)
     bad = len(_BAD.findall(text))
     runs = sum(len(m.group(0)) for m in _RUN.finditer(text))
+    runs += sum(len(m.group(0)) for m in _CID.finditer(text))  # unmapped glyphs are not text
     nonspace = sum(1 for c in text if not c.isspace())
     alnum_share = sum(1 for c in text if c.isalnum()) / max(1, nonspace)
     base = _scale(ok / total - 5 * bad / total - runs / total, 0.50, 0.95)

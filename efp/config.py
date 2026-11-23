@@ -185,6 +185,7 @@ class IdentityCfg(_Section):
 class DocumentsCfg(_Section):
     ocr_quality_threshold: float = Field(ge=0, le=1)
     llm_transcription_fallback: bool
+    docling_always: bool
     ocr_language: str = Field(min_length=2)
     render_dpi: int = Field(ge=72, le=600)
     max_pages: int = Field(gt=0)

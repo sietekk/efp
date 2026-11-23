@@ -65,6 +65,14 @@ BEGIN SELECT RAISE(ABORT, 'document_pages is append-only: UPDATE rejected'); END
 CREATE TRIGGER document_pages_no_delete BEFORE DELETE ON document_pages
 BEGIN SELECT RAISE(ABORT, 'document_pages is append-only: DELETE rejected'); END;
 
+-- A page below the threshold its document was read with can never be stored unflagged (the
+-- threshold is recorded in documents.quality_json), whatever wrote the row.
+CREATE TRIGGER document_pages_below_threshold_flagged BEFORE INSERT ON document_pages
+WHEN NEW.flagged = 0 AND NEW.quality IS NOT NULL AND NEW.quality < COALESCE(
+  (SELECT json_extract(quality_json, '$.threshold') FROM documents
+    WHERE document_id = NEW.document_id), 0)
+BEGIN SELECT RAISE(ABORT, 'document_pages: a page below the quality threshold must be flagged'); END;
+
 -- Every page of the latest run of each document, flags included: for reading and for counts.
 CREATE VIEW document_pages_current AS
   SELECT p.*, d.row_id, d.record_id, d.capture_id, d.text_capture_id, d.layout_capture_id
@@ -73,9 +81,12 @@ CREATE VIEW document_pages_current AS
 
 -- What extraction (build 16) may read: unflagged pages with text of the latest run. Flagged,
 -- failed and blank pages are not here; they are in document_pages_current with their flag.
+-- It also holds each page to the threshold its document was read with; a reader that has since
+-- raised documents.ocr_quality_threshold must apply the new value as well (docs/documents.md).
 CREATE VIEW document_pages_extractable AS
-  SELECT * FROM document_pages_current
-   WHERE flagged = 0 AND method NOT IN ('blank', 'failed') AND quality IS NOT NULL;
+  SELECT p.* FROM document_pages_current p JOIN documents d ON d.document_id = p.document_id
+   WHERE p.flagged = 0 AND p.method NOT IN ('blank', 'failed') AND p.quality IS NOT NULL
+     AND p.quality >= COALESCE(json_extract(d.quality_json, '$.threshold'), 1.0);
 
 -- Every model call, for the budget cap and the audit (build 10 transcription, build 16 extraction).
 -- temperature is NULL where the API rejects it for the model; temperature_note says so.
@@ -111,3 +122,4 @@ CREATE INDEX idx_documents_text      ON documents(text_capture_id);
 CREATE INDEX idx_documents_layout    ON documents(layout_capture_id);
 CREATE INDEX idx_llm_calls_row       ON llm_calls(row_id);
 CREATE INDEX idx_llm_calls_capture   ON llm_calls(capture_id);
+CREATE UNIQUE INDEX idx_documents_one_current ON documents(capture_id) WHERE current = 1;

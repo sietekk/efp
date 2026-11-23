@@ -32,6 +32,7 @@ class Candidate:
 class PageState:
     candidates: list[Candidate] = field(default_factory=list)
     blank: bool = False
+    ran: set[str] = field(default_factory=set)  # OCR rungs that actually ran on this page
 
     def add(self, candidate: Candidate) -> None:
         self.candidates.append(candidate)

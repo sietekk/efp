@@ -28,10 +28,11 @@ from tests.documents_helpers import (
     add_row,
     doc_config,
     make_ctx,
+    model_registry,
     run_row,
 )
 
-CHAIN = 'modules = ["documents.pdfplumber", "documents.claude_transcribe"]'
+CHAIN = 'modules = ["documents.pdfplumber", "documents.ocrmypdf", "documents.claude_transcribe"]'
 SONNET = {'transcription_model = "test-model"': 'transcription_model = "claude-sonnet-5-5"'}
 IMAGE_PDF = pdfgen.image_only([pdfgen.LINES_A])
 
@@ -74,7 +75,7 @@ def test_a_page_both_ocr_paths_failed_is_transcribed_scored_and_flagged_for_revi
     write_config: Callable[..., Path], conn: sqlite3.Connection, stub: Stub
 ) -> None:
     config = setup(write_config, conn)
-    result = run_row(config, conn)
+    result = run_row(config, conn, registry=model_registry())
     (page,) = conn.execute(
         "SELECT page_no, method, quality, flagged, flag_reasons FROM document_pages_current"
     ).fetchall()
@@ -105,7 +106,7 @@ def test_a_model_that_takes_temperature_gets_the_configured_one_when_enabled(
     write_config: Callable[..., Path], conn: sqlite3.Connection, stub: Stub
 ) -> None:
     config = setup(write_config, conn, **{"send_temperature = false": "send_temperature = true"})
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     assert stub.calls[0]["temperature"] == 0.0
     assert conn.execute("SELECT temperature, temperature_note FROM llm_calls").fetchone() == (
         0.0,
@@ -117,7 +118,7 @@ def test_the_monthly_cap_stops_transcription_and_the_row_is_revisited(
     write_config: Callable[..., Path], conn: sqlite3.Connection, stub: Stub
 ) -> None:
     config = setup(write_config, conn, **{"max_monthly_usd = 1.0": "max_monthly_usd = 0.01"})
-    result = run_row(config, conn)
+    result = run_row(config, conn, registry=model_registry())
     assert stub.calls == []  # not even one call: the worst case would pass the cap
     assert conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 0
     (page,) = conn.execute("SELECT method, flagged FROM document_pages_current").fetchall()
@@ -137,7 +138,7 @@ def test_spend_already_logged_counts_against_the_cap(
         model_id="m", prompt_sha256=None, temperature=None, thinking=None, input_tokens=1,
         output_tokens=1, cost=0.99, request_id=None, ok=True,
     )  # fmt: skip
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     assert stub.calls == []
     assert llm.spent_this_month(conn) == pytest.approx(0.99)
 
@@ -148,7 +149,7 @@ def test_a_failed_call_is_logged_costs_nothing_and_leaves_the_page_failed(
     s = Stub(fail=True)
     monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
     config = setup(write_config, conn)
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     assert conn.execute("SELECT method, flagged FROM document_pages_current").fetchall() == [
         ("failed", 1)
     ]
@@ -162,7 +163,7 @@ def test_a_refusal_is_logged_and_gives_no_text(
     s = Stub(text="", stop="refusal")
     monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
     config = setup(write_config, conn)
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     assert conn.execute("SELECT method FROM document_pages_current").fetchall() == [("failed",)]
     assert conn.execute("SELECT ok, error FROM llm_calls").fetchone() == (0, "refusal")
 
@@ -175,7 +176,7 @@ def test_no_key_or_no_fallback_flag_means_no_transcription(
         conn,
         **{"llm_transcription_fallback = true": "llm_transcription_fallback = false"},
     )
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     assert stub.calls == []
     reasons = json.loads(conn.execute("SELECT methods_json FROM documents").fetchone()[0])
     why = [m["reason"] for m in reasons["pages"][0]["modules"] if m["name"].endswith("transcribe")]
@@ -184,7 +185,9 @@ def test_no_key_or_no_fallback_flag_means_no_transcription(
 
 def test_the_cost_is_computed_from_config_prices(config: Config) -> None:
     assert llm.cost_usd(config, 1_000_000, 1_000_000) == pytest.approx(12.0)
-    assert llm.worst_case_usd(config, 4096) == pytest.approx((2500 * 2 + 4096 * 10) / 1e6)
+    assert llm.worst_case_usd(config, 4096) == pytest.approx(
+        (llm.PROMPT_TOKENS_ESTIMATE * 2 + 4096 * 10) / 1e6
+    )
 
 
 def test_thinking_is_turned_off_only_for_the_model_that_needs_it() -> None:
@@ -400,7 +403,7 @@ def test_status_reports_methods_quality_bands_flags_and_spend(
 ) -> None:
     config = setup(write_config, conn)
     add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A, pdfgen.LINES_B]))
-    run_row(config, conn)
+    run_row(config, conn, registry=model_registry())
     report = status_view.build_report(conn, config)
     d = report.documents
     assert d["pages_by_method"] == {"native": 2, "model": 1} and d["flagged_pages"] == 1

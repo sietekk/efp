@@ -25,11 +25,11 @@ from typing import Any
 from efp import modules as chain
 from efp.documents import canonical, pdfio
 from efp.documents.ladder import DocState, PageState, PageTask
-from efp.documents.modules import STAGE, transcribe_configured
+from efp.documents.modules import STAGE, docling_first, transcribe_configured
 from efp.documents.quality import SCORE_VERSION
 from efp.modules import REGISTRY, ModuleResult, Registry
 from efp.runner import input_hash as hash_values
-from efp.store import body_relpath, config_store_path, sha256_hex
+from efp.store import StoreError, body_relpath, config_store_path, read_verified, sha256_hex
 from efp.types import Context, Row, StageResult
 
 BUILD = "10"
@@ -171,12 +171,10 @@ def process_pdf(
     out = DocOut(pdf)
     cfg = ctx.config.documents
     try:
-        count = pdfio.page_count(pdf.path)
-    except pdfio.PdfError as exc:
-        out.unreadable = str(exc)
-        return out
-    except OSError as exc:
-        out.unreadable = f"body not readable: {type(exc).__name__}"
+        # the evidentiary bytes: re-hashed on every read, and every tool works on a copy of them
+        original = read_verified(ctx.config.paths.store, pdf.sha256)
+    except (StoreError, OSError) as exc:
+        out.unreadable = f"stored body not verified: {type(exc).__name__}"
         return out
     chain_cfg = chain.chains_for(ctx.config, STAGE)[0]
 
@@ -184,8 +182,17 @@ def process_pdf(
         return result.quality is not None and result.quality >= threshold
 
     with tempfile.TemporaryDirectory(prefix="efp-doc-", ignore_cleanup_errors=True) as scratch:
-        doc = DocState(pdf.path, Path(scratch), row.row_id, pdf.capture_id, count)
+        copy = Path(scratch) / "original.pdf"
+        copy.write_bytes(original)
+        try:
+            count = pdfio.page_count(copy)
+        except pdfio.PdfError as exc:
+            out.unreadable = str(exc)
+            return out
+        doc = DocState(copy, Path(scratch), row.row_id, pdf.capture_id, count)
         out.state = doc
+        if cfg.docling_always:
+            docling_first(ctx, registry, doc)
         limit = min(count, cfg.max_pages)
         for index in range(count):
             page_no = index + 1
@@ -297,7 +304,22 @@ def _quality_json(out: DocOut, canon: canonical.Canonical, threshold: float) -> 
 
 def write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int | None:
     """Write one document's rows. Returns the new ``document_id``, or None when the latest run
-    already holds the same text and the same page results (nothing is duplicated by a re-run)."""
+    already holds the same text and the same page results (nothing is duplicated by a re-run).
+
+    The derived captures are stored first (each commits on its own and is content-addressed, so a
+    failure after them leaves only unreferenced captures). The ``documents`` and ``document_pages``
+    rows, and the flip of the previous row to ``current = 0``, are one transaction: either all of
+    them or none."""
+    if ctx.db is None:
+        raise RuntimeError("the documents stage needs the database")
+    try:
+        return _write_document(ctx, row, out, threshold)
+    except Exception:
+        ctx.db.rollback()
+        raise
+
+
+def _write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int | None:
     conn, pdf = ctx.db, out.pdf
     if conn is None:
         raise RuntimeError("the documents stage needs the database")
@@ -310,6 +332,8 @@ def write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int
         quality = json.dumps({"unreadable": out.unreadable}, sort_keys=True)
         if old is not None and old[2] == quality:
             return None
+        if old is not None:
+            conn.execute("UPDATE documents SET current = 0 WHERE document_id = ?", (old[0],))
         cursor = conn.execute(
             "INSERT INTO documents (row_id, record_id, capture_id, pre_ocr_sha256, ocr_applied, "
             "quality_json, extracted_at, canonical_version, current) VALUES (?,?,?,?,0,?,?,?,1)",
@@ -317,8 +341,6 @@ def write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int
              canonical.CANONICAL_VERSION),
         )  # fmt: skip
         new_id = int(cursor.lastrowid or 0)
-        if old is not None:
-            conn.execute("UPDATE documents SET current = 0 WHERE document_id = ?", (old[0],))
         conn.commit()
         return new_id
     pages = [p.text for p in out.pages]
@@ -372,6 +394,8 @@ def write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int
             "docling_error": doc.docling_error if doc else None,
         },
     }
+    if old is not None:
+        conn.execute("UPDATE documents SET current = 0 WHERE document_id = ?", (old[0],))
     cursor = conn.execute(
         "INSERT INTO documents (row_id, record_id, capture_id, pre_ocr_sha256, post_ocr_sha256, "
         "ocr_applied, ocr_engine, docling_path, page_count, text_sha256, quality_min, "
@@ -393,8 +417,6 @@ def write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> int
             (new_id, p.page_no, p.method, p.quality, 1 if p.flagged else 0,
              json.dumps(p.reasons), start, end),
         )  # fmt: skip
-    if old is not None:
-        conn.execute("UPDATE documents SET current = 0 WHERE document_id = ?", (old[0],))
     conn.commit()
     return new_id
 
@@ -418,7 +440,16 @@ def _signature(ctx: Context, registry: Registry) -> dict[str, bool]:
     return out
 
 
-def input_hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = "") -> str:
+def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
+    """What ``efp run documents --recheck`` compares with the stored hash: the PDFs the row has
+    now, the rungs that can run, the canonical and score versions, and the settings. A stored hash
+    with a ``:budget`` or ``:tools`` suffix never equals this one, so those rows are revisited."""
+    if ctx.db is None:
+        raise RuntimeError("the documents stage needs the database")
+    return _hash(ctx, registry, pdf_inputs(ctx.db, ctx, row.row_id))
+
+
+def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = "") -> str:
     cfg = ctx.config.documents
     if not pdfs:
         return hash_values("no_documents", canonical.CANONICAL_VERSION)
@@ -483,13 +514,13 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     if not pdfs:
         return StageResult(
             row_id=row.row_id, stage=STAGE, status="done",
-            input_hash=input_hash(ctx, registry, pdfs), tool_version=TOOL_VERSION,
+            input_hash=_hash(ctx, registry, pdfs), tool_version=TOOL_VERSION,
             summary_json={"documents_status": "no_documents", "documents": []},
         )  # fmt: skip
     if not pdfio.have("pdfplumber"):
         return StageResult(
             row_id=row.row_id, stage=STAGE, status="done",
-            input_hash=input_hash(ctx, registry, pdfs, ":tools"), tool_version=TOOL_VERSION,
+            input_hash=_hash(ctx, registry, pdfs, ":tools"), tool_version=TOOL_VERSION,
             summary_json={
                 "documents_status": "no_tools",
                 "reason": "pdfplumber is not installed (the documents extra)",
@@ -504,7 +535,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
         outs.append(out)
     return StageResult(
         row_id=row.row_id, stage=STAGE, status="done",
-        input_hash=input_hash(ctx, registry, pdfs, _gaps(outs)), tool_version=TOOL_VERSION,
+        input_hash=_hash(ctx, registry, pdfs, _gaps(outs)), tool_version=TOOL_VERSION,
         summary_json=_summary(outs),
     )  # fmt: skip
 
@@ -516,6 +547,8 @@ def run(batch: list[Row], ctx: Context) -> list[StageResult]:
             results.append(process_row(row, ctx))
         except Exception as exc:  # one row's bug must not take the batch with it
             log.exception("documents failed for row %s", row.row_id)
+            if ctx.db is not None:
+                ctx.db.rollback()
             results.append(
                 StageResult(
                     row_id=row.row_id,

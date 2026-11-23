@@ -18,15 +18,19 @@ import base64
 import hashlib
 import logging
 import shutil
+import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from efp import modules as chain
 from efp.capture import CaptureBudgetError, CaptureError
 from efp.documents import docling_parse, llm, pdfio
-from efp.documents.ladder import Candidate, PageTask
+from efp.documents.ladder import Candidate, DocState, PageTask
 from efp.documents.pdfio import PageSize, Word
 from efp.documents.quality import score_lines
+from efp.logging import redact as scrub_text
 from efp.modules import Availability, ModuleResult, Outcome, Registry
 from efp.secrets import SecretsError, load_secrets
 from efp.types import Context, Row
@@ -86,13 +90,43 @@ class Pdfplumber:
         if lines:
             return _candidate(task, "native", lines, size)
         try:  # no text layer: a page with no ink is blank, not a failure
-            image = pdfio.render_page(task.d.path, task.page_no - 1, 72)
+            image = pdfio.render_page(task.d.path, task.page_no - 1, 100)
         except pdfio.PdfError:
             return ModuleResult(Outcome.miss)
         if pdfio.is_blank_image(image):
             task.p.blank = True
             return ModuleResult(Outcome.hit, quality=1.0)
         return ModuleResult(Outcome.miss)
+
+
+def convert_docling(doc: DocState) -> None:
+    """Run Docling over the whole PDF once; the outcome (or the error) stays on ``doc``."""
+    if doc.docling_attempted:
+        return
+    doc.docling_attempted = True
+    try:
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+
+        # layout and structure only: scanned pages are the OCR rungs' work
+        options = PdfPipelineOptions(do_ocr=False)
+        converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
+        )
+        result = converter.convert(str(doc.path))
+        doc.docling_dict = result.document.export_to_dict()
+        doc.docling_pages = docling_parse.parse(doc.docling_dict)
+    except Exception as exc:
+        doc.docling_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+
+
+def docling_first(ctx: Context, registry: Registry, doc: DocState) -> None:
+    """``documents.docling_always``: structure for every document, not only those with a page the
+    first rung could not read. Does nothing when Docling is not in the chain or not installed."""
+    module = registry.get("documents.docling")
+    if module is not None and module.available(ctx).ok:
+        convert_docling(doc)
 
 
 class Docling:
@@ -108,23 +142,7 @@ class Docling:
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task = _task(row)
         doc = task.d
-        if not doc.docling_attempted:
-            doc.docling_attempted = True
-            try:
-                from docling.datamodel.base_models import InputFormat
-                from docling.datamodel.pipeline_options import PdfPipelineOptions
-                from docling.document_converter import DocumentConverter, PdfFormatOption
-
-                # layout and structure only: scanned pages are the OCR rungs' work
-                options = PdfPipelineOptions(do_ocr=False)
-                converter = DocumentConverter(
-                    format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
-                )
-                result = converter.convert(str(doc.path))
-                doc.docling_dict = result.document.export_to_dict()
-                doc.docling_pages = docling_parse.parse(doc.docling_dict)
-            except Exception as exc:
-                doc.docling_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+        convert_docling(doc)
         if doc.docling_error:
             return ModuleResult(Outcome.error, error=doc.docling_error)
         got = doc.docling_pages.get(task.page_no)
@@ -155,29 +173,34 @@ class Ocrmypdf:
         task = _task(row)
         doc = task.d
         cfg = ctx.config.documents
+        task.p.ran.add("tesseract")
         if not doc.ocr_attempted:
             doc.ocr_attempted = True
             target = doc.scratch / "ocr.pdf"
+            # A subprocess, not an import: importing ocrmypdf monkeypatches pdfminer.six for the
+            # whole process (PDFSimpleFont), after which pdfplumber reads a standard-font PDF as
+            # "(cid:72)(cid:101)..." text. The copy in the scratch directory is the only input.
+            command = [
+                sys.executable, "-m", "ocrmypdf", "--skip-text", "-l", cfg.ocr_language,
+                "--output-type", "pdf", "--optimize", "0", "--jobs", "2", "--quiet",
+                "--invalidate-digital-signatures",
+                "--tesseract-timeout", str(min(180, cfg.ocr_timeout_seconds)),
+                str(doc.path), str(target),
+            ]  # fmt: skip
             try:
-                import ocrmypdf
-
-                # a copy: the captured PDF is never touched. skip_text leaves pages that already
-                # have text alone and OCRs the rest, keeping each page's image.
-                ocrmypdf.ocr(
-                    doc.path,
-                    target,
-                    skip_text=True,
-                    language=[cfg.ocr_language],
-                    output_type="pdf",
-                    optimize=0,
-                    progress_bar=False,
-                    jobs=2,
-                    tesseract_timeout=float(cfg.ocr_timeout_seconds),
-                    invalidate_digital_signatures=True,
-                )
-                doc.ocr_path = target
-            except Exception as exc:
-                doc.ocr_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+                done = subprocess.run(  # noqa: S603
+                    command, capture_output=True, text=True, check=False,
+                    timeout=cfg.ocr_timeout_seconds,
+                )  # fmt: skip
+                if done.returncode == 0 and target.is_file():
+                    doc.ocr_path = target
+                else:
+                    last = (done.stderr.strip().splitlines() or ["no output"])[-1]
+                    doc.ocr_error = f"ocrmypdf exit {done.returncode}: {scrub_text(last)[:160]}"
+            except subprocess.TimeoutExpired:
+                doc.ocr_error = f"ocrmypdf timed out after {cfg.ocr_timeout_seconds} s"
+            except OSError as exc:
+                doc.ocr_error = f"ocrmypdf could not start: {type(exc).__name__}"
         if doc.ocr_error or doc.ocr_path is None:
             return ModuleResult(Outcome.error, error=doc.ocr_error or "no OCR output")
         lines, size = pdfio.native_page(doc.ocr_path, task.page_no - 1)
@@ -248,6 +271,7 @@ class Paddleocr:
 
         task = _task(row)
         cfg = ctx.config.documents
+        task.p.ran.add("paddleocr")
         image = pdfio.render_page(task.d.path, task.page_no - 1, cfg.render_dpi)
         result = _paddle(_lang(cfg.ocr_language)).predict(numpy.array(image))
         lines, confidences = parse_paddle(result, 72 / cfg.render_dpi)
@@ -304,7 +328,21 @@ class ClaudeTranscribe:
         return Availability.available()
 
     def applies(self, row: Row, ctx: Context) -> bool | str:
-        return True  # reached only when every rung above fell short of the bar
+        """Only a page the OCR rungs failed on: at least one OCR engine ran on it, every
+        installed one has, and the page has no text layer (a digital page is never sent out,
+        whatever its score: a ledger of digits scores low and is not a scan)."""
+        task = _task(row)
+        ran = task.p.ran
+        if not ran:
+            return "no OCR engine ran on this page: the model reads only pages OCR failed on"
+        wanted: dict[str, Any] = {"tesseract": Ocrmypdf, "paddleocr": Paddleocr}
+        configured = set(chain.chains_for(ctx.config, STAGE)[0].modules)
+        for method, cls in wanted.items():
+            if cls.name in configured and method not in ran and cls().available(ctx).ok:
+                return f"{method} has not yet run on this page"
+        if task.p.has("native") is not None:
+            return "the page has a text layer: it is not sent to the model"
+        return True
 
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task = _task(row)

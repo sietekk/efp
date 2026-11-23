@@ -1774,7 +1774,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", marker = "extra == 'documents'" },
+    { name = "anthropic", marker = "extra == 'documents'", specifier = ">=2" },
     { name = "anthropic", marker = "extra == 'extraction'" },
     { name = "atproto", marker = "extra == 'social'", specifier = ">=0.0.72" },
     { name = "auto-archiver", marker = "extra == 'archive-docker'", specifier = ">=1.2.9" },

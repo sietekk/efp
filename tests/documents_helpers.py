@@ -180,6 +180,9 @@ def scripted(name: str, texts: dict[int, str], *, ok: bool = True, why: str = ""
 
         def run(self, row: Row, ctx: Context) -> ModuleResult:
             assert isinstance(row, PageTask)
+            ran = {"ocrmypdf": "tesseract", "paddleocr": "paddleocr"}.get(name.split(".")[-1])
+            if ran:
+                row.p.ran.add(ran)  # as the real OCR rungs do
             text = texts.get(row.page_no)
             if text is None:
                 return ModuleResult(Outcome.miss)
@@ -202,4 +205,16 @@ def scripted_registry(**rungs: type) -> Registry:
     registry = Registry()
     for rung in rungs.values():
         registry.register(rung)
+    return registry
+
+
+def model_registry() -> Registry:
+    """The real first rung and the real model rung, with an OCR rung that reads nothing: the page
+    has been through OCR and failed, which is when the model is allowed to read it."""
+    from efp.documents.modules import ClaudeTranscribe, Pdfplumber
+
+    registry = Registry()
+    registry.register(Pdfplumber)
+    registry.register(scripted("documents.ocrmypdf", {}))
+    registry.register(ClaudeTranscribe)
     return registry

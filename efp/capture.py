@@ -854,7 +854,8 @@ class Capture:
         ``temperature`` is sent only when given: claude-sonnet-5-5 and API version 2026-10-21
         reject it, so the caller leaves it out and says why in its own log. A failed call raises
         :class:`CaptureError` (a budget wait that times out raises :class:`CaptureBudgetError`);
-        nothing is retried here beyond the SDK's own two retries of a 429 or a 5xx.
+        nothing is retried here (one call is one request, one budget slot and one log row); the page
+        is revisited by a later run.
         """
         try:
             self.limiter.acquire("api.anthropic.com", max_wait=None)
@@ -897,7 +898,7 @@ class Capture:
             ],
         }
         url = "https://api.anthropic.com/v1/messages"
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=2)
+        client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=0)
         try:
             message = client.messages.create(**args)
         except anthropic.APIStatusError as exc:

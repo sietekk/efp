@@ -98,9 +98,11 @@ def render_page(path: Path, index: int, dpi: int) -> Any:
             raise PdfError(f"page {index + 1} render: {type(exc).__name__}") from exc
 
 
-def is_blank_image(image: Any, *, ink_share: float = 0.0005) -> bool:
-    """True when almost no pixel of the page is dark: nothing to read, nothing lost."""
-    grey = image.convert("L").point(lambda v: 255 if v < 200 else 0)
+def is_blank_image(image: Any, *, ink_share: float = 0.0002) -> bool:
+    """True when almost no pixel of the page is darker than near-white: nothing to read, nothing
+    lost. The cut is deliberately fine (240 of 255) so a faint scan is not mistaken for a blank
+    page; a speckled blank page then goes to OCR and ends flagged, which is the safe error."""
+    grey = image.convert("L").point(lambda v: 255 if v < 240 else 0)
     dark = grey.histogram()[255]
     return bool(dark / max(1, image.width * image.height) < ink_share)
 

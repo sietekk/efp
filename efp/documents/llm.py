@@ -17,7 +17,9 @@ TEMPERATURE_NOTE = (
     "not sent: claude-sonnet-5-5 and API version 2026-10-21 reject temperature "
     "(llm.send_temperature = false)"
 )
-PROMPT_TOKENS_ESTIMATE = 2_500  # a page image at most ~1,600 tokens, plus the prompt and slack
+# An image costs about width x height / 750 tokens; the page is shrunk to 1,568 px on its longer
+# side, so a square page is the worst case (~3,300), plus the prompt and slack.
+PROMPT_TOKENS_ESTIMATE = 3_600
 
 
 def _month_start(now: datetime | None = None) -> str:
@@ -27,10 +29,14 @@ def _month_start(now: datetime | None = None) -> str:
     )
 
 
-def spent_this_month(conn: sqlite3.Connection, now: datetime | None = None) -> float:
+def spent_this_month(
+    conn: sqlite3.Connection, now: datetime | None = None, purpose: str | None = None
+) -> float:
+    """The month's logged spend: every purpose for the cap, one purpose for a report line."""
     row = conn.execute(
-        "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_calls WHERE called_at >= ?",
-        (_month_start(now),),
+        "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_calls WHERE called_at >= ? "
+        "AND (? IS NULL OR purpose = ?)",
+        (_month_start(now), purpose, purpose),
     ).fetchone()
     return float(row[0])
 

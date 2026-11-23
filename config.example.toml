@@ -162,6 +162,7 @@ audit_sample = 50                 # the F3 false-confirmation audit
 [documents]
 ocr_quality_threshold = 0.85      # pages below this are review-flagged and never reach extraction unflagged
 llm_transcription_fallback = true   # Claude transcribes a page only when both OCR paths fail; counts against the budget
+docling_always = false            # true: run Docling over every PDF (structure for born-digital documents too); false: only when a page falls past the first rung
 ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
 render_dpi = 200                  # page images for OCR, the blank check and model transcription
 max_pages = 500                   # a longer document is read to this page; the rest is recorded as not read

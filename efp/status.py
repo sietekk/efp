@@ -146,7 +146,7 @@ def documents_summary(
             params,
         ).fetchall()
     )
-    spend = spent_this_month(conn)
+    spend = spent_this_month(conn, purpose="transcribe_page")
     if methods or docs or spend:
         out = {
             "documents": len(docs),

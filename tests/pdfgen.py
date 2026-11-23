@@ -129,3 +129,12 @@ def merge(*pdfs: bytes) -> bytes:
 def write(path: Path, data: bytes) -> Path:
     path.write_bytes(data)
     return path
+
+
+def faint(lines_per_page: list[list[str]], dpi: int = 200, grey: int = 225) -> bytes:
+    """Pages of pale grey text on white: a faint scan, which must not be mistaken for blank."""
+    out = []
+    for lines in lines_per_page:
+        image = _page_image(lines, dpi)
+        out.append(image.point(lambda v: 255 if v > 128 else grey))
+    return _pdf_from_images(out, dpi)
