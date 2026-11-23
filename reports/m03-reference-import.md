@@ -144,7 +144,7 @@ The reviewer (cold, once) found no high-severity problem and confirmed the loade
 
 ## Decisions needed from the operator
 
-1. **How was the Census `names.zip` obtained** (the Census site's own link, the Wayback copy of 2026-10-11, or the Census API assembled into `names.zip`)? `docs/sources.md` states only what the file shows (its members and dates) and that it was downloaded by hand. Default: as written; tell me and I add the sentence.
+1. **How the Census `names.zip` was obtained**: answered by the operator in chat, downloaded with `curl` from the Census site's own link (it failed in a browser); `docs/sources.md` now says so. Default: as written; nothing further.
 2. **DIME code 328 as `IND`.** The prompt maps 328 to Independent; it is the commonest DIME code (173,888 candidate rows, 55,441 distinct candidates), which looks more like "nonpartisan or independent" than a small party. Party is an identity signal only and is never scored, so nothing downstream changes. Default: 328 maps to `IND` as instructed.
 3. **Gender is stored and not used** by the prior. Default: as instructed.
 4. **DIME candidates with no usable state** (731 numeric `state` values, 407 candidates after collapsing) are never gathered for a row, because a candidate is never gathered on a name alone. Default: unchanged.
