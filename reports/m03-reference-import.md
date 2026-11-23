@@ -142,6 +142,10 @@ The reviewer (cold, once) found no high-severity problem and confirmed the loade
 
 After the place-key re-run the 13 review-band rows turned out not to be claimed by `--recheck` (the runner treated only `done` rows as settled), so a reference load could leave their scores behind the data; I had worked around it with `--reset`. The runner now treats `needs_review` like `done` for `--recheck` and `--force` (revisited when the input hash changed, a no-op otherwise; a plain run still leaves them alone), for every stage. Tests: `tests/test_runner.py` (both cases) and `tests/test_reference_m03.py` (after a reference load the review-band row is re-scored and a row the operator decided keeps the decision, with no new decision written).
 
+### A re-score through the runner now moves the later stages
+
+`process_batch` wrote a new decision but never reset or released news and social, which `rescore` did. With `--recheck` now reaching the review band, outcome changes through the runner are the intended case, so the logic is factored into `store.sync_downstream` and called from both: a row that is no longer confirmed has its news and social set to pending (and skipped at their gate), and a row that becomes confirmed has those skipped for lack of an identity set to pending. An operator's decision still stands and moves nothing. Tests in `tests/test_identity_review_fixes.py` (demote, release, operator untouched). No real row was affected: none has been confirmed.
+
 ### A place-key fix merged from build 12
 
 After this branch was raised, a review found that `place_key` stripped every trailing "city" ("Salt Lake City" became `SALTLAKE`; "Jersey City" collided with "Jersey Village"). The fix is on `build/12-identity` (PR #16) and merged into this branch: the Census loader strips exactly one legal suffix (loader version 2, so the identical place file reloaded: 33,611 rows) and the identity side never shortens a name as written. Identity was re-run on the corrected table; **no outcome changed** (13 review band, 1,468 unresolved).
@@ -190,4 +194,4 @@ Filled in by the operator at merge time.
 
 - "`efp reference status` shows `census_surnames`, `ssa_names` (both parts) and `dime` loaded with row counts; `efp selftest --reference` passes with known values for all three; `ref_candidates_all` has a non-zero `dime` count and the report carries the before/after coverage tables." **Holds**: loads 37 to 40; 37 checks, 0 failed, with SMITH 828.19, Mary 1880 national, Mary 1950 Connecticut (614) and the DIME 2012 House count (1,823); `dime` 205,225; the tables are above.
 - "`efp identity rescore` and `efp run identity --recheck` (sample, then all rows) have run; `efp status` shows no `prior=ceiling` decision in the main batch; `efp selftest --identity` passes with the extended guarantee and the report states both highest posteriors." **Holds**: 0 ceiling decisions; both guarantees pass, 0.036 and 0.5.
-- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,356 passed; ruff, format and mypy clean; the review section is filled in.
+- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,359 passed; ruff, format and mypy clean; the review section is filled in.

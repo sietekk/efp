@@ -64,6 +64,24 @@ def demote_downstream(conn: sqlite3.Connection, row_id: int) -> None:
     )
 
 
+def sync_downstream(
+    conn: sqlite3.Connection, row_id: int, outcome: str, *, was: str | None
+) -> None:
+    """Keep the later stages in step with a change of outcome, whoever caused it (a refit, a
+    re-score through the runner, the operator): a row no longer confirmed has the stages that ran
+    on its confirmation set to pending (they are skipped at their gate), and a row that is now
+    confirmed has the news and social rows skipped for lack of an identity set to pending."""
+    if was == "confirmed" and outcome != "confirmed":
+        demote_downstream(conn, row_id)
+    if outcome == "confirmed":
+        conn.execute(
+            "UPDATE case_stage SET status = 'pending', gate_reason = NULL, input_hash = NULL "
+            "WHERE row_id = ? AND stage IN ('news', 'social') AND status = 'skipped' "
+            "AND gate_reason LIKE 'identity_%'",
+            (row_id,),
+        )
+
+
 def person_json(person: Person) -> dict[str, Any]:
     return {
         "source": person.source,

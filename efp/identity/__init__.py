@@ -32,6 +32,7 @@ from efp.identity.prior import PriorModel
 from efp.identity.profile import CaptureText, Person, row_people
 from efp.modules import REGISTRY, Registry, chains_for, run_chain
 from efp.reference.states import state_code
+from efp.runner import _identity_outcome as runner_outcome
 from efp.runner import input_hash as hash_values
 from efp.types import Context, Row, StageResult
 
@@ -227,6 +228,7 @@ def process_batch(
         tag = decided_by(settings, modes)
         kept = sorted(scored, key=lambda s: s.posterior, reverse=True)[:MAX_CANDIDATES_STORED]
         human = store.human_decision(conn, row.row_id)
+        was = runner_outcome(conn, row.row_id)
         with store.atomic(conn):
             store.write_candidates(conn, row.row_id, kept, settings_sha=settings_sha(settings))
             if human is None:
@@ -234,6 +236,7 @@ def process_batch(
                     conn, row.row_id, decision, decided_by=tag,
                     thresholds=(ident.confirm_threshold, ident.review_threshold),
                 )  # fmt: skip
+                store.sync_downstream(conn, row.row_id, decision.outcome, was=was)
             # an operator's decision stands: a re-run scores again but never overrides it
         status = "needs_review" if decision.outcome == "needs_review" else "done"
         if human is not None:

@@ -86,15 +86,7 @@ def _move_stage(
         "WHERE row_id = ? AND stage = 'identity'",
         (status, row_id),
     )
-    if was == "confirmed" and outcome != "confirmed":
-        store.demote_downstream(conn, row_id)  # what ran on a confirmation is run again
-    if outcome == "confirmed":  # rows skipped because identity was unresolved run again
-        conn.execute(
-            "UPDATE case_stage SET status = 'pending', gate_reason = NULL, input_hash = NULL "
-            "WHERE row_id = ? AND stage IN ('news', 'social') AND status = 'skipped' "
-            "AND gate_reason LIKE 'identity_%'",
-            (row_id,),
-        )
+    store.sync_downstream(conn, row_id, outcome, was=was)
 
 
 def rescore(
