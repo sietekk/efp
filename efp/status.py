@@ -281,7 +281,7 @@ def render_md(report: StatusReport) -> str:
         d = report.documents
         out += ["", "### Documents (text, OCR and page quality)", ""]
         out += [
-            f"{d['documents']:,} documents; {d['flagged_pages']:,} pages flagged for review.",
+            f"{d['documents']:,} documents; {d['flagged_pages']:,} page(s) flagged for review.",
             "",
         ]
         out += ["| method | pages |", "|---|---:|"]

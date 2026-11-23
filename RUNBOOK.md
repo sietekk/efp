@@ -114,6 +114,21 @@ Paste `build/NN-<name>.md`. The order and the session bundles are in `build/READ
 - If you have not merged the previous PR when you start the next build, Claude Code stacks the new branch on it and says so; merge in order.
 - Build 15 (social) is in the first pass (session S5).
 
+### Documents (build 10): text and OCR on this machine
+
+`uv sync --extra documents` installs pdfplumber, pypdf, OCRmyPDF and the `anthropic` package. OCR also needs
+the system programs: `brew install tesseract ghostscript`. Docling (layout and tables) is a separate extra,
+`uv sync --extra documents --extra layout` (it pulls PyTorch); PaddleOCR is `--extra ocr-fallback`. A machine
+without any of them still produces text: each missing tool is skipped with its reason and the page is
+flagged, and `efp run documents --recheck` re-reads those rows once the tool is installed.
+
+Docling and PaddleOCR download their model weights from the internet the first time they run, outside the
+capture layer (so not logged or rate-limited); run them once with the network on, then they work offline.
+
+Model transcription needs `ANTHROPIC_API_KEY` in `~/.config/efp/.env`. It reads only pages every other rung
+failed on, never exceeds `llm.max_monthly_usd`, and marks every page it writes for review. `efp status` shows
+this month's spend.
+
 ## 7. Where things land
 
 | What | Where |
