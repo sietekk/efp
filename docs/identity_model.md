@@ -67,7 +67,9 @@ candidate (`identity_candidates.fields_json.prior`) and printed by `efp identity
   exceeds one half. A name so rare that the arithmetic gives less than one is floored, and is
   flagged `floored_at_one`.
 
-### The ceiling prior (until the Census and SSA files are imported)
+### The ceiling prior (no longer in use on this database)
+
+The Census and SSA files were imported on 2026-11-23 and every main-batch decision now says `prior=census`. The ceiling remains the fallback for a database without those tables.
 
 The Census surname and SSA files could not be fetched automatically (build 11), so `ref_surname_freq`
 and `ref_given_freq` are empty. Until they are imported the prior uses a **ceiling**, and says so on
@@ -231,3 +233,18 @@ with a bootstrap interval and, when no verdict is wrong, the exact one-sided 95%
 - A 2023 population is applied to cohorts of earlier cases.
 - The research plan's "0.99 against 0.95" sensitivity wording differs from the spec's 0.995; the spec
   is followed.
+
+## On the real prior (2026-11-23)
+
+With the Census and SSA tables loaded, the guarantee holds at both ends of the workbook's surnames:
+a candidate agreeing only on name and state reaches at most 0.036 for the ten commonest surnames and
+at most 0.5 for the ten rarest, where the namesake floor of one caps the prior (`efp selftest
+--identity`, `identity.guarantee` and `identity.guarantee_rare`). No further rule was needed. A bare
+name at 0.5 stays well under the review threshold, and the rule that a candidate needs an agreeing
+level beyond the name still applies.
+
+DIME candidates (205,225 after collapsing cycles) carry a mapped party (`DEM`, `REP`, `IND`; any
+other DIME code is no party, the raw code kept), a suffix, the general and primary outcome, the
+incumbent / challenger / open-seat status and the FEC year, read at gather time from `ref_dime`; DIME
+v4.0 has no nickname column, so no DIME alias is added. Gender is stored and never used.
+
