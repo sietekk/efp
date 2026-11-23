@@ -25,8 +25,8 @@ Changes the approved plan made to the prompt, and two answers you gave at planni
 - Config (documented in `config.example.toml`): `documents.ocr_language`, `render_dpi`, `max_pages`, `ocr_timeout_seconds`, `transcribe_max_tokens`; `llm.send_temperature`, `price_input_per_mtok`, `price_output_per_mtok`.
 - CI installs the `documents` extra and `tesseract-ocr` / `ghostscript`, so the OCR test runs there. `pyproject.toml`: `layout` extra, mypy overrides for the optional packages; `uv.lock` re-locked.
 - Docs: `docs/documents.md` (the score, the canonical text, the storage layout), `RUNBOOK.md`.
-- Tests: `tests/test_documents.py`, `tests/test_documents_model.py` and `tests/test_documents_review.py` (86 tests), `tests/pdfgen.py` (synthetic PDFs: born-digital, image-only, degraded, blank, mixed), `tests/documents_helpers.py`.
-- Results: `uv run pytest -m "not live"`: 1085 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Tests: `tests/test_documents.py`, `tests/test_documents_model.py` and `tests/test_documents_review.py` (90 tests), `tests/pdfgen.py` (synthetic PDFs: born-digital, image-only, degraded, blank, mixed), `tests/documents_helpers.py`.
+- Results: `uv run pytest -m "not live"`: 1089 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## Review findings (done-when-reviewer) and what was done
 
