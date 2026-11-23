@@ -80,6 +80,8 @@ class DocOut:
     state: DocState | None = None
     not_read: int = 0
     ocr_bytes: bytes | None = None
+    transient: bool = False  # unreadable for a reason that may pass (the store, the disk)
+    kept_previous: bool = False  # an earlier good document was left current
 
 
 # --- inputs -------------------------------------------------------------------------------------
@@ -181,6 +183,7 @@ def process_pdf(
         original = read_verified(ctx.config.paths.store, pdf.sha256)
     except (StoreError, OSError) as exc:
         out.unreadable = f"stored body not verified: {type(exc).__name__}"
+        out.transient = True  # a disk or store error: the row is retried, not written off
         return out
     chain_cfg = chain.chains_for(ctx.config, STAGE)[0]
 
@@ -345,6 +348,11 @@ def _write_document(ctx: Context, row: Row, out: DocOut, threshold: float) -> in
         (row.row_id, pdf.capture_id),
     ).fetchone()
     if out.unreadable is not None:
+        if old is not None and old[1] is not None:
+            # an earlier run read this PDF: a failure now (a one-off disk or parser error) must not
+            # take its text away from the views. The failure is in the stage summary only.
+            out.kept_previous = True
+            return None
         quality = json.dumps({"unreadable": out.unreadable}, sort_keys=True)
         if old is not None and old[2] == quality:
             return None
@@ -515,6 +523,7 @@ def _summary(outs: list[DocOut]) -> dict[str, Any]:
                 "capture_id": o.pdf.capture_id,
                 "status": "unreadable" if o.unreadable else "read",
                 "reason": o.unreadable,
+                "kept_previous_text": o.kept_previous,
                 "pages": len(o.pages),
                 "quality_min": min(scored) if scored else None,
                 "flagged_pages": sum(1 for p in o.pages if p.flagged),
@@ -537,7 +546,9 @@ def _gaps(outs: list[DocOut]) -> str:
                 for m in p.modules
             ):
                 return ":budget"
-    return ""
+    # a PDF that could not be read for a reason that may pass (the store, the disk) is retried by
+    # --recheck; one that is corrupt is not (its bytes will not change)
+    return ":unreadable" if any(o.transient for o in outs) else ""
 
 
 def retire_dropped(conn: sqlite3.Connection, row_id: int, keep: list[int]) -> int:

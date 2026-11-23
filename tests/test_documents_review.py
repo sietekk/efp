@@ -1218,3 +1218,133 @@ def test_the_model_may_read_a_page_whose_text_layer_is_only_a_stamp(
     assert conn.execute("SELECT method, flagged FROM document_pages_current").fetchall() == [
         ("model", 1)
     ]
+
+
+# --- review round 10: a failed re-read keeps the good text; a failed ledger write keeps the cost ---------------
+
+
+def _read_once(write_config: Callable[..., Path], conn: sqlite3.Connection) -> tuple[Config, int]:
+    config = doc_config(write_config)
+    add_row(conn)
+    capture_id = add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A]))
+    first = run_row(config, conn)
+    assert first.summary_json["documents_status"] == "read"
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 1
+    return config, capture_id
+
+
+def test_a_transient_store_error_on_a_reread_does_not_remove_the_good_text(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config, capture_id = _read_once(write_config, conn)
+    sha = conn.execute(
+        "SELECT content_sha256 FROM captures WHERE capture_id = ?", (capture_id,)
+    ).fetchone()[0]
+    path = store_path(sha, config.paths.store)
+    os.chmod(path, 0o600)
+    good = path.read_bytes()
+    path.write_bytes(good + b"\n% a bad read\n")  # the stored body no longer verifies
+    again = run_row(config, conn)
+    doc = again.summary_json["documents"][0]
+    assert doc["status"] == "unreadable" and doc["kept_previous_text"] is True
+    assert again.input_hash.endswith(":unreadable")  # --recheck retries it
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM documents WHERE current = 1 AND text_sha256 IS NOT NULL"
+        ).fetchone()[0]
+        == 1
+    )
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 1
+    path.write_bytes(good)  # the disk recovers; a recheck finds the same text and changes nothing
+    healed = run_row(config, conn)
+    assert healed.summary_json["documents_status"] == "read" and not healed.input_hash.endswith(
+        ":unreadable"
+    )
+    assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 1
+
+
+def test_a_parser_error_on_a_reread_also_keeps_the_good_text(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.documents import pdfio
+
+    _read_once(write_config, conn)
+    config = doc_config(write_config)
+
+    def broken(path: Path) -> int:
+        raise pdfio.PdfError("PdfminerException: out of memory")
+
+    monkeypatch.setattr(pdfio, "page_count", broken)
+    again = run_row(config, conn)
+    assert again.summary_json["documents"][0]["kept_previous_text"] is True
+    assert not again.input_hash.endswith(
+        ":unreadable"
+    )  # corrupt bytes do not change: no retry loop
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 1
+
+
+def _model_call(config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> Any:
+    s = Stub()
+    monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        return llm.call_model(
+            cap, conn, config, api_key="k", row_id=None, stage="x", purpose="transcribe_page",
+            system="s", content=[{"type": "text", "text": "x"}], max_tokens=100,
+            prompt_sha256=None,
+        )  # fmt: skip
+    finally:
+        cap.close()
+
+
+def test_a_locked_database_is_retried_and_the_call_is_logged(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = doc_config(write_config, **SONNET)
+    real = llm.log_call
+    attempts: list[int] = []
+
+    def flaky(*a: Any, **k: Any) -> int:
+        attempts.append(1)
+        if len(attempts) <= 2:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+
+    monkeypatch.setattr(llm, "log_call", flaky)
+    monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+    done = _model_call(config, conn, monkeypatch)
+    assert done.reply is not None and done.log_error is None
+    assert conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 1
+    assert not llm.unlogged_path(config).exists()
+
+
+def test_a_billed_answer_survives_a_ledger_that_stays_broken_and_counts_against_the_cap(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = doc_config(write_config, **SONNET)
+    real = llm.log_call
+
+    def broken(*a: Any, **k: Any) -> int:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(llm, "log_call", broken)
+    monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+    done = _model_call(config, conn, monkeypatch)
+    assert done.reply is not None and "llm_unlogged.jsonl" in (
+        done.log_error or ""
+    )  # not discarded
+    assert conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 0
+    record = json.loads(llm.unlogged_path(config).read_text().splitlines()[0])
+    assert record["cost"] == pytest.approx(done.cost) and record["purpose"] == "transcribe_page"
+    # the cap sees it even though the table does not
+    assert llm.spent_this_month(conn) == 0
+    assert llm.spent_this_month(conn, config=config) == pytest.approx(done.cost)
+    # when the database takes writes again, the next call moves it into llm_calls
+    monkeypatch.setattr(llm, "log_call", real)
+    _model_call(config, conn, monkeypatch)
+    assert conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 2
+    assert (
+        "from the fallback ledger"
+        in conn.execute("SELECT error FROM llm_calls ORDER BY call_id").fetchone()[0]
+    )
+    assert not llm.unlogged_path(config).exists()

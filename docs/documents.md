@@ -60,7 +60,12 @@ with `between_tools` at low effort. Everything about a call (the request shape, 
 every kind of failure) lives in `efp/llm.py` (`call_model`), the one path the stage and `efp selftest
 --live` both use. The call goes through `Capture.llm_message`
 (rate-limited on `api.anthropic.com`, request and response stored as a capture, the image
-replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). `call_model` itself refuses a call the cap cannot afford (no API call, no log row), so no caller can
+replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). If the `llm_calls` write fails (a locked database), `call_model` retries it, then writes the call
+to a fallback ledger, `llm_unlogged.jsonl` in `paths.logs`, returns the answer intact with
+`CallResult.log_error` set, and counts the ledger against the cap; the next call moves it into
+`llm_calls`. A billed answer is never discarded unaccounted.
+
+`call_model` itself refuses a call the cap cannot afford (no API call, no log row), so no caller can
 overspend by forgetting to check. A call is made only if this month's logged spend plus the call's worst-case
 cost (a 3,600-token input estimate, an image costing about width x height / 750 tokens, plus
 `transcribe_max_tokens` of output) is within `llm.max_monthly_usd`; prices are `llm.price_*_per_mtok`.
@@ -158,7 +163,13 @@ page with the union box of the words the span touches.
 `documents.pre_ocr_sha256` is always the captured PDF's hash (the evidentiary one). Each PDF is read
 through `read_verified` (re-hashed, a mismatch makes it `unreadable`) and every tool works on a
 copy in a scratch directory, never on the stored file.
-`post_ocr_sha256` is set only when the Tesseract text layer was used. When a re-run no longer lists a PDF for a row (a court record was superseded), that PDF's `documents`
+`post_ocr_sha256` is set only when the Tesseract text layer was used. When a re-run cannot read a PDF an earlier run read (a store or disk error, a parser error), the
+earlier text stays current: the failure is in the stage summary (`kept_previous_text`) only, and a
+store or disk error also suffixes the row's hash with `:unreadable` so `--recheck` retries it (a
+corrupt PDF does not, its bytes will not change). A PDF never read successfully is recorded as
+unreadable as before.
+
+When a re-run no longer lists a PDF for a row (a court record was superseded), that PDF's `documents`
 row is set `current = 0`, so neither view serves text from a filing the row has dropped; the row is
 kept. A re-run that produces the
 same text and page results adds nothing; otherwise one transaction sets the old row `current = 0`
