@@ -20,6 +20,7 @@ from efp.identity.normalize import (
     metaphone_codes,
     parse_dob,
     place_key,
+    place_keys,
 )
 from efp.identity.prior import Prior, PriorModel
 from efp.identity.profile import Person, Value
@@ -50,20 +51,24 @@ class Counties:
             conn.execute("SELECT 1 FROM ref_place_county_current LIMIT 1").fetchone() is not None
         )
 
-    def of(self, state: str | None, place: str) -> list[str]:
-        if not self.loaded or not state or not place:
+    def of(self, state: str | None, places: list[str]) -> list[str]:
+        """The counties of the first key (``place_keys`` order) the table knows."""
+        if not self.loaded or not state:
             return []
-        key = (state, place)
-        if key not in self._cache:
-            self._cache[key] = [
-                str(r[0])
-                for r in self.conn.execute(
-                    "SELECT county_key FROM ref_place_county_current "
-                    "WHERE state = ? AND place_key = ?",
-                    key,
-                )
-            ]
-        return self._cache[key]
+        for place in places:
+            key = (state, place)
+            if key not in self._cache:
+                self._cache[key] = [
+                    str(r[0])
+                    for r in self.conn.execute(
+                        "SELECT county_key FROM ref_place_county_current "
+                        "WHERE state = ? AND place_key = ?",
+                        key,
+                    )
+                ]
+            if self._cache[key]:
+                return self._cache[key]
+        return []
 
 
 def _middle(person: Person) -> str | None:
@@ -105,6 +110,7 @@ class PairBuilder:
         lo, hi = birth_interval(dob=dob, age=age, ref_year=ref_year)
         city_value = person.first("city", exclude)
         city = place_key(city_value.value) if city_value else ""
+        city_keys = place_keys(city_value.value) if city_value else []
         case_value = person.first("case_number", exclude)
         case = case_key(case_value.value) if case_value else ""
         picked: tuple[tuple[str, Value | None], ...] = (
@@ -118,7 +124,7 @@ class PairBuilder:
                 used.setdefault(kind, {})[side] = value.as_dict()
         surname = letters(person.surname)
         given = letters(person.given)
-        counties = self.counties.of(person.state, city)
+        counties = self.counties.of(person.state, city_keys)
         return {
             "surname": surname or None,
             "surname_dm": metaphone_codes(surname),

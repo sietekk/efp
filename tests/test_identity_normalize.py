@@ -85,25 +85,77 @@ def test_case_key(text: str, key: str) -> None:
 
 @pytest.mark.parametrize(
     ("text", "key"),
-    [("Springfield", "SPRINGFIELD"), ("Springfield, Ill.", "SPRINGFIELD"), ("Tampa city", "TAMPA"),
-     ("123 Main St, Tampa, FL 33601", "TAMPA"), ("St. Louis", "STLOUIS"), ("", "")],
-)  # fmt: skip
+    [
+        ("Springfield", "SPRINGFIELD"),
+        ("Springfield, Ill.", "SPRINGFIELD"),
+        ("Tampa city", "TAMPACITY"),  # nothing is shortened: "city" may be part of the name
+        ("123 Main St, Tampa, FL 33601", "TAMPA"),
+        ("St. Louis", "STLOUIS"),
+        ("", ""),
+    ],
+)
 def test_place_key_uses_usaddress_for_address_strings(text: str, key: str) -> None:
     assert n.place_key(text) == key
 
 
 @pytest.mark.parametrize(
-    "name",
+    ("census_name", "loader_key"),
     [
-        "Springfield city",
-        "Hartford",
-        "Nashville-Davidson metropolitan government (balance)",
-        "West Hartford town",
+        ("Springfield city", "SPRINGFIELD"),
+        ("Hartford", "HARTFORD"),
+        ("Nashville-Davidson metropolitan government (balance)", "NASHVILLEDAVIDSON"),
+        ("West Hartford town", "WESTHARTFORD"),
+        ("Salt Lake City city", "SALTLAKECITY"),  # only the one legal suffix goes
+        ("Jersey City city", "JERSEYCITY"),
+        ("Jersey Village city", "JERSEYVILLAGE"),
+        ("Oklahoma City city", "OKLAHOMACITY"),
     ],
 )
-def test_place_keys_agree_with_the_reference_loader(name: str) -> None:
-    """Components do not import each other, so the two copies of the rule are tested together."""
-    assert n.place_key(name) == places.place_key(name)
+def test_the_loader_strips_exactly_one_legal_suffix(census_name: str, loader_key: str) -> None:
+    assert places.place_key(census_name) == loader_key
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        ("Salt Lake City", ["SALTLAKECITY"]),  # never shortened
+        ("Jersey City", ["JERSEYCITY"]),
+        ("Oklahoma City", ["OKLAHOMACITY"]),
+        ("Hartford town", ["HARTFORDTOWN", "HARTFORD"]),  # a suffix other than city: second try
+        ("Springfield, Ill.", ["SPRINGFIELD"]),
+        ("", []),
+    ],
+)
+def test_the_identity_side_never_shortens_a_name_that_is_whole(text: str, keys: list[str]) -> None:
+    assert n.place_keys(text) == keys
+    assert n.place_key(text) == (keys[0] if keys else "")
+
+
+def test_a_place_text_finds_the_loader_key_and_unrelated_places_do_not_collide(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    """The two copies of the rule agree on what a lookup finds: "Jersey City" and "Jersey Village"
+    are different places, so they are never given each other's county."""
+    from efp.identity.pairs import Counties
+
+    conn.execute(
+        "INSERT INTO ref_sources (load_id, dataset, status, current, loaded_at) "
+        "VALUES (1, 'census_place_county', 'loaded', 1, 's')"
+    )
+    for name, county in (
+        ("Jersey City city", "Hudson County"),
+        ("Jersey Village city", "Harris County"),
+        ("West Hartford town", "Hartford County"),
+    ):
+        conn.execute(
+            "INSERT INTO ref_place_county VALUES (1, 'XX', ?, ?, 0)",
+            (places.place_key(name), places.county_key(county)),
+        )
+    found = Counties(conn)
+    assert found.of("XX", n.place_keys("Jersey City")) == ["HUDSON"]
+    assert found.of("XX", n.place_keys("Jersey Village")) == ["HARRIS"]
+    assert found.of("XX", n.place_keys("West Hartford town")) == ["HARTFORD"]  # the second key
+    assert found.of("XX", n.place_keys("Jersey")) == []  # a prefix of two places is neither
 
 
 def test_places_loader_reads_the_codes_file_and_rejects_a_foreign_layout(

@@ -35,9 +35,10 @@ FIPS = {
 _PLACE_SUFFIX = re.compile(
     r"\s+(?:city|town|village|borough|township|cdp|municipality|plantation|"
     r"city and borough|consolidated government|metropolitan government|metro government|"
-    r"urban county|unified government|comunidad|zona urbana|\(balance\))\s*$",
+    r"urban county|unified government|comunidad|zona urbana)\s*$",
     re.I,
 )
+_BALANCE = re.compile(r"\s*\(balance\)\s*$", re.I)
 _COUNTY_SUFFIX = re.compile(
     r"\s+(?:county|parish|borough|census area|municipality|municipio)\s*$", re.I
 )
@@ -45,13 +46,14 @@ _NON_LETTER = re.compile(r"[^A-Z]")
 
 
 def place_key(name: str) -> str:
-    """``"Springfield city"`` -> ``"SPRINGFIELD"`` (also ``"St. Louis"`` -> ``"STLOUIS"``)."""
-    text = (name or "").strip()
-    for _ in range(3):  # "Nashville-Davidson metropolitan government (balance)"
-        stripped = _PLACE_SUFFIX.sub("", text)
-        if stripped == text:
-            break
-        text = stripped
+    """``"Springfield city"`` -> ``"SPRINGFIELD"``; ``"Salt Lake City city"`` -> ``"SALTLAKECITY"``.
+
+    A Census place name carries exactly one legal suffix ("city", "town", ...), optionally followed
+    by "(balance)": only that one is removed, so the "City" that is part of a name stays
+    (``"Jersey City city"`` is ``JERSEYCITY``, which cannot collide with ``Jersey Village``).
+    """
+    text = _BALANCE.sub("", (name or "").strip())
+    text = _PLACE_SUFFIX.sub("", text, count=1)
     return _NON_LETTER.sub("", text.upper())
 
 
@@ -65,6 +67,7 @@ class CensusPlaceCounty(Dataset):
     license = "Public domain (U.S. Census Bureau)"
     attribution = "Place-by-county codes: U.S. Census Bureau, 2020 Geographic Codes."
     version = "2020"
+    loader_version: ClassVar[int] = 2  # 2: one legal suffix is stripped, not every trailing "city"
     known: ClassVar[list[Known]] = [
         Known(
             "Connecticut places listed (169 towns plus census-designated places: at least 120)",

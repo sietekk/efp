@@ -102,7 +102,7 @@ because it would bring a prior of its own. Evidence is the sum of the log2 Bayes
 | city | exact; same county (`ref_place_county`, Census place-by-county codes); same state; conflict |
 | case_number | exact on a normalised key (year, type, number; the division and the judge's initials are not part of it); else |
 
-Cities are normalised with `usaddress` where the string looks like an address. Double Metaphone is
+Cities are normalised with `usaddress` where the string looks like an address. A place is looked up by the name as written ("Salt Lake City" stays `SALTLAKECITY`, so "Jersey City" and "Jersey Village" never collide); only a legal suffix other than "city" ("Hartford town") is dropped, and only as a second try. The Census table strips exactly one legal suffix from its own names. Double Metaphone is
 the `doublemetaphone` package (Artistic License), since `jellyfish` has none and the dead `abydos` is
 excluded.
 

@@ -134,16 +134,18 @@ def birth_interval(
 
 # --- places and case numbers -------------------------------------------------------------------
 
+# The legal suffixes efp.reference.places drops from a Census place name, minus "city": in running
+# text "Jersey City" is the whole name, so it is never shortened (a test keeps the lists in step).
 _PLACE_SUFFIX = re.compile(
-    r"\s+(?:city|town|village|borough|township|cdp|municipality|plantation|"
+    r"\s+(?:town|village|borough|township|cdp|municipality|plantation|"
     r"city and borough|consolidated government|metropolitan government|metro government|"
-    r"urban county|unified government|comunidad|zona urbana|\(balance\))\s*$",
+    r"urban county|unified government|comunidad|zona urbana)\s*$",
     re.I,
-)  # the suffixes efp.reference.places drops; tests/test_identity_normalize.py keeps them equal
+)
+_BALANCE = re.compile(r"\s*\(balance\)\s*$", re.I)
 
 
-def place_key(city: str | None) -> str:
-    """``"Springfield, Ill."`` or ``"123 Main St, Springfield"`` -> ``SPRINGFIELD``."""
+def _place_text(city: str | None) -> str:
     text = (city or "").strip()
     if not text:
         return ""
@@ -155,12 +157,25 @@ def place_key(city: str | None) -> str:
             text = tagged.get("PlaceName", text.split(",")[0])
         except Exception:  # usaddress raises RepeatedLabelError on odd strings
             text = text.split(",")[0]
-    for _ in range(3):
-        stripped = _PLACE_SUFFIX.sub("", text)
-        if stripped == text:
-            break
-        text = stripped
-    return letters(text)
+    return text
+
+
+def place_key(city: str | None) -> str:
+    """``"Springfield, Ill."`` or ``"123 Main St, Springfield"`` -> ``SPRINGFIELD``. Nothing is
+    shortened: ``"Salt Lake City"`` stays ``SALTLAKECITY``."""
+    return letters(_place_text(city))
+
+
+def place_keys(city: str | None) -> list[str]:
+    """The keys to look a place up by in the Census table, best first: the name as written, then,
+    if it ends with a legal suffix other than "city" ("Hartford town"), without it. The second is
+    only tried when the first finds nothing, so a name that is whole never loses a word."""
+    text = _place_text(city)
+    keys = [letters(text)]
+    shorter = letters(_PLACE_SUFFIX.sub("", _BALANCE.sub("", text), count=1))
+    if shorter and shorter not in keys:
+        keys.append(shorter)
+    return [k for k in keys if k]
 
 
 _CASE = re.compile(r"(?:(\d{1,2}):)?\s*(\d{2,4})\s*[-\s]?\s*([A-Za-z]{1,4})\s*[-\s]?\s*0*(\d{1,7})")

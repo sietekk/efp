@@ -78,6 +78,7 @@ The reviewer (cold, once) found three high-severity problems and several medium 
 | The labeled fit was unweighted over a stratified sample | weighted by stratum population over stratum labeled count, scaled to mean one (the spread over the posterior range inside a stratum is not corrected: documented) |
 | `dob.conflict`, `middle.conflict` were tagged `quoted`; the case-number u rested on an unsourced count | re-tagged `derived` / `design`; the notes say so |
 | Suffixes (Sr., Jr.) were never compared | a differing suffix is at most reviewed (`suffix_conflict`) |
+| (After the PR was raised, from a later review) `place_key` removed every trailing "city", so "Salt Lake City" became `SALTLAKE` and "Jersey City" collided with "Jersey Village", giving a false `same_county` | the loader strips exactly one legal suffix; the identity side never shortens a name as written and tries a suffix-free key only for suffixes other than "city", and only when the whole name finds nothing; tests for both copies and for the collision |
 | Low: exact bound used the unweighted n; Wayback copies escaped the independence masking; a rescore sees only the stored top 25 | effective sample size; Wayback URLs unwrapped; the cap is documented |
 
 ## Spot-check guide for the operator
