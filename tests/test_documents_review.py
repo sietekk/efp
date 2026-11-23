@@ -13,12 +13,12 @@ from typing import Any
 import pytest
 
 import efp.documents as component
+from efp import llm
 from efp import runner as rn
 from efp import status as status_view
 from efp.builtin_modules import register_builtin
 from efp.capture import Capture
 from efp.config import Config
-from efp.documents import llm
 from efp.documents.modules import ClaudeTranscribe, Pdfplumber
 from efp.modules import Registry
 from efp.store import store_path
@@ -310,7 +310,7 @@ def test_the_status_spend_line_counts_only_transcription(
     for purpose, cost in (("transcribe_page", 0.25), ("extract", 5.0)):
         llm.log_call(
             conn, row_id=None, stage="x", purpose=purpose, capture_id=None, model_id="m",
-            prompt_sha256=None, temperature=None, thinking=None, input_tokens=1, output_tokens=1,
+            prompt_sha256=None, thinking=None, input_tokens=1, output_tokens=1,
             cost=cost, request_id=None, ok=True,
         )  # fmt: skip
     assert status_view.build_report(conn, config).documents["transcription_spend_usd"] == 0.25
@@ -463,7 +463,7 @@ def test_the_live_model_check_sends_the_request_shape_transcription_uses(
         assert check.ok and "accepted the plea" in check.detail
         call = s.calls[0]
         assert call["thinking"] == {"type": "between_tools"} and call["effort"] == "low"
-        assert call["temperature"] is None and call["model"] == "claude-sonnet-5-5"
+        assert "temperature" not in call and call["model"] == "claude-sonnet-5-5"
         assert conn.execute("SELECT purpose, ok FROM llm_calls").fetchall() == [("selftest", 1)]
         off = doc_config(
             write_config,
@@ -663,42 +663,6 @@ def test_the_open_pdfs_are_closed_even_when_a_page_raises(
     assert closed  # and the handles were released
 
 
-def test_a_configured_temperature_goes_in_the_body_not_as_an_sdk_argument(
-    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The installed SDK has no `temperature` argument (API 2026-10-21): passing one raised a
-    TypeError the first time `send_temperature = true` was tried live. The value now travels in
-    the request body, where the API answers HTTP 400 for a model that rejects it."""
-    import anthropic
-
-    from tests.test_documents_model import _Message
-
-    seen: dict[str, Any] = {}
-
-    class Client:
-        def __init__(self, **kw: Any) -> None:
-            self.messages = self
-
-        def create(self, **kw: Any) -> Any:
-            seen.update(kw)
-            return _Message()
-
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(anthropic, "Anthropic", Client)
-    add_row(conn)
-    _ctx, cap, _ = make_ctx(config, conn)
-    try:
-        cap.llm_message(
-            api_key="k", row_id=1, stage="documents", purpose="p", model="m", system="s",
-            content=[{"type": "text", "text": "x"}], max_tokens=10, temperature=0.0,
-        )  # fmt: skip
-    finally:
-        cap.close()
-    assert "temperature" not in seen and seen["extra_body"] == {"temperature": 0.0}
-
-
 # --- review round 6: hash inputs, the audit link of an error call, long filings ---------------------------
 
 
@@ -820,3 +784,197 @@ def test_docling_and_ocr_stop_at_max_pages_and_docling_has_a_time_limit(
         cmd = commands[0]
         assert cmd[cmd.index("--pages") + 1] == "1-2"
         assert cmd[-2].endswith("original.pdf")  # the scratch copy, never the stored file
+
+
+# --- review round 7: temperature can never be sent; one path for every model call -----------------------
+
+
+def test_no_code_path_can_send_a_temperature() -> None:
+    """The API (version 2026-10-21) rejects it, confirmed live. The structural guarantee: the call
+    function has no parameter for it, the log function has none, nothing smuggles it in the body,
+    and no config key turns it on. Re-evaluate when the API version this SDK speaks changes."""
+    import inspect
+
+    import anthropic._constants as sdk
+
+    assert "temperature" not in inspect.signature(Capture.llm_message).parameters
+    assert "temperature" not in inspect.signature(llm.log_call).parameters
+    assert "temperature" not in inspect.signature(llm.call_model).parameters
+    repo = Path(__file__).resolve().parents[1]
+    for path in sorted((repo / "efp").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        assert "extra_body" not in text, path
+        assert "send_temperature" not in text, path
+    for name in ("config.toml", "config.example.toml"):
+        assert "send_temperature" not in (repo / name).read_text(), name
+    assert sdk.ANTHROPIC_API_VERSION == "2026-10-21", (
+        "the SDK speaks a different API version: re-check whether `temperature` is accepted "
+        "again (efp/llm.py), then update this pin"
+    )
+
+
+def test_transcribe_max_tokens_and_the_request_shape_are_in_the_hash_only_while_the_fallback_is_on(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from efp.runner import load_row
+
+    add_row(conn)
+    base = doc_config(write_config)
+    add_filing(conn, base, pdfgen.born_digital([pdfgen.LINES_A]))
+    row = load_row(conn, 1)
+
+    def hash_for(**swap: str) -> str:
+        cfg = doc_config(write_config, **swap)
+        ctx, cap, registry = make_ctx(cfg, conn)
+        try:
+            return component.input_hash(row, ctx, registry)
+        finally:
+            cap.close()
+
+    tokens = {"transcribe_max_tokens = 4096": "transcribe_max_tokens = 2048"}
+    off = {"llm_transcription_fallback = true": "llm_transcription_fallback = false"}
+    assert hash_for(**tokens) != hash_for()
+    assert hash_for(**off, **tokens) == hash_for(**off)
+
+
+def test_a_sdk_that_refuses_the_arguments_is_a_failed_call_not_a_crash(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anthropic
+
+    from efp.livecheck import _model_live
+
+    class Old:
+        def __init__(self, **kw: Any) -> None:
+            self.messages = self
+
+        def create(self, **kw: Any) -> None:
+            raise TypeError("create() got an unexpected keyword argument 'output_config'")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(anthropic, "Anthropic", Old)
+    config = doc_config(write_config, **SONNET)
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        (check,) = _model_live(cap, config, conn)  # reported, not raised
+    finally:
+        cap.close()
+    assert not check.ok and "request not sent" in check.detail
+    assert conn.execute("SELECT ok, cost_usd FROM llm_calls").fetchall() == [(0, 0)]  # not billed
+
+
+def test_any_exception_in_the_live_model_check_is_a_failed_check(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.livecheck import _model_live
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("anything at all")
+
+    monkeypatch.setattr(llm, "call_model", boom)
+    config = doc_config(write_config, **SONNET)
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        (check,) = _model_live(cap, config, conn)
+    finally:
+        cap.close()
+    assert not check.ok and "RuntimeError" in check.detail
+
+
+def test_a_failure_to_store_the_api_error_answer_still_reports_the_api_error(
+    config: Config, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anthropic
+    import httpx2 as httpx
+
+    from efp.capture import LlmHttpError
+
+    class Refuses:
+        def __init__(self, **kw: Any) -> None:
+            self.messages = self
+
+        def create(self, **kw: Any) -> None:
+            request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise anthropic.APIStatusError(
+                "overloaded", response=httpx.Response(529, request=request), body=None
+            )
+
+        def close(self) -> None:
+            pass
+
+    def broken(self: Capture, *a: Any, **k: Any) -> Any:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(anthropic, "Anthropic", Refuses)
+    monkeypatch.setattr(Capture, "store_bytes", broken)
+    add_row(conn)
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        with pytest.raises(LlmHttpError, match="HTTP 529") as caught:
+            cap.llm_message(
+                api_key="k", row_id=1, stage="documents", purpose="p", model="m", system="s",
+                content=[{"type": "text", "text": "x"}], max_tokens=10,
+            )  # fmt: skip
+    finally:
+        cap.close()
+    assert caught.value.capture_id is None  # nothing stored, and the error still gets out
+
+
+def test_a_timed_out_command_leaves_no_child_processes_behind(tmp_path: Path) -> None:
+    import os
+    import signal
+    import subprocess
+    import time
+
+    from efp.documents.modules import run_group
+
+    pidfile = tmp_path / "child.pid"
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_group(["sh", "-c", f"sleep 60 & echo $! > {pidfile}; wait"], timeout=1)
+    child = int(pidfile.read_text())
+    for _ in range(20):  # the group was killed: the grandchild must be gone
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(child, signal.SIGKILL)
+        raise AssertionError("the child of the timed-out command is still running")
+
+
+def test_run_group_returns_the_exit_code_and_stderr(tmp_path: Path) -> None:
+    from efp.documents.modules import run_group
+
+    assert run_group(["sh", "-c", "echo oops >&2; exit 3"], timeout=10) == (3, "oops\n")
+
+
+def test_a_docling_box_without_a_page_size_is_never_negative() -> None:
+    from efp.documents import docling_parse
+
+    doc = {
+        "body": {"children": [{"$ref": "#/texts/0"}]},
+        "texts": [
+            {
+                "text": "Sized nowhere",
+                "prov": [
+                    {
+                        "page_no": 1,
+                        "bbox": {
+                            "l": 54,
+                            "t": 700,
+                            "r": 300,
+                            "b": 688,
+                            "coord_origin": "BOTTOMLEFT",
+                        },
+                    }
+                ],
+            }
+        ],
+    }  # no "pages" entry: the page size is unknown
+    ((lines, size),) = docling_parse.parse(doc).values()
+    word = lines[0][0]
+    assert (size.width, size.height) == (0, 0)
+    assert min(word.x0, word.top, word.x1, word.bottom) >= 0

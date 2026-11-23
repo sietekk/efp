@@ -1,7 +1,9 @@
 """Docling's JSON export read into lines of words, per page, in Docling's reading order.
 
-Docling (``export_to_dict``) gives text items and tables with a page number and a box in the page's
-coordinate system (``coord_origin`` BOTTOMLEFT or TOPLEFT) and a body tree that fixes reading order.
+Docling (``export_to_dict``) gives text items and tables with a page number and a box in the
+page's coordinate system (``coord_origin`` BOTTOMLEFT or TOPLEFT) and a body tree that fixes reading
+order. With no page size in the export a BOTTOMLEFT box cannot be flipped to a top-left origin, so
+it becomes the extent from the page origin (never a negative box).
 An item's words share the item's box (``bbox_source = 'item'``): Docling does not box single words.
 This parser needs no Docling install, so it is tested on a synthetic document.
 """
@@ -23,6 +25,10 @@ def _box(prov: dict[str, Any], height: float) -> tuple[float, float, float, floa
     except (KeyError, TypeError, ValueError):
         return None
     if str(box.get("coord_origin", "BOTTOMLEFT")).upper().startswith("BOTTOM"):
+        if height <= 0:
+            # the export has no page size, so the flip to a top-left origin is impossible; a
+            # negative box would be wrong, so the item gets the extent from the page's origin
+            return 0.0, 0.0, max(left, right), max(top, bottom)
         top, bottom = height - top, height - bottom  # to origin top-left
     return min(left, right), min(top, bottom), max(left, right), max(top, bottom)
 

@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from efp import llm
 from efp import modules as chain
 from efp.documents import canonical, pdfio
 from efp.documents.ladder import DocState, PageState, PageTask
@@ -457,12 +458,18 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     return _hash(ctx, registry, pdf_inputs(ctx.db, ctx, row.row_id))
 
 
-def _model_part(ctx: Context) -> list[str]:
-    """The model and prompt that would read a page, in the hash only while the fallback is on: a
-    change to either changes model output, and with the fallback off neither matters."""
+def _model_part(ctx: Context) -> list[Any]:
+    """What would shape a model-read page, in the hash only while the fallback is on: the model,
+    thinking and effort, the output limit, the temperature policy, and the prompt's hash. A change
+    to any of them changes the output, and with the fallback off none of them matters."""
     if not ctx.config.documents.llm_transcription_fallback:
         return []
-    return [ctx.config.llm.transcription_model, hashlib.sha256(PROMPT.read_bytes()).hexdigest()]
+    return [
+        llm.request_signature(
+            ctx.config.llm.transcription_model, ctx.config.documents.transcribe_max_tokens
+        ),
+        hashlib.sha256(PROMPT.read_bytes()).hexdigest(),
+    ]
 
 
 def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = "") -> str:

@@ -48,10 +48,12 @@ its native text, flagged, and never sent out.
 
 **Model transcription.** `llm.transcription_model`, the system prompt `prompts/transcribe_page.md`
 (its SHA-256 is in `llm_calls.prompt_sha256`), the page image at `documents.render_dpi` shrunk to
-1568 px. `claude-sonnet-5-5` rejects `temperature` (and API version 2026-10-21 rejects it on every
-model), so none is sent, `llm_calls.temperature` is NULL with the reason in `temperature_note`, and
-thinking is turned off with `between_tools` at low effort. `llm.send_temperature = true` sends the
-configured temperature for a model that accepts it. The call goes through `Capture.llm_message`
+1568 px. **No temperature is ever sent**: API version 2026-10-21 rejects it (HTTP 400 "Extra inputs are
+not permitted", confirmed live for `claude-sonnet-5-5`) and `Capture.llm_message` has no parameter for
+it, so `llm_calls.temperature` is NULL with the reason in `temperature_note`. Thinking is turned off
+with `between_tools` at low effort. Everything about a call (the request shape, the log row, the cost,
+every kind of failure) lives in `efp/llm.py` (`call_model`), the one path the stage and `efp selftest
+--live` both use. The call goes through `Capture.llm_message`
 (rate-limited on `api.anthropic.com`, request and response stored as a capture, the image
 replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). A call is made only if this month's logged spend plus the call's worst-case
 cost (a 3,600-token input estimate, an image costing about width x height / 750 tokens, plus

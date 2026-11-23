@@ -17,17 +17,19 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import os
 import shutil
+import signal
 import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from efp import llm
 from efp import modules as chain
-from efp.capture import CaptureBudgetError, CaptureError, LlmCallError
 from efp.config import DocumentsCfg
-from efp.documents import docling_parse, llm, pdfio
+from efp.documents import docling_parse, pdfio
 from efp.documents.ladder import Candidate, DocState, PageTask
 from efp.documents.pdfio import PageSize, Word
 from efp.documents.quality import score_lines
@@ -201,15 +203,12 @@ class Ocrmypdf:
             if doc.page_count > cfg.max_pages:  # the same cap as every other rung
                 command[-2:-2] = ["--pages", f"1-{cfg.max_pages}"]
             try:
-                done = subprocess.run(  # noqa: S603
-                    command, capture_output=True, text=True, check=False,
-                    timeout=cfg.ocr_timeout_seconds,
-                )  # fmt: skip
-                if done.returncode == 0 and target.is_file():
+                code, err = run_group(command, cfg.ocr_timeout_seconds)
+                if code == 0 and target.is_file():
                     doc.ocr_path = target
                 else:
-                    last = (done.stderr.strip().splitlines() or ["no output"])[-1]
-                    doc.ocr_error = f"ocrmypdf exit {done.returncode}: {scrub_text(last)[:160]}"
+                    last = (err.strip().splitlines() or ["no output"])[-1]
+                    doc.ocr_error = f"ocrmypdf exit {code}: {scrub_text(last)[:160]}"
             except subprocess.TimeoutExpired:
                 doc.ocr_error = f"ocrmypdf timed out after {cfg.ocr_timeout_seconds} s"
             except OSError as exc:
@@ -218,6 +217,29 @@ class Ocrmypdf:
             return ModuleResult(Outcome.error, error=doc.ocr_error or "no OCR output")
         lines, size = doc.reader(doc.ocr_path).native_page(task.page_no - 1)
         return _candidate(task, "tesseract", lines, size)
+
+
+def run_group(command: list[str], timeout: float) -> tuple[int, str]:
+    """Run a command in its own process group and, on timeout, kill the whole group: OCRmyPDF
+    starts Tesseract workers, and killing only the direct child would leave them running.
+    Raises :class:`subprocess.TimeoutExpired` after the group is dead."""
+    proc = subprocess.Popen(  # noqa: S603
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        _out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.communicate()  # reap the child and drain its pipes
+        raise
+    return proc.returncode, err or ""
 
 
 def _lang(code: str) -> str:
@@ -310,14 +332,6 @@ def transcribe_configured(ctx: Context) -> bool:
     )
 
 
-def thinking_for(model: str) -> tuple[dict[str, str] | None, str | None]:
-    """Sonnet 5.5 has thinking on by default and rejects ``disabled``; ``between_tools`` is how it
-    is turned off, accepted at effort ``high`` or below. Any other model gets no thinking field."""
-    if model.startswith("claude-sonnet-5-5"):
-        return {"type": "between_tools"}, "low"
-    return None, None
-
-
 class ClaudeTranscribe:
     name = "documents.claude_transcribe"
     stage = STAGE
@@ -371,10 +385,6 @@ class ClaudeTranscribe:
         data = base64.standard_b64encode(pdfio.png_bytes(image)).decode("ascii")
         system = PROMPT.read_bytes()
         prompt_sha = hashlib.sha256(system).hexdigest()
-        model = ctx.config.llm.transcription_model
-        thinking, effort = thinking_for(model)
-        send = ctx.config.llm.send_temperature
-        temperature = ctx.config.llm.temperature if send else None
         content: list[dict[str, Any]] = [
             {
                 "type": "image",
@@ -382,51 +392,23 @@ class ClaudeTranscribe:
             },
             {"type": "text", "text": "Transcribe this page."},
         ]
-        common: dict[str, Any] = {
-            "row_id": task.row_id,
-            "stage": STAGE,
-            "purpose": "transcribe_page",
-            "model_id": model,
-            "prompt_sha256": prompt_sha,
-            "temperature": temperature,
-            "thinking": thinking["type"] if thinking else None,
-        }
-        try:
-            reply = capture.llm_message(
-                api_key=key,
-                row_id=task.row_id,
-                stage=STAGE,
-                purpose="transcribe_page",
-                model=model,
-                system=system.decode("utf-8"),
-                content=content,
-                max_tokens=cfg.transcribe_max_tokens,
-                thinking=thinking,
-                effort=effort,
-                temperature=temperature,
-            )
-        except CaptureError as exc:
-            billed = isinstance(exc, LlmCallError)
-            note = " [billed or possibly billed]" if billed else ""
-            llm.log_call(
-                conn, capture_id=getattr(exc, "capture_id", None),
-                input_tokens=exc.input_tokens if isinstance(exc, LlmCallError) else None,
-                output_tokens=exc.output_tokens if isinstance(exc, LlmCallError) else None,
-                cost=llm.failure_cost(ctx.config, exc, cfg.transcribe_max_tokens),
-                request_id=exc.request_id if isinstance(exc, LlmCallError) else None,
-                ok=False, error=str(exc)[:280] + note,
-                **common,
-            )  # fmt: skip
-            kind = "budget" if isinstance(exc, CaptureBudgetError) else "call"
-            return ModuleResult(Outcome.error, error=f"model transcription {kind}: {exc}"[:300])
-        cost = llm.cost_usd(ctx.config, reply.input_tokens, reply.output_tokens)
-        llm.log_call(
-            conn, capture_id=reply.capture_id, input_tokens=reply.input_tokens,
-            output_tokens=reply.output_tokens, cost=cost, request_id=reply.request_id,
-            ok=reply.stop_reason != "refusal", error=None if reply.stop_reason != "refusal"
-            else "refusal", **common,
-        )  # fmt: skip
-        if reply.stop_reason == "refusal" or not reply.text.strip():
+        done = llm.call_model(
+            capture,
+            conn,
+            ctx.config,
+            api_key=key,
+            row_id=task.row_id,
+            stage=STAGE,
+            purpose="transcribe_page",
+            system=system.decode("utf-8"),
+            content=content,
+            max_tokens=cfg.transcribe_max_tokens,
+            prompt_sha256=prompt_sha,
+        )
+        reply = done.reply
+        if reply is None:
+            return ModuleResult(Outcome.error, error=f"model transcription: {done.error}"[:300])
+        if done.error is not None or not reply.text.strip():  # a refusal (logged) or nothing
             return ModuleResult(Outcome.miss)
         size = task.d.reader(task.d.path).page_size(task.page_no - 1)
         lines = [

@@ -109,7 +109,7 @@ def documents_summary(
 ) -> dict[str, Any]:
     """Pages by method, documents by lowest page quality, flagged pages, unreadable PDFs and the
     month's model transcription spend (build 10). Empty when the stage has produced nothing."""
-    from efp.documents.llm import spent_this_month
+    from efp.llm import spent_this_month
 
     condition, params = _scoped(config, state, None)
     out: dict[str, Any] = {}

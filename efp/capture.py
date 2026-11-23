@@ -874,17 +874,16 @@ class Capture:
         max_tokens: int,
         thinking: Mapping[str, Any] | None = None,
         effort: str | None = None,
-        temperature: float | None = None,
         timeout: float = 120.0,
     ) -> LlmResult:
         """One model call, through the capture layer: it takes the ``api.anthropic.com`` budget,
         and the request (images replaced by their hashes) and the response are stored as captures.
 
-        ``temperature`` is sent only when given: claude-sonnet-5-5 and API version 2026-10-21
-        reject it, so the caller leaves it out and says why in its own log. A failed call raises
-        :class:`CaptureError` (a budget wait that times out raises :class:`CaptureBudgetError`);
-        nothing is retried here (one call is one request, one budget slot and one log row); the page
-        is revisited by a later run.
+        There is deliberately no ``temperature`` parameter: API version 2026-10-21 rejects it, so no
+        caller can send one (see ``efp/llm.py``). Any failure raises :class:`CaptureError` or a
+        subclass (a budget wait that times out raises :class:`CaptureBudgetError`), never a bare SDK
+        or store exception. Nothing is retried here: one call is one request, one budget slot and
+        one log row, and the page is revisited by a later run.
         """
         try:
             self.limiter.acquire("api.anthropic.com", max_wait=None)
@@ -906,10 +905,6 @@ class Capture:
             args["thinking"] = dict(thinking)
         if effort is not None:
             args["output_config"] = {"effort": effort}
-        if temperature is not None:
-            # the installed SDK (API version 2026-10-21) has no `temperature` argument; a model
-            # that still accepts it is sent it in the body, and one that does not answers HTTP 400
-            args["extra_body"] = {"temperature": temperature}
         stored_request = {
             **{k: v for k, v in args.items() if k != "messages"},
             "messages": [
@@ -933,20 +928,31 @@ class Capture:
         try:
             message = client.messages.create(**args)
         except anthropic.APIStatusError as exc:
-            stored = self.store_bytes(
-                json.dumps({"request": stored_request, "status": exc.status_code}).encode(),
-                row_id=row_id, stage=stage, url_requested=url, http_status=exc.status_code,
-                tool="llm", tool_version=model, content_type="application/json",
-                headers={"purpose": purpose, "request_id": exc.request_id or ""},
-            )  # fmt: skip
+            stored_id: int | None = None
+            try:
+                stored = self.store_bytes(
+                    json.dumps({"request": stored_request, "status": exc.status_code}).encode(),
+                    row_id=row_id, stage=stage, url_requested=url, http_status=exc.status_code,
+                    tool="llm", tool_version=model, content_type="application/json",
+                    headers={"purpose": purpose, "request_id": exc.request_id or ""},
+                )  # fmt: skip
+                stored_id = int(stored.capture_id)
+            except Exception:  # the API's refusal is the news; failing to file it must not hide it
+                log.warning("could not store the model API's error answer for %s", model)
             raise LlmHttpError(
                 f"{model}: HTTP {exc.status_code} ({scrub_text(exc.message)[:160]})",
-                capture_id=int(stored.capture_id),
+                capture_id=stored_id,
                 request_id=exc.request_id,
             ) from exc
         except anthropic.APIError as exc:
             # no answer, but the request went out: it may have been billed
             raise LlmCallError(f"{model}: {type(exc).__name__}") from exc
+        except Exception as exc:
+            # not an API answer (the SDK refused the arguments, say a version that lacks a field):
+            # nothing was sent, so nothing was billed
+            raise CaptureError(
+                f"{model}: request not sent ({type(exc).__name__}: {exc})"[:300]
+            ) from exc
         finally:
             client.close()
         usage = message.usage

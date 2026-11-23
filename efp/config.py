@@ -200,7 +200,6 @@ class Llm(_Section):
     transcription_model: str
     temperature: float
     max_monthly_usd: float = Field(ge=0)
-    send_temperature: bool
     price_input_per_mtok: float = Field(ge=0)
     price_output_per_mtok: float = Field(ge=0)
     sample_runs: int = Field(gt=0)

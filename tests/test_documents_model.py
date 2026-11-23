@@ -14,11 +14,12 @@ from typing import Any
 
 import pytest
 
+from efp import llm
 from efp import status as status_view
 from efp.capture import Capture, CaptureError, LlmResult
 from efp.config import Config
-from efp.documents import docling_parse, llm
-from efp.documents.modules import PROMPT, parse_paddle, thinking_for
+from efp.documents import docling_parse
+from efp.documents.modules import PROMPT, parse_paddle
 from tests import pdfgen
 from tests.conftest import SENTINELS
 from tests.documents_helpers import (
@@ -87,7 +88,7 @@ def test_a_page_both_ocr_paths_failed_is_transcribed_scored_and_flagged_for_revi
     assert result.summary_json["pages_by_method"] == {"model": 1}
     # the call: model id, prompt hash, no temperature, thinking off, the key from the env file
     (call,) = stub.calls
-    assert call["model"] == "claude-sonnet-5-5" and call["temperature"] is None
+    assert call["model"] == "claude-sonnet-5-5" and "temperature" not in call
     assert call["thinking"] == {"type": "between_tools"} and call["effort"] == "low"
     assert call["api_key"] == SENTINELS["ANTHROPIC_API_KEY"]
     assert call["content"][0]["type"] == "image" and call["system"] == PROMPT.read_text()
@@ -97,21 +98,9 @@ def test_a_page_both_ocr_paths_failed_is_transcribed_scored_and_flagged_for_revi
     ).fetchone()
     assert row[0] == "claude-sonnet-5-5"
     assert row[1] == hashlib.sha256(PROMPT.read_bytes()).hexdigest()
-    assert row[2] is None and "reject temperature" in row[3] and row[4] == "between_tools"
+    assert row[2] is None and "rejects temperature" in row[3] and row[4] == "between_tools"
     assert (row[5], row[6]) == (1500, 400) and row[7] == pytest.approx((1500 * 2 + 400 * 10) / 1e6)
     assert row[8] == 1 and row[9] == "transcribe_page" and row[10] == "documents"
-
-
-def test_a_model_that_takes_temperature_gets_the_configured_one_when_enabled(
-    write_config: Callable[..., Path], conn: sqlite3.Connection, stub: Stub
-) -> None:
-    config = setup(write_config, conn, **{"send_temperature = false": "send_temperature = true"})
-    run_row(config, conn, registry=model_registry())
-    assert stub.calls[0]["temperature"] == 0.0
-    assert conn.execute("SELECT temperature, temperature_note FROM llm_calls").fetchone() == (
-        0.0,
-        None,
-    )
 
 
 def test_the_monthly_cap_stops_transcription_and_the_row_is_revisited(
@@ -135,7 +124,7 @@ def test_spend_already_logged_counts_against_the_cap(
     config = setup(write_config, conn)  # cap 1.0
     llm.log_call(
         conn, row_id=None, stage="documents", purpose="transcribe_page", capture_id=None,
-        model_id="m", prompt_sha256=None, temperature=None, thinking=None, input_tokens=1,
+        model_id="m", prompt_sha256=None, thinking=None, input_tokens=1,
         output_tokens=1, cost=0.99, request_id=None, ok=True,
     )  # fmt: skip
     run_row(config, conn, registry=model_registry())
@@ -191,8 +180,8 @@ def test_the_cost_is_computed_from_config_prices(config: Config) -> None:
 
 
 def test_thinking_is_turned_off_only_for_the_model_that_needs_it() -> None:
-    assert thinking_for("claude-sonnet-5-5") == ({"type": "between_tools"}, "low")
-    assert thinking_for("claude-haiku-5-5") == (None, None)
+    assert llm.request_shape("claude-sonnet-5-5") == ({"type": "between_tools"}, "low")
+    assert llm.request_shape("claude-haiku-5-5") == (None, None)
 
 
 # --- Capture.llm_message --------------------------------------------------------------------------------

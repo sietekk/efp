@@ -141,69 +141,64 @@ def _docket_live(capture: Capture, config: Config) -> list[Check]:
 
 
 def _model_live(capture: Capture, config: Config, conn: sqlite3.Connection) -> list[Check]:
-    """One model call with the exact request shape page transcription uses (thinking setting,
-    effort, no temperature) on a synthetic page image, so a rejected parameter shows up here and
-    not as a silently dead fallback. Runs only when the operator has enabled the fallback and the
-    key is set; the call is logged in ``llm_calls`` (purpose ``selftest``) and costs a fraction of
-    a cent."""
-    import base64
-
-    from efp.documents import llm, pdfio
-    from efp.documents.modules import PROMPT, thinking_for
-    from efp.secrets import SecretsError, load_secrets
-
+    """One model call with the exact request ``efp.llm.call_model`` makes for page transcription
+    (thinking setting, effort, no temperature) on a synthetic page image, so a rejected parameter
+    shows up here and not as a silently dead fallback. Runs only when the operator has enabled the
+    fallback and the key is set; the call is logged in ``llm_calls`` (purpose ``selftest``) and
+    costs a fraction of a cent. Any failure, of any kind, is a failed check, never a crash."""
     name = "live: model transcription request"
     if not config.documents.llm_transcription_fallback:
         return [Check(name, True, "skipped: documents.llm_transcription_fallback is false")]
     try:
-        key = load_secrets(config.paths.env_file).get("ANTHROPIC_API_KEY")
-    except SecretsError as exc:
-        return [Check(name, False, f"cannot read the env file: {exc}")]
+        return [_model_check(name, capture, config, conn)]
+    except Exception as exc:  # the live run reports every check, whatever one of them hits
+        return [Check(name, False, f"{type(exc).__name__}: {exc}"[:300])]
+
+
+def _model_check(name: str, capture: Capture, config: Config, conn: sqlite3.Connection) -> Check:
+    import base64
+
+    from PIL import Image, ImageDraw
+
+    from efp import llm
+    from efp.documents import pdfio
+    from efp.documents.modules import PROMPT
+    from efp.secrets import load_secrets
+
+    key = load_secrets(config.paths.env_file).get("ANTHROPIC_API_KEY")
     if key is None:
-        return [Check(name, False, "ANTHROPIC_API_KEY is not set")]
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
-        return [Check(name, False, "Pillow is not installed (the documents extra)")]
+        return Check(name, False, "ANTHROPIC_API_KEY is not set")
     image = Image.new("RGB", (800, 120), "white")
     ImageDraw.Draw(image).text((20, 40), "The court accepted the plea.", fill="black")
     data = base64.standard_b64encode(pdfio.png_bytes(image)).decode("ascii")
-    model = config.llm.transcription_model
-    thinking, effort = thinking_for(model)
-    temperature = config.llm.temperature if config.llm.send_temperature else None
-    system = PROMPT.read_text(encoding="utf-8")
-    try:
-        reply = capture.llm_message(
-            api_key=key, row_id=None, stage="selftest", purpose="selftest", model=model,
-            system=system, max_tokens=200, thinking=thinking, effort=effort,
-            temperature=temperature,
-            content=[
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/png", "data": data},
-                },
-                {"type": "text", "text": "Transcribe this page."},
-            ],
-        )  # fmt: skip
-    except CaptureError as exc:
-        llm.log_call(
-            conn, row_id=None, stage="selftest", purpose="selftest", capture_id=None,
-            model_id=model, prompt_sha256=None, temperature=temperature,
-            thinking=thinking["type"] if thinking else None, input_tokens=None,
-            output_tokens=None, cost=llm.failure_cost(config, exc, 200), request_id=None,
-            ok=False, error=str(exc)[:300],
-        )  # fmt: skip
-        return [Check(name, False, str(exc))]
-    llm.log_call(
-        conn, row_id=None, stage="selftest", purpose="selftest", capture_id=reply.capture_id,
-        model_id=model, prompt_sha256=None, temperature=temperature,
-        thinking=thinking["type"] if thinking else None, input_tokens=reply.input_tokens,
-        output_tokens=reply.output_tokens,
-        cost=llm.cost_usd(config, reply.input_tokens, reply.output_tokens),
-        request_id=reply.request_id, ok=True,
-    )  # fmt: skip
-    read = " ".join(reply.text.split())[:60]
-    return [Check(name, bool(read), f"{model} answered ({reply.output_tokens} tokens): {read!r}")]
+    done = llm.call_model(
+        capture,
+        conn,
+        config,
+        api_key=key,
+        row_id=None,
+        stage="selftest",
+        purpose="selftest",
+        system=PROMPT.read_text(encoding="utf-8"),
+        content=[
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": data},
+            },
+            {"type": "text", "text": "Transcribe this page."},
+        ],
+        max_tokens=200,
+        prompt_sha256=None,
+    )
+    if done.reply is None or done.error is not None:
+        return Check(name, False, str(done.error))
+    read = " ".join(done.reply.text.split())[:60]
+    model = done.reply.model
+    return Check(
+        name,
+        bool(read),
+        f"{model} answered ({done.reply.output_tokens} tokens): {read!r}",
+    )
 
 
 def live_checks(config: Config, conn: sqlite3.Connection) -> list[Check]:
