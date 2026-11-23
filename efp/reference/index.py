@@ -7,40 +7,58 @@ state and year are what ``efp reference index`` prints, so the identity build ca
 universe is thin.
 """
 
+# ruff: noqa: S608 (every interpolated piece is a constant column name or a CASE built from one)
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
 
-# source name -> (current view, SELECT list producing the unified columns, GROUP BY or "")
+
+def _y(column: str) -> str:
+    """A year, or NULL when it is not plausible: the FEC files hold typos (election year 2990) and
+    OpenStates uses 2100 for a term with no end. A NULL last year means open-ended or unknown."""
+    return f"CASE WHEN {column} BETWEEN 1789 AND 2035 THEN {column} END"
+
+
+def _span(first: str, last: str) -> str:
+    return f"CASE WHEN {first} IS NULL THEN NULL ELSE {first} || '-' || COALESCE({last}, '') END"
+
+
+_Y_ELECTION = _y("election_year")
+_Y_YEAR = _y("year")
+
 _SOURCES: dict[str, str] = {
-    "dime": """
+    "dime": f"""
         SELECT 'dime', bonica_rid, MIN(load_id), surname, given, middle, surname_key, state,
-               office, party, 0, MIN(cycle) || '-' || MAX(cycle), MIN(cycle), MAX(cycle)
+               office, party, 0, {_span("MIN(cycle)", "MAX(cycle)")}, MIN({_y("cycle")}),
+               MAX({_y("cycle")})
           FROM ref_dime_current WHERE surname_key <> ''
          GROUP BY bonica_rid, surname_key, given, state, office, party""",
-    "fec": """
+    "fec": f"""
         SELECT 'fec', cand_id, MIN(load_id), surname, given, middle, surname_key, state,
-               office, party, 0, MIN(election_year) || '-' || MAX(election_year),
-               MIN(election_year), MAX(election_year)
+               office, party, 0, {_span(f"MIN({_Y_ELECTION})", f"MAX({_Y_ELECTION})")},
+               MIN({_Y_ELECTION}), MAX({_Y_ELECTION})
           FROM ref_fec_candidates_current WHERE surname_key <> ''
          GROUP BY cand_id, surname_key, given, state, office, party""",
-    "ftm": """
+    "ftm": f"""
         SELECT 'ftm', ftm_id, MIN(load_id), surname, given, middle, surname_key, state, office,
-               party, 0, MIN(year) || '-' || MAX(year), MIN(year), MAX(year)
+               party, 0, {_span(f"MIN({_Y_YEAR})", f"MAX({_Y_YEAR})")},
+               MIN({_Y_YEAR}), MAX({_Y_YEAR})
           FROM ref_ftm_current WHERE surname_key <> ''
          GROUP BY ftm_id, surname_key, given, state, office, party""",
-    "harvard_local": """
+    "harvard_local": f"""
         SELECT 'harvard_local', record_id, load_id, surname, given, middle, surname_key, state,
-               office, party, party_imputed, CAST(year AS TEXT), year, year
+               office, party, party_imputed, CAST({_y("year")} AS TEXT), {_y("year")}, {_y("year")}
           FROM ref_local_current WHERE surname_key <> ''""",
-    "congress": """
+    "congress": f"""
         SELECT 'congress', bioguide, load_id, surname, given, middle, surname_key, state,
-               'federal', party, 0, first_year || '-' || last_year, first_year, last_year
+               'federal', party, 0, {_span("first_year", _y("last_year"))}, {_y("first_year")},
+               {_y("last_year")}
           FROM ref_congress_current WHERE surname_key <> ''""",
-    "state_leg": """
+    "state_leg": f"""
         SELECT 'state_leg', openstates_id, load_id, surname, given, middle, surname_key, state,
-               chamber, party, 0, first_year || '-' || last_year, first_year, last_year
+               chamber, party, 0, {_span("first_year", _y("last_year"))}, {_y("first_year")},
+               {_y("last_year")}
           FROM ref_state_leg_current WHERE surname_key <> ''""",
 }
 _COLUMNS = (

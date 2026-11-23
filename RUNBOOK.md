@@ -130,6 +130,12 @@ images of court documents to api.anthropic.com. If you choose to, set it to `tru
 in `~/.config/efp/.env`. It then reads only pages an installed OCR engine failed on, never exceeds
 `llm.max_monthly_usd`, and marks every page it writes for review. `efp status` shows this month's spend.
 
+### Reference datasets (build 11)
+
+`efp reference status` lists every dataset; `efp reference download`, `load`, `verify` and `index` do the work (add `-d NAME` for one dataset). Files go to `~/efp-data/bulk/<dataset>/`, each download is recorded as a capture, and each load is a row of `ref_sources` with the file's SHA-256. A dataset that cannot be had is skipped with its reason and the others load. `efp selftest --reference` checks counts, hashes and a few known values.
+
+Census surnames and the SSA names refuse automated downloads. Download them in a browser and import: `efp reference import census_surnames names.zip`, then `efp reference import ssa_names names.zip` and `efp reference import ssa_names namesbystate.zip`. DIME and FollowTheMoney need a URL in `[reference]` or an imported file. After new loads run `efp reference index` to rebuild `ref_candidates_all`. API keys (`FEC_API_KEY`, `CONGRESS_API_KEY`, `OPENSTATES_KEY`) go in `~/.config/efp/.env`; the clients only enrich already-confirmed matches by ID. <!-- pragma: allowlist secret -->
+
 ## 7. Where things land
 
 | What | Where |

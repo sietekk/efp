@@ -469,7 +469,9 @@ class Ftm(Dataset):
                         f"{full}|{state}|{office}|{year}|{index}".encode()
                     ).hexdigest()[:16]
                 )
-                won = _pick(rec, "won", "winner", "candidate_status", "election_status").lower()
+                won = _pick(
+                    rec, "won", "winner", "status", "candidate_status", "election_status"
+                ).lower()
                 yield (
                     load_id, ident, full, *_cols(split), state, office,
                     _pick(rec, "party", "candidate_party", "general_party") or None, year,
