@@ -429,6 +429,11 @@ DIME_PARTY = {"100": "DEM", "200": "REP", "328": "IND"}  # DIME codebook, in the
 _DIME_OUTCOME = {"W": 1, "L": 0}
 
 
+def _present(value: str) -> str:
+    """A cell's text, or "" when it is a missing-value marker (``NA``, ``NULL``, ...)."""
+    return "" if value.strip().upper() in _NOT_A_PARTY else value.strip()
+
+
 def _dime_party(code: str) -> str | None:
     return DIME_PARTY.get(code.strip())
 
@@ -458,6 +463,7 @@ class Dime(Dataset):
             "SELECT count(*) FROM ref_dime_current WHERE cycle = 2012 AND office = 'federal:house'",
             (),
             1823,
+            when="SELECT count(*) > 100000 FROM ref_dime_current",
         )
     ]
 
@@ -518,7 +524,7 @@ class Dime(Dataset):
                     continue
                 score = _pick(rec, "recipient.cfscore", "cfscore", "recipient_cfscore")
                 code = _pick(rec, "party")
-                suffix = _pick(rec, "suffix").split(" ")[0].upper()
+                suffix = _present(_pick(rec, "suffix")).split(" ")[0].upper()
                 gender = _pick(rec, "cand.gender", "gender").upper()
                 yield (
                     load_id, rid, _year(_pick(rec, "cycle")), full, *_cols(split),
@@ -528,8 +534,8 @@ class Dime(Dataset):
                     code or None, suffix or None, gender if gender in ("M", "F") else None,
                     _DIME_OUTCOME.get(_pick(rec, "gwinner").upper()),
                     _DIME_OUTCOME.get(_pick(rec, "pwinner").upper()),
-                    _pick(rec, "ico.status", "ico_status").upper() or None,
-                    _year(_pick(rec, "fecyear")), _pick(rec, "nname") or None,
+                    _present(_pick(rec, "ico.status", "ico_status")).upper() or None,
+                    _year(_pick(rec, "fecyear")), _present(_pick(rec, "nname")) or None,
                 )  # fmt: skip
 
         n = _insert(conn, self.table, 21, rows())

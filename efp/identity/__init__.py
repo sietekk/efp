@@ -36,7 +36,7 @@ from efp.runner import input_hash as hash_values
 from efp.types import Context, Row, StageResult
 
 IMPLEMENTED = True
-TOOL_VERSION = "2"
+TOOL_VERSION = "3"
 STAGE = "identity"
 BUILD = "12"
 MAX_CANDIDATES_STORED = 25  # a row's best candidates by posterior; the rest are counted, not kept

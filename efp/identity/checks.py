@@ -26,6 +26,22 @@ from efp.selftest import Check
 LEVEL_KEYS = ("m", "u", "basis")
 
 
+def ranked_surnames(
+    surnames: Counter[str], real: PriorModel, *, rarest: bool
+) -> list[tuple[str, int]]:
+    """Workbook surnames, commonest first, or (``rarest``) by the prior's own measure: surnames
+    absent from the Census file (the floor) first, then the smallest listed proportion; the
+    workbook's count breaks ties and, with no Census file loaded, is the order."""
+    if not rarest:
+        return surnames.most_common()
+
+    def key(item: tuple[str, int]) -> tuple[float, int, str]:
+        p, _ = real.p_surname(item[0])
+        return (p if real.have_surnames else 0.0, item[1], item[0])
+
+    return sorted(surnames.items(), key=key)
+
+
 def name_only_posteriors(
     conn: sqlite3.Connection,
     config: Config,
@@ -41,13 +57,18 @@ def name_only_posteriors(
     surnames: Counter[str] = Counter()
     givens: dict[str, Counter[str]] = {}
     states: dict[str, Counter[str]] = {}
-    for name, state in conn.execute("SELECT name, state FROM rows WHERE in_scope = 1"):
+    years: dict[str, Counter[int]] = {}
+    for name, state, row_year in conn.execute(
+        "SELECT name, state, year FROM rows WHERE in_scope = 1"
+    ):
         parts = parse_name(name)
         if not parts.surname:
             continue
         surnames[parts.surname] += 1
         givens.setdefault(parts.surname, Counter())[parts.given or "John"] += 1
         states.setdefault(parts.surname, Counter())[str(state or "")] += 1
+        if row_year:
+            years.setdefault(parts.surname, Counter())[int(row_year)] += 1
     real = PriorModel(conn, ssa_state_min_births=config.identity.ssa_state_min_births)
     # the same tables with nothing loaded: the ceiling prior
     empty = sqlite3.connect(":memory:")
@@ -60,19 +81,16 @@ def name_only_posteriors(
     ceiling = PriorModel(empty)
     tf = {k: model.term_frequencies(v) for k, v in workbook_term_frequencies(conn).items()}
     out: list[tuple[int, str, float, float]] = []
-    ordered = (
-        sorted(surnames.items(), key=lambda kv: (kv[1], kv[0]))
-        if rarest
-        else surnames.most_common()
-    )
+    ordered = ranked_surnames(surnames, real, rarest=rarest)
     for rank, (surname, _) in enumerate(ordered[:top], 1):
         given = givens[surname].most_common(1)[0][0]
         state = states[surname].most_common(1)[0][0] or None
+        year = years[surname].most_common(1)[0][0] if years[surname] else None
         for mode, prior_model in (("census", real), ("ceiling", ceiling)):
             builder = PairBuilder(conn, prior_model)
             left = Person("row", "0", given, "", surname, state=state)
             right = Person("court", "x", given, "", surname, state=state)
-            pair = builder.build(1, left, right, None)
+            pair = builder.build(1, left, right, year)  # the year is a row's own; no age is known
             water = model.score(
                 [{"pair_id": 1, "left": pair.left, "right": pair.right}], settings, tf=tf,
                 cap=config.identity.tf_adjustment_cap,

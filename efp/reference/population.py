@@ -123,6 +123,7 @@ class SsaNames(Dataset):
             "WHERE name = 'Mary' AND sex = 'F' AND year = 1950 AND state = 'CT'",
             (),
             614,
+            when="SELECT count(*) > 1000000 FROM ref_given_freq_current WHERE state IS NOT NULL",
         ),
     ]
 

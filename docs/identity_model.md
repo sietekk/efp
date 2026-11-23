@@ -243,7 +243,7 @@ at most 0.5 for the ten rarest, where the namesake floor of one caps the prior (
 name at 0.5 stays well under the review threshold, and the rule that a candidate needs an agreeing
 level beyond the name still applies.
 
-DIME candidates (205,225 after collapsing cycles) carry a mapped party (`DEM`, `REP`, `IND`; any
+DIME candidates (173,515 distinct candidates; 205,225 rows in the index, which keeps one row per candidate, name form, state, office and party across cycles) carry a mapped party (`DEM`, `REP`, `IND`; any
 other DIME code is no party, the raw code kept), a suffix, the general and primary outcome, the
 incumbent / challenger / open-seat status and the FEC year, read at gather time from `ref_dime`; DIME
 v4.0 has no nickname column, so no DIME alias is added. Gender is stored and never used.

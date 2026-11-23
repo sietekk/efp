@@ -139,14 +139,50 @@ def test_the_index_collapses_cycles_and_carries_the_mapped_party(
     assert index.counts(conn)["dime"] == 5
 
 
-def test_the_selftest_known_value_for_dime_counts_seat_levels(
+def test_a_known_value_from_the_real_file_is_checked_only_where_that_file_is_loaded(
     ctx: Context, config: Config, conn: sqlite3.Connection
 ) -> None:
+    from dataclasses import replace
+
     load_dime(ctx, config)
+    dime = datasets()["dime"]
+    (known,) = dime.known
+    skipped = dime.check_known(ctx)[0]
+    assert skipped.ok and skipped.detail.startswith("not checked")  # the synthetic file is small
+    dime.known = [replace(known, when="SELECT 1")]  # type: ignore[misc]
+    wrong = dime.check_known(ctx)[0]
+    assert not wrong.ok and "1 (expected 1823)" in wrong.detail  # evaluated, and it fails
+    dime.known = [replace(known, when="SELECT 1", expected=1)]  # type: ignore[misc]
+    assert dime.check_known(ctx)[0].ok
+
+
+def test_the_by_state_known_value_does_not_fail_on_a_national_only_load(
+    ctx: Context, config: Config, conn: sqlite3.Connection, tmp_path: Path
+) -> None:
     from efp.reference.checks import reference_checks
 
-    names = {c.name: c for c in reference_checks(config, conn)}
-    assert names["reference.dime"].ok
+    ops.import_by_hand(
+        ctx,
+        "ssa_names",
+        h.write(tmp_path / "n" / "names.zip", h.zip_bytes(h.SSA_NATIONAL)),
+        "national",
+    )
+    checks = [
+        c for c in reference_checks(config, conn) if c.name.startswith("known: Mary (F) born 1950")
+    ]
+    assert checks and all(c.ok for c in checks)
+
+
+def test_a_dime_missing_value_marker_is_not_a_suffix_or_a_status(
+    ctx: Context, config: Config, conn: sqlite3.Connection
+) -> None:
+    csv_text = DIME_HEADER + (
+        'fd2012,2012,2012,candx,c1,"sample, pat",sample,pat,pat,,,NA,100,CT,federal:house,CT-01,,NA,M,0.1,,,cand\n'
+    )
+    h.place(config, "dime", "dime_na.csv", csv_text)
+    (result,) = datasets()["dime"].load(ctx)
+    assert result.rows == 1
+    assert conn.execute("SELECT suffix, ico_status FROM ref_dime").fetchone() == (None, None)
 
 
 # ---- the identity stage and the DIME candidate --------------------------------------------------
@@ -327,3 +363,21 @@ def test_the_rare_surname_probe_runs_and_a_failure_is_reported(
     )
     after = {c.name: c for c in identity_checks.identity_checks(config, conn)}
     assert after["identity.guarantee"].ok and not after["identity.guarantee_rare"].ok
+
+
+def test_the_rarest_surnames_are_ranked_by_the_census_proportion_floor_first(
+    config: Config, conn: sqlite3.Connection
+) -> None:
+    from collections import Counter
+
+    from efp.identity.prior import PriorModel
+    from tests.identity_helpers import seed_reference
+
+    seed_reference(conn)  # COMMONSURNAME 800, MIDSURNAME 20, RARESURNAME 0.5 (per 100,000)
+    workbook = Counter({"Commonsurname": 50, "Midsurname": 5, "Raresurname": 1, "Nosuchname": 3})
+    order = [s for s, _ in identity_checks.ranked_surnames(workbook, PriorModel(conn), rarest=True)]
+    assert order == ["Nosuchname", "Raresurname", "Midsurname", "Commonsurname"]  # the floor first
+    common = [
+        s for s, _ in identity_checks.ranked_surnames(workbook, PriorModel(conn), rarest=False)
+    ]
+    assert common[0] == "Commonsurname"

@@ -141,6 +141,7 @@ Bulk datasets loaded once into the `ref_*` tables; raw files live under `~/efp-d
 
 These refuse automated downloads (Census: a "Request Rejected" page, with the project identity and with a browser-style `User-Agent`; SSA: HTTP 403; DIME: no stable URL), so the operator downloaded them and loaded them with `efp reference import` on 2026-11-23; each is recorded as a `reference` capture and a `ref_sources` row.
 
+- Where each comes from: the Census 2010 surnames page (`census.gov/topics/population/genealogy/data/2010_surnames.html`), the SSA baby-names page (`ssa.gov/oact/babynames/limits.html`; `names.zip` national and `namesbystate.zip`), the DIME page (`data.stanford.edu/dime`, v4.0 recipients, 1979-2024). The operator downloaded each by hand; the file shown is the one loaded.
 - `census_surnames`: `names.zip` holds `Names_2010Census.csv` (162,253 surnames and the `ALL OTHER NAMES` row; `(S)` appears only in the percentage columns) and its `.xlsx`. The surname floor is half the smallest listed proportion: 0.01695 per 100,000 (smallest listed count 100, denominator 294,977,843).
 - `ssa_names`: the national `names.zip` (a different file from the Census one that shares its name; the dataset and `--part national` decide where it lands) and `namesbystate.zip`; the smallest count in either is 5 (names under five births a year are absent).
 - `dime`: `dime_recipients_1979_2024.csv` (the `.csv.gz` decompressed). 479,502 rows: 359,653 candidate rows and 119,849 committee rows (`recipient.type`); only candidates are loaded.

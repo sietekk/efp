@@ -130,7 +130,7 @@ EXPECTED_INDEXES: tuple[str, ...] = (
     "idx_identity_candidates_current",
     "idx_ref_place_county",
     "idx_ref_dime_rid",
-    "idx_ref_given_name",
+    "idx_ref_given_state_name",
     "idx_identity_label_queue_row",
     "idx_identity_audit_sample_decision",
 )
