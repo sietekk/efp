@@ -38,7 +38,7 @@ of court documents (names, addresses, dockets) to api.anthropic.com, which CLAUD
 under `~/efp-data/`. It is the operator's opt-in. **When the model may read a page** (once on): only when at least one OCR engine (Tesseract, PaddleOCR) ran
 on that page, every installed engine in the chain has, and the page has no text layer. A machine
 with no OCR installed never sends a page to the model (the page is `failed`, flagged, and the row
-is revisited with `:tools`); a born-digital page with a low score (a ledger of digits) is kept as
+is revisited when a tool is installed: which rungs can run is part of the row's hash); a born-digital page with a low score (a ledger of digits) is kept as
 its native text, flagged, and never sent out.
 
 **Model transcription.** `llm.transcription_model`, the system prompt `prompts/transcribe_page.md`
@@ -128,6 +128,11 @@ copy in a scratch directory, never on the stored file.
 same text and page results adds nothing; otherwise one transaction sets the old row `current = 0`
 and adds the new row and its pages (a unique index allows one current row per capture; a failed
 write rolls back and the old row stays current).
+
+**Recheck.** `efp run documents --recheck` revisits a row when its PDFs, the rungs that can run, the
+score or canonical version, the threshold, `max_pages` or `docling_always` changed (turning
+`docling_always` on revisits every row, on purpose), and any row left flagged for the month's
+budget (`:budget`).
 
 ## Tables (migration 0010)
 

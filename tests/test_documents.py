@@ -14,10 +14,12 @@ from pathlib import Path
 
 import pytest
 
+import efp.documents as component
 from efp.config import Config
 from efp.documents import canonical, pdfio
 from efp.documents.pdfio import Word, group_lines
 from efp.documents.quality import score_lines
+from efp.runner import load_row
 from efp.store import read_verified
 from tests import pdfgen
 from tests.documents_helpers import (
@@ -26,6 +28,7 @@ from tests.documents_helpers import (
     add_filing,
     add_row,
     doc_config,
+    make_ctx,
     run_row,
     scripted,
     scripted_registry,
@@ -332,7 +335,18 @@ def test_a_missing_tool_is_skipped_with_its_reason_and_the_row_is_revisited(
     assert "not installed" in reasons["documents.docling"]
     assert "not installed" in reasons["documents.ocrmypdf"]
     assert "not installed" in reasons["documents.paddleocr"]
-    assert result.status == "done" and result.input_hash.endswith(":tools")
+    assert result.status == "done" and not result.input_hash.endswith(":tools")
+    # a missing tool needs no suffix: the rungs that can run are in the hash, so a recheck is a
+    # no-op now and revisits the row once the tools are installed
+    ctx, cap, registry = make_ctx(config, conn)
+    try:
+        row = load_row(conn, 1)
+        assert component.input_hash(row, ctx, registry) == result.input_hash
+        monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr(pdfio, "have", lambda _m: True)
+        assert component.input_hash(row, ctx, registry) != result.input_hash
+    finally:
+        cap.close()
 
 
 def test_an_unreadable_pdf_is_recorded_and_the_row_still_finishes(

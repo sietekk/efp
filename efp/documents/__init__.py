@@ -448,7 +448,7 @@ def _signature(ctx: Context, registry: Registry) -> dict[str, bool]:
 def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     """What ``efp run documents --recheck`` compares with the stored hash: the PDFs the row has
     now, the rungs that can run, the canonical and score versions, and the settings. A stored hash
-    with a ``:budget`` or ``:tools`` suffix never equals this one, so those rows are revisited."""
+    with a ``:budget`` suffix never equals this one, so those rows are revisited."""
     if ctx.db is None:
         raise RuntimeError("the documents stage needs the database")
     return _hash(ctx, registry, pdf_inputs(ctx.db, ctx, row.row_id))
@@ -466,6 +466,7 @@ def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = 
             SCORE_VERSION,
             cfg.ocr_quality_threshold,
             cfg.max_pages,
+            cfg.docling_always,  # turning it on revisits rows read without Docling, on purpose
         )
         + suffix
     )
@@ -494,21 +495,18 @@ def _summary(outs: list[DocOut]) -> dict[str, Any]:
 
 
 def _gaps(outs: list[DocOut]) -> str:
-    """The deferral suffix: a page left flagged because the budget or a tool was missing is
-    revisited by ``--recheck`` once it is there (the suffix keeps the hash from ever matching)."""
-    suffix = ""
+    """The deferral suffix. A page left flagged because the month's budget was spent is revisited by
+    ``--recheck`` once it is there: the budget is not in the hash (spending would change it on every
+    call), so the suffix keeps the stored hash from matching. A missing tool needs no suffix: which
+    rungs can run is part of the hash, so installing one changes it."""
     for o in outs:
         for p in o.pages:
-            if not p.flagged:
-                continue
-            for m in p.modules:
-                if m["name"] == "documents.claude_transcribe" and "max_monthly_usd" in m["reason"]:
-                    return ":budget"
-                if m["status"] == "skipped" and (
-                    "not installed" in m["reason"] or "not on PATH" in m["reason"]
-                ):
-                    suffix = ":tools"
-    return suffix
+            if p.flagged and any(
+                m["name"] == "documents.claude_transcribe" and "max_monthly_usd" in m["reason"]
+                for m in p.modules
+            ):
+                return ":budget"
+    return ""
 
 
 def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageResult:
@@ -525,7 +523,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     if not pdfio.have("pdfplumber"):
         return StageResult(
             row_id=row.row_id, stage=STAGE, status="done",
-            input_hash=_hash(ctx, registry, pdfs, ":tools"), tool_version=TOOL_VERSION,
+            input_hash=_hash(ctx, registry, pdfs), tool_version=TOOL_VERSION,
             summary_json={
                 "documents_status": "no_tools",
                 "reason": "pdfplumber is not installed (the documents extra)",

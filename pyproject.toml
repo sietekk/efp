@@ -124,7 +124,8 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "paddle.*"]
+module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*"]
+# optional extras (documents, layout, ocr-fallback): mypy also runs where they are not installed
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

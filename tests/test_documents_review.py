@@ -427,3 +427,65 @@ def test_a_model_reply_cut_off_at_max_tokens_is_flagged_truncated(
     run_row(config, conn, registry=model_registry())
     reasons = conn.execute("SELECT flag_reasons FROM document_pages_current").fetchone()[0]
     assert json.loads(reasons) == ["model_transcribed", "truncated"]
+
+
+# --- review round 4 ---------------------------------------------------------------------------------------
+
+
+def test_turning_docling_always_on_changes_the_rows_hash(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from efp.runner import load_row
+
+    off = doc_config(write_config)
+    add_row(conn)
+    add_filing(conn, off, pdfgen.born_digital([pdfgen.LINES_A]))
+    first = run_row(off, conn)
+    on = doc_config(write_config, **{"docling_always = false": "docling_always = true"})
+    ctx, cap, registry = make_ctx(on, conn)
+    try:
+        assert component.input_hash(load_row(conn, 1), ctx, registry) != first.input_hash
+    finally:
+        cap.close()
+
+
+def test_the_live_model_check_sends_the_request_shape_transcription_uses(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.livecheck import _model_live
+
+    s = Stub(text="The court accepted the plea.")
+    monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
+    config = doc_config(write_config, **SONNET)
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        (check,) = _model_live(cap, config, conn)
+        assert check.ok and "accepted the plea" in check.detail
+        call = s.calls[0]
+        assert call["thinking"] == {"type": "between_tools"} and call["effort"] == "low"
+        assert call["temperature"] is None and call["model"] == "claude-sonnet-5-5"
+        assert conn.execute("SELECT purpose, ok FROM llm_calls").fetchall() == [("selftest", 1)]
+        off = doc_config(
+            write_config,
+            **SONNET,
+            **{"llm_transcription_fallback = true": "llm_transcription_fallback = false"},
+        )
+        (skipped,) = _model_live(cap, off, conn)
+        assert skipped.ok and "skipped" in skipped.detail and len(s.calls) == 1
+    finally:
+        cap.close()
+
+
+def test_the_sdk_accepts_the_thinking_setting_the_transcription_sends() -> None:
+    """The one part of the request that can be checked offline: the installed SDK's own types name
+    ``between_tools`` as a thinking type and ``low`` as an effort level."""
+    import typing
+
+    from anthropic.types.output_config_param import OutputConfigParam
+    from anthropic.types.thinking_config_between_tools_param import ThinkingConfigBetweenToolsParam
+
+    assert typing.get_args(typing.get_type_hints(ThinkingConfigBetweenToolsParam)["type"]) == (
+        "between_tools",
+    )
+    effort = typing.get_type_hints(OutputConfigParam)["effort"]
+    assert "low" in str(effort)
