@@ -12,6 +12,7 @@ from __future__ import annotations
 from efp.modules import Registry
 from efp.reference.base import Dataset
 from efp.reference.candidates import Congress, Dime, FecCandidates, Ftm, HarvardLocal, OpenStates
+from efp.reference.places import CensusPlaceCounty
 from efp.reference.population import CensusPopulation, CensusSurnames, SsaNames
 from efp.reference.wmn import Wmn
 
@@ -19,6 +20,7 @@ DATASET_CLASSES: tuple[type[Dataset], ...] = (
     CensusSurnames,
     SsaNames,
     CensusPopulation,
+    CensusPlaceCounty,
     FecCandidates,
     Congress,
     OpenStates,

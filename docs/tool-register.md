@@ -68,6 +68,8 @@ Checked against the library's A-Z database list, September 2026. Contact for all
 | [probablepeople](https://github.com/datamade/probablepeople) | 0.5.6, 2024-10-29 | MIT | Semi-active | CRF-based. Run both and treat disagreement as a review flag |
 | [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz) | 3.14.6, 2026-08-30 | MIT | Very active | C++/SIMD. Full 1,481² matrix in under a second |
 | [jellyfish](https://codeberg.org/jpt/jellyfish) | 1.2.1, 2025-10-11 | MIT | Active | Phonetic encodings. Note the move to Codeberg |
+| [doublemetaphone](https://pypi.org/project/doublemetaphone/) | 1.2, 2025-05-11 | Artistic License | Low activity | Double Metaphone for the surname comparison (build 12): `jellyfish` has none and `abydos` is dead. A direct dependency; it was already in the lock through probablepeople |
+| [usaddress](https://github.com/datamade/usaddress) | 0.5.16 | MIT | Semi-active | Takes the place name out of an address string for the city comparison (build 12) |
 | [Census 2010 surnames](https://www.census.gov/topics/population/genealogy/data/2010_surnames.html) | 162,253 names | US Gov PD | — | Surnames occurring 100+ times |
 | [SSA baby names](https://www.ssa.gov/oact/babynames/limits.html) | 1880–present, by state | US Gov PD | — | Condition given names on birth cohort |
 | dedupe / recordlinkage | 2024-08 / 2023-07 | MIT / BSD-3 | **Stale** | Reference implementations, not dependencies |

@@ -186,6 +186,7 @@ class ReferenceCfg(_Section):
     ssa_national_url: str
     ssa_state_url: str
     census_population_url: str
+    census_place_county_url: str
     fec_url_template: str
     congress_current_url: str
     congress_historical_url: str
@@ -208,6 +209,14 @@ class IdentityCfg(_Section):
     review_threshold: float = Field(ge=0, le=1)
     labeled_pairs_required: int = Field(ge=0)
     audit_sample: int = Field(ge=0)
+    ssa_state_min_births: int = Field(ge=0)  # by-state SSA file used above this many births
+    prior_pseudocount: float = Field(gt=0)  # weight of the published value when fitting from labels
+    common_surname_rank: int = Field(ge=1)  # a Census rank at or below this is a "common" surname
+    reviewer_initials: str  # decided_by for the operator's labels and verdicts ("" = asked for)
+    label_seed: int
+    audit_seed: int
+    bootstrap_resamples: int = Field(ge=100)
+    tf_adjustment_cap: bool  # term-frequency adjustment may lower a match weight, never raise it
 
 
 class DocumentsCfg(_Section):

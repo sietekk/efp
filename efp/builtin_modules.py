@@ -88,6 +88,7 @@ class ArchiveAutoArchiver:
 def register_builtin(registry: Registry = REGISTRY) -> None:
     from efp.court.modules import register_modules as register_court
     from efp.documents.modules import register_modules as register_documents
+    from efp.identity import register_modules as register_identity
     from efp.reference import register_modules as register_reference
     from efp.resolve_links.modules import register_modules as register_resolve_links
 
@@ -97,4 +98,5 @@ def register_builtin(registry: Registry = REGISTRY) -> None:
     register_resolve_links(registry)
     register_court(registry)
     register_documents(registry)
+    register_identity(registry)
     register_reference(registry)

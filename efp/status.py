@@ -78,6 +78,7 @@ class StatusReport:
         default_factory=dict
     )  # federal/state/unknown -> status
     documents: dict[str, Any] = field(default_factory=dict)  # build 10: methods, bands, spend
+    identity: dict[str, Any] = field(default_factory=dict)  # build 12: outcomes by stratum
 
 
 def _scoped(
@@ -161,6 +162,52 @@ def documents_summary(
     return out
 
 
+def identity_summary(
+    conn: sqlite3.Connection, config: Config, state: str | None = None
+) -> dict[str, Any]:
+    """Confirmed / review band / unresolved overall and by common and rare surname, as the gates
+    read them (the model's decision, or the operator's later one), plus how many decisions rest on
+    provisional parameters or the ceiling prior. Empty until the stage has decided a row."""
+    from efp.court.names import parse_name
+    from efp.identity.strata import Strata
+    from efp.runner import _identity_outcome
+
+    condition, params = _scoped(config, state, None)
+    rows = conn.execute(
+        f"SELECT r.row_id, r.name FROM rows r WHERE {condition}",
+        params,
+    ).fetchall()
+    strata = Strata(conn, config.identity.common_surname_rank)
+    cells = ("confirmed", "needs_review", "unresolved")
+    table: dict[str, dict[str, int]] = {
+        k: dict.fromkeys(cells, 0) for k in ("all", "common", "rare")
+    }
+    for row_id, name in rows:
+        outcome = _identity_outcome(conn, int(row_id))
+        if outcome is None:
+            continue
+        outcome = outcome if outcome in cells else "unresolved"
+        group = strata.label(parse_name(name).surname)
+        table["all"][outcome] += 1
+        table[group][outcome] += 1
+    if not any(table["all"].values()):
+        return {}
+    tags = conn.execute(
+        "SELECT sum(decided_by LIKE '%params=provisional%'), "
+        "sum(decided_by LIKE '%prior=ceiling%'), count(*) FROM decisions d "
+        "WHERE kind = 'identity' AND batch = 'main' AND decision_id = "
+        "(SELECT max(decision_id) FROM decisions x WHERE x.row_id = d.row_id "
+        "AND x.kind = 'identity' AND x.batch = 'main')"
+    ).fetchone()
+    return {
+        "outcomes": table,
+        "decisions": int(tags[2] or 0),
+        "provisional_parameters": int(tags[0] or 0),
+        "ceiling_prior": int(tags[1] or 0),
+        "strata_provisional": strata.provisional,
+    }
+
+
 def build_report(
     conn: sqlite3.Connection,
     config: Config,
@@ -211,6 +258,10 @@ def build_report(
         report.documents = documents_summary(conn, config, state)
     except sqlite3.OperationalError:  # a database behind the migration that made the tables
         report.documents = {}
+    try:
+        report.identity = identity_summary(conn, config, state)
+    except sqlite3.OperationalError:  # a database behind migration 0013
+        report.identity = {}
     try:
         ids = load_sample_ids(config)
     except Exception:  # no sample file yet: the subset is simply absent
@@ -295,6 +346,26 @@ def render_md(report: StatusReport) -> str:
             "",
             f"Model transcription spend this month: ${d['transcription_spend_usd']:.2f} "
             f"of ${d['monthly_cap_usd']:.2f}.",
+        ]
+    if report.identity:
+        i = report.identity
+        out += ["", "### Identity (as the gates read it)", ""]
+        out += ["| surnames | confirmed | review band | unresolved |", "|---|---:|---:|---:|"]
+        for group in ("all", "common", "rare"):
+            o = i["outcomes"][group]
+            out.append(
+                f"| {group} | {o['confirmed']:,} | {o['needs_review']:,} | {o['unresolved']:,} |"
+            )
+        out += [
+            "",
+            f"{i['decisions']:,} model decision(s): {i['provisional_parameters']:,} on provisional "
+            f"parameters, {i['ceiling_prior']:,} on the ceiling prior"
+            + (
+                " (common/rare strata are provisional: no Census rank yet)"
+                if i["strata_provisional"]
+                else ""
+            )
+            + ".",
         ]
     if report.sample_size:
         out += ["", f"### Frozen sample ({report.sample_size:,} rows in scope)", ""]
