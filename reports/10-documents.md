@@ -26,7 +26,7 @@ Changes the approved plan made to the prompt, and two answers you gave at planni
 - CI installs the `documents` extra and `tesseract-ocr` / `ghostscript`, so the OCR test runs there. `pyproject.toml`: `layout` extra, mypy overrides for the optional packages; `uv.lock` re-locked.
 - Docs: `docs/documents.md` (the score, the canonical text, the storage layout), `RUNBOOK.md`.
 - Tests: `tests/test_documents.py`, `tests/test_documents_model.py` and `tests/test_documents_review.py` (54 tests), `tests/pdfgen.py` (synthetic PDFs: born-digital, image-only, degraded, blank, mixed), `tests/documents_helpers.py`.
-- Results: `uv run pytest -m "not live"`: see the final line of this section. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Results: `uv run pytest -m "not live"`: 1055 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## Review findings (done-when-reviewer) and what was done
 
