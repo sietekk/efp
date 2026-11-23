@@ -300,10 +300,14 @@ def apply_gate_failure(
 def recover(
     conn: sqlite3.Connection, stage: str, *, stale_after_minutes: int | None, force: bool
 ) -> int:
-    """Reset ``running`` rows to ``pending`` without counting the interrupted attempt."""
+    """Reset ``running`` rows without counting the interrupted attempt: a row that was settled
+    (done, or waiting in the review band) before it was claimed goes back to that status, so its
+    last result stands and it stays in its queue; any other row is pending."""
     sql = (
-        "UPDATE case_stage SET status = 'pending', attempts = max(attempts - 1, 0), "
-        "started_at = NULL WHERE stage = ? AND status = 'running'"
+        "UPDATE case_stage SET status = CASE WHEN prior_status IN ('done', 'needs_review') "
+        "THEN prior_status ELSE 'pending' END, prior_status = NULL, "
+        "attempts = max(attempts - 1, 0), started_at = NULL "
+        "WHERE stage = ? AND status = 'running'"
     )
     params: list[Any] = [stage]
     if not force:
@@ -444,7 +448,8 @@ def _claim(
         if claimed:
             marks = ",".join("?" * len(claimed))
             conn.execute(
-                "UPDATE case_stage SET status = 'running', attempts = attempts + 1, "
+                "UPDATE case_stage SET prior_status = status, status = 'running', "
+                "attempts = attempts + 1, "
                 "started_at = ?, finished_at = NULL "
                 f"WHERE stage = ? AND row_id IN ({marks})",
                 (_now(), stage, *[r.row_id for r in claimed]),
