@@ -141,6 +141,7 @@ docling_always = false            # true: run Docling over every PDF (structure 
 ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
 render_dpi = 200                  # page images for OCR, the blank check and model transcription
 max_pages = 500                   # a longer document is read to this page; the rest is recorded as not read
+docling_timeout_seconds = 900     # per document: Docling stops there and keeps the pages it finished
 ocr_timeout_seconds = 300         # per document, OCRmyPDF
 transcribe_max_tokens = 4096      # model transcription of one page
 

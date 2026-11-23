@@ -361,7 +361,7 @@ def _fake_docling(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, **kw: Any) -> None:
             pass
 
-        def convert(self, path: str) -> Any:
+        def convert(self, path: str, **kw: Any) -> Any:
             return types.SimpleNamespace(document=Doc())
 
     module("docling")

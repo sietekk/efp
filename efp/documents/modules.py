@@ -26,6 +26,7 @@ from typing import Any
 
 from efp import modules as chain
 from efp.capture import CaptureBudgetError, CaptureError, LlmCallError
+from efp.config import DocumentsCfg
 from efp.documents import docling_parse, llm, pdfio
 from efp.documents.ladder import Candidate, DocState, PageTask
 from efp.documents.pdfio import PageSize, Word
@@ -100,8 +101,10 @@ class Pdfplumber:
         return ModuleResult(Outcome.miss)
 
 
-def convert_docling(doc: DocState) -> None:
-    """Run Docling over the whole PDF once; the outcome (or the error) stays on ``doc``."""
+def convert_docling(doc: DocState, cfg: DocumentsCfg) -> None:
+    """Run Docling over the PDF once, the first ``max_pages`` pages and no longer than
+    ``docling_timeout_seconds`` (it keeps the pages it finished); the outcome, or the error, stays
+    on ``doc``."""
     if doc.docling_attempted:
         return
     doc.docling_attempted = True
@@ -111,11 +114,17 @@ def convert_docling(doc: DocState) -> None:
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
         # layout and structure only: scanned pages are the OCR rungs' work
-        options = PdfPipelineOptions(do_ocr=False)
+        options = PdfPipelineOptions(
+            do_ocr=False, document_timeout=float(cfg.docling_timeout_seconds)
+        )
         converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
         )
-        result = converter.convert(str(doc.path))
+        result = converter.convert(
+            str(doc.path), page_range=(1, max(1, min(doc.page_count, cfg.max_pages)))
+        )
+        if getattr(getattr(result, "status", None), "name", "") == "FAILURE":
+            raise RuntimeError("Docling could not convert the document")
         doc.docling_dict = result.document.export_to_dict()
         doc.docling_pages = docling_parse.parse(doc.docling_dict)
     except Exception as exc:
@@ -127,7 +136,7 @@ def docling_first(ctx: Context, registry: Registry, doc: DocState) -> None:
     first rung could not read. Does nothing when Docling is not in the chain or not installed."""
     module = registry.get("documents.docling")
     if module is not None and module.available(ctx).ok:
-        convert_docling(doc)
+        convert_docling(doc, ctx.config.documents)
 
 
 class Docling:
@@ -143,7 +152,7 @@ class Docling:
     def run(self, row: Row, ctx: Context) -> ModuleResult:
         task = _task(row)
         doc = task.d
-        convert_docling(doc)
+        convert_docling(doc, ctx.config.documents)
         if doc.docling_error:
             return ModuleResult(Outcome.error, error=doc.docling_error)
         got = doc.docling_pages.get(task.page_no)
@@ -180,7 +189,8 @@ class Ocrmypdf:
             target = doc.scratch / "ocr.pdf"
             # A subprocess, not an import: importing ocrmypdf monkeypatches pdfminer.six for the
             # whole process (PDFSimpleFont), after which pdfplumber reads a standard-font PDF as
-            # "(cid:72)(cid:101)..." text. The copy in the scratch directory is the only input.
+            # "(cid:72)(cid:101)..." text. The input is ``doc.path``, the scratch copy made in
+            # process_pdf from the verified bytes; the stored original is never opened here.
             command = [
                 sys.executable, "-m", "ocrmypdf", "--skip-text", "-l", cfg.ocr_language,
                 "--output-type", "pdf", "--optimize", "0", "--jobs", "2", "--quiet",
@@ -188,6 +198,8 @@ class Ocrmypdf:
                 "--tesseract-timeout", str(min(180, cfg.ocr_timeout_seconds)),
                 str(doc.path), str(target),
             ]  # fmt: skip
+            if doc.page_count > cfg.max_pages:  # the same cap as every other rung
+                command[-2:-2] = ["--pages", f"1-{cfg.max_pages}"]
             try:
                 done = subprocess.run(  # noqa: S603
                     command, capture_output=True, text=True, check=False,
@@ -397,7 +409,7 @@ class ClaudeTranscribe:
             billed = isinstance(exc, LlmCallError)
             note = " [billed or possibly billed]" if billed else ""
             llm.log_call(
-                conn, capture_id=None,
+                conn, capture_id=getattr(exc, "capture_id", None),
                 input_tokens=exc.input_tokens if isinstance(exc, LlmCallError) else None,
                 output_tokens=exc.output_tokens if isinstance(exc, LlmCallError) else None,
                 cost=llm.failure_cost(ctx.config, exc, cfg.transcribe_max_tokens),

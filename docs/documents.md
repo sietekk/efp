@@ -14,6 +14,11 @@ store is only ever read.
 
 ## The ladder, per page
 
+`documents.max_pages` bounds every rung: pdfplumber, OCRmyPDF (`--pages 1-N`) and Docling
+(`page_range`) read no further, and the rest are recorded as `not_read` and flagged; Docling also stops
+at `documents.docling_timeout_seconds` and keeps the pages it finished. Raise `max_pages` for very
+long filings (time and memory grow with it).
+
 Each PDF is opened once (`pdfio.PdfReader`) and shared by every page of it.
 
 Policy `ladder` in `[stages.documents]`; the bar is `documents.ocr_quality_threshold` (0.85). The
@@ -131,7 +136,8 @@ write rolls back and the old row stays current).
 
 **Recheck.** `efp run documents --recheck` revisits a row when its PDFs, the rungs that can run, the
 score or canonical version, the threshold, `max_pages` or `docling_always` changed (turning
-`docling_always` on revisits every row, on purpose), and any row left flagged for the month's
+`docling_always` on revisits every row, on purpose), `docling_timeout_seconds`, `render_dpi`,
+`ocr_language`, and, while the model fallback is on, the transcription model and the prompt's hash, and any row left flagged for the month's
 budget (`:budget`).
 
 ## Tables (migration 0010)

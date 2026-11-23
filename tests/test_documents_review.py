@@ -697,3 +697,126 @@ def test_a_configured_temperature_goes_in_the_body_not_as_an_sdk_argument(
     finally:
         cap.close()
     assert "temperature" not in seen and seen["extra_body"] == {"temperature": 0.0}
+
+
+# --- review round 6: hash inputs, the audit link of an error call, long filings ---------------------------
+
+
+def test_changing_a_setting_that_changes_output_changes_the_hash(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from efp.runner import load_row
+
+    base = doc_config(write_config)
+    add_row(conn)
+    add_filing(conn, base, pdfgen.born_digital([pdfgen.LINES_A]))
+    ctx, cap, registry = make_ctx(base, conn)
+    row = load_row(conn, 1)
+
+    def hash_for(**swap: str) -> str:
+        cfg = doc_config(write_config, **swap)
+        c2, k2, r2 = make_ctx(cfg, conn)
+        try:
+            return component.input_hash(row, c2, r2)
+        finally:
+            k2.close()
+
+    try:
+        same = component.input_hash(row, ctx, registry)
+    finally:
+        cap.close()
+    assert hash_for() == same
+    assert hash_for(**{"render_dpi = 200": "render_dpi = 300"}) != same
+    assert hash_for(**{'ocr_language = "eng"': 'ocr_language = "fra"'}) != same
+    # the fixture has the fallback on: the model that would read a page is part of the hash ...
+    assert hash_for(**SONNET) != same
+    # ... and with the fallback off it is not
+    off = {"llm_transcription_fallback = true": "llm_transcription_fallback = false"}
+    assert hash_for(**off) == hash_for(**off, **SONNET)
+    assert hash_for(**off) != same
+
+
+def test_an_http_error_call_is_logged_with_its_stored_request(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anthropic
+    import httpx2 as httpx
+
+    class Refuses:
+        def __init__(self, **kw: Any) -> None:
+            self.messages = self
+
+        def create(self, **kw: Any) -> None:
+            request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise anthropic.APIStatusError(
+                "overloaded", response=httpx.Response(529, request=request), body=None
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(anthropic, "Anthropic", Refuses)
+    _model_run(write_config, conn)
+    capture_id = conn.execute("SELECT capture_id FROM llm_calls").fetchone()[0]
+    assert capture_id is not None
+    assert conn.execute(
+        "SELECT tool, http_status FROM captures WHERE capture_id = ?", (capture_id,)
+    ).fetchone() == ("llm", 529)
+    assert conn.execute("SELECT cost_usd FROM llm_calls").fetchone()[0] == 0  # not billed
+
+
+def test_docling_and_ocr_stop_at_max_pages_and_docling_has_a_time_limit(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from tests.test_documents_model import _fake_docling
+
+    _fake_docling(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    import docling.document_converter as dc
+
+    from tests.test_documents_model import DOCLING
+
+    class Doc:
+        def export_to_dict(self) -> dict[str, Any]:
+            return DOCLING
+
+    class Conv2:
+        def __init__(self, **kw: Any) -> None:
+            seen["options"] = kw["format_options"]["pdf"]["pipeline_options"]
+
+        def convert(self, path: str, **kw: Any) -> Any:
+            seen["kwargs"] = kw
+            import types
+
+            return types.SimpleNamespace(document=Doc())
+
+    monkeypatch.setattr(dc, "DocumentConverter", Conv2)
+    config = doc_config(
+        write_config,
+        'modules = ["documents.pdfplumber", "documents.docling", "documents.ocrmypdf"]',
+        **{
+            "max_pages = 500": "max_pages = 2",
+            "docling_timeout_seconds = 900": "docling_timeout_seconds = 77",
+        },
+    )
+    add_row(conn)
+    add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A, pdfgen.LINES_B, pdfgen.LINES_A]))
+    commands: list[list[str]] = []
+    real_run = subprocess.run
+
+    def spy(cmd: list[str], *a: Any, **k: Any) -> Any:
+        if "ocrmypdf" in cmd:
+            commands.append(list(cmd))
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    run_row(config, conn)
+    assert seen["kwargs"]["page_range"] == (1, 2)
+    assert seen["options"]["document_timeout"] == 77.0
+    if commands:  # the OCR rung runs when tesseract is installed
+        cmd = commands[0]
+        assert cmd[cmd.index("--pages") + 1] == "1-2"
+        assert cmd[-2].endswith("original.pdf")  # the scratch copy, never the stored file

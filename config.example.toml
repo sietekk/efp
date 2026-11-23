@@ -165,7 +165,8 @@ llm_transcription_fallback = false  # OFF: true sends page IMAGES of court docum
 docling_always = false            # true: run Docling over every PDF (structure for born-digital documents too); false: only when a page falls past the first rung
 ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
 render_dpi = 200                  # page images for OCR, the blank check and model transcription
-max_pages = 500                   # a longer document is read to this page; the rest is recorded as not read
+max_pages = 500                   # a longer document is read (and OCR'd, and sent to Docling) to this page only; the rest is recorded as not read. Raise it for very long filings
+docling_timeout_seconds = 900     # per document: Docling stops there and keeps the pages it finished
 ocr_timeout_seconds = 300         # per document, OCRmyPDF
 transcribe_max_tokens = 4096      # model transcription of one page
 

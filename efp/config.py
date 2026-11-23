@@ -189,6 +189,7 @@ class DocumentsCfg(_Section):
     ocr_language: str = Field(min_length=2)
     render_dpi: int = Field(ge=72, le=600)
     max_pages: int = Field(gt=0)
+    docling_timeout_seconds: int = Field(gt=0)
     ocr_timeout_seconds: int = Field(gt=0)
     transcribe_max_tokens: int = Field(gt=0)
 

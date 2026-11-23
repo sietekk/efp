@@ -13,6 +13,7 @@ See docs/documents.md for the score, the canonical text and the storage layout.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -25,7 +26,7 @@ from typing import Any
 from efp import modules as chain
 from efp.documents import canonical, pdfio
 from efp.documents.ladder import DocState, PageState, PageTask
-from efp.documents.modules import STAGE, docling_first, transcribe_configured
+from efp.documents.modules import PROMPT, STAGE, docling_first, transcribe_configured
 from efp.documents.quality import SCORE_VERSION
 from efp.modules import REGISTRY, ModuleResult, Registry
 from efp.runner import input_hash as hash_values
@@ -456,6 +457,14 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     return _hash(ctx, registry, pdf_inputs(ctx.db, ctx, row.row_id))
 
 
+def _model_part(ctx: Context) -> list[str]:
+    """The model and prompt that would read a page, in the hash only while the fallback is on: a
+    change to either changes model output, and with the fallback off neither matters."""
+    if not ctx.config.documents.llm_transcription_fallback:
+        return []
+    return [ctx.config.llm.transcription_model, hashlib.sha256(PROMPT.read_bytes()).hexdigest()]
+
+
 def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = "") -> str:
     cfg = ctx.config.documents
     if not pdfs:
@@ -469,6 +478,10 @@ def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = 
             cfg.ocr_quality_threshold,
             cfg.max_pages,
             cfg.docling_always,  # turning it on revisits rows read without Docling, on purpose
+            cfg.docling_timeout_seconds,
+            cfg.render_dpi,
+            cfg.ocr_language,
+            _model_part(ctx),
         )
         + suffix
     )

@@ -124,6 +124,16 @@ class CaptureError(Exception):
     """A fetch could not be completed (no response was received, or an input was invalid)."""
 
 
+class LlmHttpError(CaptureError):
+    """The API answered with an HTTP error (not billed). The stored request and answer are the
+    capture ``capture_id``, so the caller's log row can point at them."""
+
+    def __init__(self, message: str, *, capture_id: int | None, request_id: str | None) -> None:
+        super().__init__(message)
+        self.capture_id = capture_id
+        self.request_id = request_id
+
+
 class LlmCallError(CaptureError):
     """A model call that may have been billed although no usable answer came back: a timeout or a
     dropped connection after the request went out, or a failure after a successful answer (the
@@ -923,14 +933,16 @@ class Capture:
         try:
             message = client.messages.create(**args)
         except anthropic.APIStatusError as exc:
-            self.store_bytes(
+            stored = self.store_bytes(
                 json.dumps({"request": stored_request, "status": exc.status_code}).encode(),
                 row_id=row_id, stage=stage, url_requested=url, http_status=exc.status_code,
                 tool="llm", tool_version=model, content_type="application/json",
                 headers={"purpose": purpose, "request_id": exc.request_id or ""},
             )  # fmt: skip
-            raise CaptureError(
-                f"{model}: HTTP {exc.status_code} ({scrub_text(exc.message)[:160]})"
+            raise LlmHttpError(
+                f"{model}: HTTP {exc.status_code} ({scrub_text(exc.message)[:160]})",
+                capture_id=int(stored.capture_id),
+                request_id=exc.request_id,
             ) from exc
         except anthropic.APIError as exc:
             # no answer, but the request went out: it may have been billed
