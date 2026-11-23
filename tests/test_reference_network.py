@@ -556,3 +556,68 @@ def test_a_presigned_url_credentials_are_never_stored_and_the_recorded_source_ha
     stored = redact_url(signed, api=True)
     assert "deadbeefcafe" not in stored and "AKIAEXAMPLE" not in stored
     assert "X-Amz-Expires=60" in stored  # only the credentials go
+
+
+# --- review round 2: the size cap holds on the stream, not only on a HEAD --------------------------------------
+
+
+def test_the_size_cap_is_enforced_on_the_stream_when_the_head_says_nothing(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, rsps: responses.RequestsMock
+) -> None:
+    config = make(write_config, **{"max_gb = 20.0": "max_gb = 0.000001"})  # 1,000 bytes
+    ctx, cap = h.make_ctx(config, conn)
+    big = b"PK\x03\x04" + b"x" * 5000
+    rsps.head(CENSUS, status=405)  # the HEAD is refused: no Content-Length to go by
+    rsps.get(CENSUS, body=big, content_type="application/zip")
+    try:
+        (fetched,) = ops.download(ctx, ["census_surnames"])["census_surnames"]
+    finally:
+        cap.close()
+    assert fetched.status == "gated" and "cap" in fetched.reason
+    folder = config.paths.bulk / "census_surnames"
+    assert not list(folder.glob("*")) or all(p.suffix == ".rejected" for p in folder.glob("*"))
+    assert not list(folder.glob("*.part")) and not list(
+        folder.glob("*.new")
+    )  # nothing oversized kept
+
+
+def test_a_chunked_stream_with_no_length_is_cut_at_the_cap(
+    write_config: Callable[..., Path],
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    tmp_path: Path,
+) -> None:
+    from efp.capture import CaptureError
+
+    config = make(write_config)
+    _ctx, cap = h.make_ctx(config, conn)
+    rsps.get("https://example.test/big.bin", body=b"y" * (3 << 20), stream=True)
+    dest = tmp_path / "big.bin"
+    try:
+        with pytest.raises(CaptureError, match="cap"):
+            cap.download("https://example.test/big.bin", dest, stage="reference", max_bytes=1 << 20)
+    finally:
+        cap.close()
+    assert not dest.exists() and not dest.with_name("big.bin.part").exists()
+
+
+def test_a_response_announcing_more_than_the_cap_is_refused_before_a_byte_is_written(
+    write_config: Callable[..., Path],
+    conn: sqlite3.Connection,
+    rsps: responses.RequestsMock,
+    tmp_path: Path,
+) -> None:
+    from efp.capture import CaptureError
+
+    config = make(write_config)
+    _ctx, cap = h.make_ctx(config, conn)
+    rsps.get(
+        "https://example.test/huge.bin", body=b"z" * 10, headers={"Content-Length": "999999999"}
+    )
+    dest = tmp_path / "huge.bin"
+    try:
+        with pytest.raises(CaptureError, match="announces"):
+            cap.download("https://example.test/huge.bin", dest, stage="reference", max_bytes=1000)
+    finally:
+        cap.close()
+    assert not dest.exists() and not dest.with_name("huge.bin.part").exists()

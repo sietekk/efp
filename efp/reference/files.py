@@ -174,7 +174,12 @@ def fetch(ctx: Context, dataset: str, part: Part, *, refresh: bool = False) -> F
                     headers, used = {"User-Agent": config.reference.download_user_agent}, True
                 try:
                     record = capture.download(
-                        target, staged, stage="reference", row_id=None, extra_headers=headers
+                        target,
+                        staged,
+                        stage="reference",
+                        row_id=None,
+                        extra_headers=headers,
+                        max_bytes=int(config.reference.max_gb * 1e9),  # enforced on the stream too
                     )
                     break
                 except CaptureRedirect as moved:

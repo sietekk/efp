@@ -22,7 +22,7 @@ Changes the approved plan made to the prompt:
 - Config (documented in `config.example.toml`): `[reference]` (`max_gb`, `download_user_agent`, `download_user_agent_hosts`, the source URLs, FEC cycles, `harvard_osf_node`, `dime_url`, `ftm_url`), `[stages.reference]`, rate limits for `api.congress.gov` (1.1/s) and `v3.openstates.org` (0.5/s); `pyyaml` and `lxml` declared as dependencies.
 - Docs: `docs/sources.md` (every loaded file with URL, vintage, size, rows, SHA-256, license and the attribution sentences), new `docs/license_register.md`, `RUNBOOK.md`.
 - Tests: `tests/test_reference.py` and `tests/test_reference_network.py` (54 tests) with synthetic files in each dataset's real format (`tests/reference_helpers.py`).
-- Results: `uv run pytest -m "not live"`: 1151 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
+- Results: `uv run pytest -m "not live"`: 1157 passed. `ruff check`, `ruff format --check`, `mypy efp`: clean.
 
 ## What was run
 
@@ -167,6 +167,8 @@ Loaded (current), with counts (full hashes are in `docs/sources.md`):
 | The `[stages.reference]` chain was ignored | datasets are selected from the configured chain; test |
 | Harvard's `ref_sources.url` was NULL | the URL the capture used (query removed) is recorded |
 | The selftest opened the database read-write; an OpenStates zip was never closed; two places said FollowTheMoney was mirrored; docs title and a possibly real bioguide ID in the tests | read-only open; the zip is closed; wording fixed; title and synthetic IDs |
+| The `reference.max_gb` cap was checked only against a HEAD's Content-Length, so a refused HEAD, a chunked answer or a redirect with no length let a download stream with no limit | `Capture.download` takes `max_bytes`: a response announcing more is refused before a byte is written and a stream that passes the cap is abandoned and its partial file deleted; `files.fetch` passes the cap; tests (HEAD refused, chunked, announced) |
+| FEC `cn.txt` was split with `str.splitlines()`, which also breaks on U+0085 and similar characters that latin-1 makes from stray bytes, silently dropping a split record | split on newline only, `\r` stripped, and the skipped malformed lines are counted in `ref_sources.notes_json` (`skipped_malformed_lines`, first line numbers); test. Checked on the real files: the old logic and the new one both give 86,199 records, so nothing was lost |
 | **Found while backfilling the Harvard URL:** the OSF download redirects to a presigned object-store URL and its `X-Amz-Signature` was stored unredacted in one capture (id 57) | presigned-URL credential parameters are now redacted by `redact_url`; test. The one already-stored row is append-only and cannot be edited: its signature expired within 60 seconds of 2026-11-23 04:18 UTC |
 
 ## Spot-check guide for the operator

@@ -536,11 +536,14 @@ class Capture:
         row_id: int | None = None,
         expected_size: int | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        max_bytes: int | None = None,
         _resumes: int = 0,
     ) -> CaptureRecord:
         """Stream a large file to ``dest`` (resumable), hashing as it goes. ``extra_headers`` are
         sent with the request (a per-host ``User-Agent`` override is the one use), and a manifest
-        that used them says so, so the capture records how the file was obtained.
+        that used them says so, so the capture records how the file was obtained. ``max_bytes`` is
+        a hard cap on the stream: a response announcing more, or a stream that passes it, is
+        abandoned and its partial file deleted (the size a HEAD reported is not to be trusted).
 
         Bulk datasets run to tens of gigabytes, so they are not copied into the WARC or the
         content store. The call still takes the domain's budget and is recorded: the ``captures``
@@ -558,6 +561,9 @@ class Capture:
                 for chunk in iter(lambda: handle.read(1 << 20), b""):
                     digest.update(chunk)
                     have += len(chunk)
+        if max_bytes is not None and have > max_bytes:
+            part.unlink()  # a leftover larger than the cap can never become the file
+            digest, have = hashlib.sha256(), 0
         if expected_size is not None and have > expected_size:
             part.unlink()  # longer than the file can be: not a prefix of it, start over
             digest, have = hashlib.sha256(), 0
@@ -627,6 +633,16 @@ class Capture:
                             f"{dest.name}: the server resumed at a different offset; the partial "
                             "file was removed, run the download again"
                         )
+                    announced = response.headers.get("Content-Length", "")
+                    if (
+                        max_bytes is not None
+                        and announced.isdigit()
+                        and (int(announced) + have > max_bytes)
+                    ):
+                        raise CaptureError(
+                            f"{dest.name}: announces {int(announced) + have:,} bytes, over the "
+                            f"{max_bytes:,}-byte cap"
+                        )
                     validator = _validator(
                         response.headers.get("ETag"), response.headers.get("Last-Modified")
                     )
@@ -634,12 +650,16 @@ class Capture:
                         tag_file.write_text(validator, encoding="utf-8")
                     else:
                         tag_file.unlink(missing_ok=True)
+                    over = False
                     try:
                         with part.open("ab") as out:
                             for chunk in response.iter_content(chunk_size=1 << 20):
                                 out.write(chunk)
                                 digest.update(chunk)
                                 have += len(chunk)
+                                if max_bytes is not None and have > max_bytes:
+                                    over = True
+                                    break
                     except requests.RequestException as exc:
                         # The connection broke mid-stream: what arrived is in the .part file, so
                         # ask again for the rest (a bounded number of times), then give up cleanly.
@@ -659,7 +679,15 @@ class Capture:
                             row_id=row_id,
                             expected_size=expected_size,
                             extra_headers=extra_headers,
+                            max_bytes=max_bytes,
                             _resumes=_resumes + 1,
+                        )
+                    if over:
+                        part.unlink(missing_ok=True)  # never leave the oversized part behind
+                        tag_file.unlink(missing_ok=True)
+                        raise CaptureError(
+                            f"{dest.name}: the stream passed the {max_bytes:,}-byte cap and was "
+                            "abandoned"
                         )
                     etag = response.headers.get("ETag")
                     modified = response.headers.get("Last-Modified")

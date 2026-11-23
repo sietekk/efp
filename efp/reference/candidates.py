@@ -98,10 +98,18 @@ class FecCandidates(Dataset):
                 raise LayoutError(f"no cn.txt in the ZIP ({archive.namelist()})")
             text = archive.read(member).decode("latin-1")
 
+        skipped: list[int] = []
+
         def rows() -> Iterator[tuple[Any, ...]]:
-            for line in text.splitlines():
+            # split on "\n" only: str.splitlines also breaks on U+0085, U+000B and the like, which
+            # latin-1 produces from a stray byte inside a name and would cut a record in two
+            for number, raw in enumerate(text.split("\n"), start=1):
+                line = raw.rstrip("\r")
+                if not line.strip():
+                    continue
                 cells = line.split("|")
                 if len(cells) < 9 or not cells[0].strip():
+                    skipped.append(number)  # counted, never dropped silently
                     continue
                 name = cells[1].strip()
                 yield (
@@ -115,7 +123,14 @@ class FecCandidates(Dataset):
         n = _insert(conn, self.table, 15, rows())
         if not n:
             raise LayoutError("no candidate rows in cn.txt")
-        return Counter(n, {"cycle": int(part.key)})
+        return Counter(
+            n,
+            {
+                "cycle": int(part.key),
+                "skipped_malformed_lines": len(skipped),
+                "first_skipped_lines": skipped[:10],
+            },
+        )
 
 
 # ---- congress-legislators ----------------------------------------

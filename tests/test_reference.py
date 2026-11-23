@@ -541,3 +541,28 @@ def test_a_hand_imported_file_records_where_it_came_from_as_the_dataset_url(
     assert conn.execute(
         "SELECT url FROM ref_sources WHERE dataset='harvard_local' AND status='loaded'"
     ).fetchone() == ("manual:harvard_local/local_elections.csv",)
+
+
+def test_a_stray_line_break_character_inside_a_fec_name_does_not_split_the_record(
+    ctx, config, conn
+) -> None:  # type: ignore[no-untyped-def]
+    text = (
+        "H0CT01001|SMITH, JOH\x85N Q|DEM|2024|CT|H|01|I|C|C001|1 MAIN ST||HARTFORD|CT|06101\n"
+        "S0CT00002|DOE, JANE|REP|2022|CT|S|00|C|C|C002|2 MAIN ST||HARTFORD|CT|06101\r\n"
+        "broken line with too few cells\n"
+        "\n"
+        "H0CT01003|ROE, RICK|DEM|2024|CT|H|02|I|C|C003|3 MAIN ST||HARTFORD|CT|06101\n"
+    )
+    h.place(config, "fec_candidates", "cn24.zip", h.zip_bytes({"cn.txt": text}))
+    (result,) = [r for r in loaded(ctx, "fec_candidates") if r.status == "loaded"]
+    assert result.rows == 3  # the \x85 did not cut a record; the \r\n line is whole
+    notes = json.loads(
+        conn.execute("SELECT notes_json FROM ref_sources WHERE status='loaded'").fetchone()[0]
+    )
+    assert notes["skipped_malformed_lines"] == 1 and notes["first_skipped_lines"] == [3]  # counted
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM ref_fec_candidates WHERE cand_id = 'H0CT01001'"
+        ).fetchone()[0]
+        == 1
+    )
