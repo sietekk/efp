@@ -28,7 +28,8 @@ import splink.comparison_level_library as cll
 import splink.comparison_library as cl
 from splink import DuckDBAPI, Linker, SettingsCreator, block_on
 
-logging.getLogger("splink").setLevel(logging.WARNING)  # per-batch timing lines are noise
+for _name in ("splink", *(n for n in logging.root.manager.loggerDict if n.startswith("splink."))):
+    logging.getLogger(_name).setLevel(logging.WARNING)  # per-batch timing lines are noise
 
 NULL_LEVEL = "null"
 

@@ -297,11 +297,15 @@ def _party_label(value: str) -> str:
     return text
 
 
-def _split_from_row(row: dict[str, Any]) -> tuple[str, Split]:
+def _split_from_row(row: dict[str, Any], *, full_when_no_last: bool = False) -> tuple[str, Split]:
+    """``full_when_no_last``: a row with a first name but no surname part (DIME has 1,816 such
+    candidate rows) is split from its full-name cell instead of being dropped."""
     full = _pick(row, "name", "candidate", "candidate_name", "cand_name", "full_name")
     last = _pick(row, "lname", "lastname", "last_name", "last", "surname", "family_name")
     first = _pick(row, "fname", "firstname", "first_name", "first", "given_name")
     middle = _pick(row, "mname", "middle_name", "middle")
+    if full_when_no_last and not last and full:
+        return full, split_name(full)
     if last or first:
         return full or f"{first} {middle} {last}".replace("  ", " ").strip(), split_parts(
             last, first, middle
@@ -421,7 +425,21 @@ class HarvardLocal(Dataset):
         return Counter(n, notes)
 
 
+DIME_PARTY = {"100": "DEM", "200": "REP", "328": "IND"}  # DIME codebook, in the FEC vocabulary
+_DIME_OUTCOME = {"W": 1, "L": 0}
+
+
+def _dime_party(code: str) -> str | None:
+    return DIME_PARTY.get(code.strip())
+
+
 class Dime(Dataset):
+    """DIME v4 recipients. The file has one row per recipient per cycle, committees included.
+
+    Candidates only (``recipient.type`` = ``cand``) are kept; when a build has no such column every
+    row is kept. ``party`` is the mapped label and ``party_code`` the raw DIME code.
+    """
+
     name = "dime"
     table = "ref_dime"
     license = "ODC-BY 1.0 (DIME, Stanford)"
@@ -430,6 +448,9 @@ class Dime(Dataset):
         "Elections (DIME), v4.0, Stanford University Libraries, ODC-BY 1.0."
     )
     version = "4.0"
+    # 2: candidates only; mapped party and the raw code; suffix, gender, outcome, status, fecyear;
+    #    a candidate with no surname part is split from the full name
+    loader_version: ClassVar[int] = 2
     needs_url: ClassVar[str | None] = "dime_url"
 
     def parts(self, ctx: Context) -> list[Part]:
@@ -452,6 +473,7 @@ class Dime(Dataset):
         conn = ctx.db
         assert conn is not None  # noqa: S101
         seen: list[str] = []
+        skipped = {"committees": 0, "no_id_or_surname": 0}
 
         def source() -> Iterator[dict[str, Any]]:
             if part.kind == "csv":
@@ -477,22 +499,35 @@ class Dime(Dataset):
             for rec in source():
                 if not seen:
                     seen.extend(str(k) for k in rec)
+                kind = _pick(rec, "recipient.type", "recipient_type").lower()
+                if kind and kind != "cand":
+                    skipped["committees"] += 1
+                    continue
                 rid = _pick(rec, "bonica.rid", "bonica_rid", "bonica rid", "rid")
-                full, split = _split_from_row(rec)
+                full, split = _split_from_row(rec, full_when_no_last=True)
                 if not rid or not split.surname:
+                    skipped["no_id_or_surname"] += 1
                     continue
                 score = _pick(rec, "recipient.cfscore", "cfscore", "recipient_cfscore")
+                code = _pick(rec, "party")
+                suffix = _pick(rec, "suffix").split(" ")[0].upper()
+                gender = _pick(rec, "cand.gender", "gender").upper()
                 yield (
                     load_id, rid, _year(_pick(rec, "cycle")), full, *_cols(split),
                     state_code(_pick(rec, "state")) or None, _pick(rec, "district") or None,
-                    _pick(rec, "seat", "office") or None, _pick(rec, "party") or None,
+                    _pick(rec, "seat", "office") or None, _dime_party(code),
                     float(score) if re.fullmatch(r"-?\d+(\.\d+)?", score or "") else None,
+                    code or None, suffix or None, gender if gender in ("M", "F") else None,
+                    _DIME_OUTCOME.get(_pick(rec, "gwinner").upper()),
+                    _DIME_OUTCOME.get(_pick(rec, "pwinner").upper()),
+                    _pick(rec, "ico.status", "ico_status").upper() or None,
+                    _year(_pick(rec, "fecyear")), _pick(rec, "nname") or None,
                 )  # fmt: skip
 
-        n = _insert(conn, self.table, 13, rows())
+        n = _insert(conn, self.table, 21, rows())
         if not n:
             raise LayoutError(f"no recipient rows; the file's columns are {seen[:25]}")
-        return Counter(n, {"columns": seen[:40]})
+        return Counter(n, {"columns": seen[:80], "excluded": skipped, "kept": "candidates only"})
 
 
 class Ftm(Dataset):

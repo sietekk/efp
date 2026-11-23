@@ -152,7 +152,7 @@ def test_dime_reads_a_sqlite_build_and_a_csv(ctx, config, conn, tmp_path: Path) 
         conn,
         "SELECT bonica_rid, cycle, surname, state, party, cfscore FROM ref_dime ORDER BY cycle",
     )
-    assert got[0] == ("cand1", 2012, "smith", "CT", "100", -0.7)
+    assert got[0] == ("cand1", 2012, "smith", "CT", "DEM", -0.7)  # the mapped party
 
 
 def test_ftm_csv(ctx, config, conn) -> None:  # type: ignore[no-untyped-def]
