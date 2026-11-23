@@ -35,28 +35,49 @@ class Eligible:
 def confirmed_rows(
     conn: sqlite3.Connection, strata: Strata, review: float, confirm: float
 ) -> list[Eligible]:
+    """Rows the gates read as confirmed: the model's confirmation, or the operator's confirmation
+    from the review band (an audit_wrong verdict withdraws one). ``band`` is 1 for a row that was
+    ever in the review band: a score between the thresholds, a needs_review decision, or an
+    operator's confirmation. Only the pre-registered ``main`` batch counts."""
+    from efp.court.names import parse_name
+    from efp.runner import _identity_outcome
+
     out = []
-    for row_id, decision_id, surname in conn.execute(
-        "SELECT d.row_id, d.decision_id, c.fields_json FROM decisions d "
-        "LEFT JOIN identity_candidates c ON c.candidate_id = d.candidate_id "
-        "WHERE d.kind = 'identity' AND d.batch = 'main' AND d.outcome = 'confirmed' "
-        "AND d.decision_id = (SELECT max(decision_id) FROM decisions x WHERE x.row_id = d.row_id "
-        "AND x.kind = 'identity' AND x.batch = 'main') ORDER BY d.row_id"
-    ):
-        name = json.loads(surname)["person"]["surname"] if surname else ""
-        band = conn.execute(
+    for row_id, name in conn.execute(
+        "SELECT r.row_id, r.name FROM rows r WHERE EXISTS (SELECT 1 FROM decisions d "
+        "WHERE d.row_id = r.row_id AND d.batch = 'main' AND d.stage = 'identity' "
+        "OR (d.row_id = r.row_id AND d.kind = 'identity' AND d.batch = 'main')) ORDER BY r.row_id"
+    ).fetchall():
+        if _identity_outcome(conn, int(row_id)) != "confirmed":
+            continue
+        decision = conn.execute(
+            "SELECT decision_id, kind, candidate_id FROM decisions "
+            "WHERE row_id = ? AND batch = 'main' "
+            "AND outcome = 'confirmed' AND (kind = 'identity' OR stage = 'identity') "
+            "ORDER BY decision_id DESC LIMIT 1",
+            (row_id,),
+        ).fetchone()
+        human = decision[1] != "identity"
+        fields = conn.execute(
+            "SELECT fields_json FROM identity_candidates WHERE candidate_id = ?", (decision[2],)
+        ).fetchone()
+        surname = json.loads(fields[0])["person"]["surname"] if fields else parse_name(name).surname
+        in_band = conn.execute(
             "SELECT 1 FROM identity_candidates WHERE row_id = ? AND posterior >= ? "
             "AND posterior < ? LIMIT 1",
             (row_id, review, confirm),
         ).fetchone()
         was_review = conn.execute(
-            "SELECT 1 FROM decisions WHERE row_id = ? AND kind = 'identity' "
+            "SELECT 1 FROM decisions WHERE row_id = ? AND kind = 'identity' AND batch = 'main' "
             "AND outcome = 'needs_review' LIMIT 1",
             (row_id,),
         ).fetchone()
         out.append(
             Eligible(
-                int(row_id), int(decision_id), strata.label(name), int(bool(band or was_review))
+                int(row_id),
+                int(decision[0]),
+                strata.label(surname),
+                int(bool(in_band or was_review or human)),
             )
         )
     return out
@@ -156,7 +177,9 @@ def rates(conn: sqlite3.Connection, *, resamples: int, seed: int) -> list[Rate]:
         rng = random.Random(seed)  # noqa: S311
         draws = sorted(_weighted([rng.choice(judged) for _ in judged]) for _ in range(resamples))
         low, high = draws[int(0.025 * resamples)], draws[min(int(0.975 * resamples), resamples - 1)]
-        upper = 1 - 0.05 ** (1 / n) if wrong == 0 else None
+        weights = [w for w, _ in judged]
+        effective = (sum(weights) ** 2) / sum(w * w for w in weights)  # Kish effective sample size
+        upper = 1 - 0.05 ** (1 / effective) if wrong == 0 else None
         notes = []
         if wrong == 0:
             notes.append(

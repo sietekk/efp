@@ -26,6 +26,7 @@ N_namesakes is never below 1: the person is a namesake of themself.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -77,6 +78,12 @@ class PriorModel:
         self._totals_national: dict[tuple[str, int], int] | None = None
         self._totals_state: dict[str, dict[tuple[str, int], int]] = {}
         self.loads = self._loads()
+
+    @property
+    def default_mode(self) -> str:
+        """The prior a row with no candidate would have had: ``ceiling`` until the Census and SSA
+        files are loaded (so the decision's tag does not claim a census prior it never used)."""
+        return "census" if self.have_surnames and self.have_given else "ceiling"
 
     # ---- what is loaded ---------------------------------------------------------------------
 
@@ -165,13 +172,40 @@ class PriorModel:
         ).fetchall()
         return {(str(s), int(y)): int(n) for s, y, n in rows}
 
+    def _p_initial(
+        self, letter: str, lo: int | None, hi: int | None
+    ) -> tuple[float, dict[str, Any]]:
+        """An initial stands for every name that starts with the letter: their share of the
+        cohort's births, both sexes (an initial says nothing about sex)."""
+        c_lo, c_hi = (lo if lo is not None else 1900), (hi if hi is not None else 2010)
+        c_lo, c_hi = min(c_lo, c_hi), max(c_lo, c_hi)
+        totals = self._totals(None)
+        den = sum(n for (_, y), n in totals.items() if c_lo <= y <= c_hi)
+        num = self.conn.execute(
+            "SELECT coalesce(sum(count), 0) FROM ref_given_freq_current "
+            "WHERE state IS NULL AND name GLOB ? AND year BETWEEN ? AND ?",
+            (f"{letter}*", c_lo, c_hi),
+        ).fetchone()[0]
+        share = (int(num) / den) if den and num else 1.0
+        return share, {
+            "how": "initial",
+            "sex": "F/M",
+            "ambiguous": True,
+            "cohort": [c_lo, c_hi],
+            "cohort_births": den,
+        }
+
     def p_given(
         self, given: str, state: str | None, lo: int | None, hi: int | None
     ) -> tuple[float, dict[str, Any]]:
         """``p(given | sex, cohort)`` and how it was obtained."""
         key = letters(given)
-        if not self.have_given or not key:
+        if not key:  # no given name at all says nothing about which people qualify
+            return 1.0, {"how": "no_given_name", "sex": "?"}
+        if not self.have_given:
             return CEILING_P_GIVEN, {"how": "ceiling"}
+        if len(key) == 1:
+            return self._p_initial(key, lo, hi)
         national = self._name_counts(key, None)
         years = [y for _, y in national] or [0]
         c_lo = lo if lo is not None else min([*years, 1900])
@@ -179,10 +213,19 @@ class PriorModel:
         c_lo, c_hi = min(c_lo, c_hi), max(c_lo, c_hi)
         total_n = {s: sum(n for (sx, _), n in national.items() if sx == s) for s in ("F", "M")}
         grand = total_n["F"] + total_n["M"]
-        if grand == 0:  # not a listed name: fewer than five births a year, every year
-            return 5.0 / max(sum(self._totals(None).values()) / 2, 1), {
+        if grand == 0:
+            # Not a listed name: under five births of each sex in every year. The most it can be is
+            # four a year and sex, over the cohort's births (never the share of a single name over
+            # all years, which would make a misspelling look unique).
+            totals = self._totals(None)
+            births = sum(n for (_, y), n in totals.items() if c_lo <= y <= c_hi)
+            years_n = max(c_hi - c_lo + 1, 1)
+            unlisted = min(1.0, 4.0 * 2 * years_n / births) if births else 1.0
+            return unlisted, {
                 "how": "unlisted",
                 "sex": "?",
+                "cohort": [c_lo, c_hi],
+                "cohort_births": births,
             }
         male_share = total_n["M"] / grand
         ambiguous = AMBIGUOUS_LOW < male_share < AMBIGUOUS_HIGH
@@ -195,7 +238,8 @@ class PriorModel:
             den = sum(n for (s, y), n in totals.items() if s in sexes and c_lo <= y <= c_hi)
             return (num / den, den) if den else None
 
-        how, share, births = "national", None, 0
+        how, births = "national", 0
+        share: float | None = None
         if state is not None:
             by_state = cohort_share(state)
             if by_state is not None and by_state[1] >= self.state_min:
@@ -248,6 +292,18 @@ class PriorModel:
                 for (_, b), count in self.population.items()
             )
         return max(total, 1.0), {"how": how, "vintage": year, "ages": [age_lo, min(age_hi, 120)]}
+
+    def age_boost_bits(self, inputs: dict[str, Any], prior: Prior) -> float:
+        """How much the prior gained from narrowing to the cohort, in bits: log2 of the namesake
+        count with no cohort over the count with it. The age evidence in the comparison is the same
+        information, so it is credited once (``efp.identity.decide``), see identity_model.md."""
+        if inputs.get("birth_lo") is None:
+            return 0.0
+        free = self.prior(
+            surname=inputs["surname"], given=inputs["given"], state=inputs.get("state"),
+            birth_lo=None, birth_hi=None,
+        )  # fmt: skip
+        return max(0.0, math.log2(free.n_namesakes / prior.n_namesakes))
 
     # ---- the prior --------------------------------------------------------------------------
 

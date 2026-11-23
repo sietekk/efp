@@ -132,7 +132,7 @@ workbook's own ten most common surnames and prints ranks and posteriors only.
 `efp/identity/settings/published_priors_v1.json` holds m and u for every level. Every value carries a
 **basis** and a note:
 
-- `quoted`: a number published in a source that was read (see the sources below);
+- `quoted`: a number published in a source that was read (see the sources below). Only the exact-agreement figures taken from the Splink guide and Winkler's example error rates are quoted, and both are illustrations, not estimates for this kind of record;
 - `derived`: arithmetic on quoted numbers or on a stated assumption, with the derivation;
 - `design`: a choice made for this study, with the reason. These are not literature values, and the
   report lists them as such.
@@ -152,12 +152,12 @@ Sources read for this table:
 | comparison | level | m | u | Bayes factor | basis | derivation |
 | --- | --- | ---: | ---: | ---: | --- | --- |
 | case_number | else | 0.4 | 0.999999 | 0.4 | design | m: the same person's other case (design). Bayes factor 0.4. |
-| case_number | exact | 0.6 | 1e-06 | 6e+05 | derived | u: one in a million, order of magnitude of the case numbers in use (about 5,000 federal criminal cases a district-year x 94 districts x 20 years = 9.4 million). m: 60% of true-match pairs share the case (design: a person may have several cases and a document may cite another). |
+| case_number | exact | 0.6 | 1e-06 | 6e+05 | design | u: one in a million, an assumed order of magnitude (about 5,000 federal criminal cases a district-year, 94 districts, 20 years is an unsourced estimate), so the Bayes factor is large but not infinite. m: 60% of true-match pairs share the case (a person may have several cases and a document may cite another). |
 | city | conflict | 0.05 | 0.05 | 1 | design | m: a person recorded in another state (design). u: candidates are gathered by state, so this is rare; neutral (Bayes factor 1) until labels say otherwise. |
 | city | exact | 0.7 | 0.02 | 35 | design | m: a person recorded in the same city in two documents (design). u: a namesake in the same city, about 2% of those in the same state (sum of squared city shares, order of magnitude). |
 | city | same_county | 0.1 | 0.03 | 3.33 | design | m: moved within the county (design). u: a namesake in another city of the same county. |
 | city | same_state | 0.15 | 0.9 | 0.167 | design | m: moved within the state (design). u: the default for a namesake in the same state. |
-| dob | conflict | 0.03 | 0.767 | 0.0391 | quoted | m: a recorded date of birth or age that disagrees with the same person's: the 2% data error of the Splink guide plus the day-month typographical remainder (Winkler 2006), 3%. u: the remainder. |
+| dob | conflict | 0.03 | 0.767 | 0.0391 | derived | m: the Splink guide's illustrative 2% data error for a date of birth plus a 1% remainder (design), 3%. u: the remainder after the other levels. |
 | dob | exact | 0.45 | 9.1e-05 | 4.95e+03 | derived | u: 1 / (365.25 x 30), a flat 30-year birth range (Splink theory guide: about 10,000 dates). m: an assumed half of true-match pairs compare two dates of birth (design; the other half involve an age), times 0.857 = 0.95^3, the day, month and year each at the 5% typographical error rate of Winkler 2006 = 0.43, rounded up to 0.45 (the Splink guide's 98% exact agreement is the upper bound). |
 | dob | within_1 | 0.45 | 0.0999 | 4.5 | derived | u: 3 of 30 years (a gap of at most 1) less the exact share. m: true-match pairs with an age, which agree to within a year when recorded without error (design: the other half of pairs). |
 | dob | within_3 | 0.07 | 0.133 | 0.526 | derived | u: 7 of 30 years less the inner levels. m: the remaining true-match share (design). |
@@ -165,7 +165,7 @@ Sources read for this table:
 | given_name | exact | 0.85 | 0.85 | 1 | design | Name agreement adds no evidence: the prior is computed for the row's name and every candidate is gathered by it, so m = u (Bayes factor 1). |
 | given_name | jaro_winkler | 0.025 | 0.05 | 0.5 | design | Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it. |
 | given_name | nickname | 0.05 | 0.1 | 0.5 | design | Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it. |
-| middle | conflict | 0.1 | 0.93 | 0.108 | quoted | m: the 10% typographical error rate for a name field, Winkler 2006, used as the rate of a recorded middle name that disagrees. u: the remainder. |
+| middle | conflict | 0.1 | 0.93 | 0.108 | derived | m: Winkler 2006 gives, as an illustration, a 10% typographical error rate for a name field; used here as the rate of a recorded middle name that disagrees (an assumption that a middle name behaves like a first name). u: the remainder. |
 | middle | exact | 0.7 | 0.01 | 70 | derived | m: 1 - the 10% first-name typographical error rate (Winkler 2006) less the share of true matches where one source gives only an initial (design, 20%). u: assumes about 100 effective distinct middle names (sum of squared shares), to be replaced by the SSA sum when the files are imported. |
 | middle | initial | 0.2 | 0.06 | 3.33 | derived | m: true matches where one source records an initial only (design, 20%). u: about 17 effective initials (sum of squared shares ~ 0.06). |
 | surname | double_metaphone | 0.015 | 0.03 | 0.5 | design | Approximate name agreement is weaker than exact; a one-bit penalty (Bayes factor 0.5) until labels replace it. |
@@ -213,8 +213,19 @@ with a bootstrap interval and, when no verdict is wrong, the exact one-sided 95%
 
 ## Known approximations (also in the build report)
 
-- The prior's cohort and the dob/age evidence use the same age (the spec prescribes both). Where the
-  audit shows over-confirmation, one of them should go.
+- The prior's cohort and the dob/age evidence use the same age (the spec prescribes both). The age
+  is credited once: the positive dob/age weight is reduced by what the cohort already gave the
+  prior (`age_overlap_bits` in the waterfall), never below zero; a negative weight is left alone.
+- A given name that is an initial stands for every name that starts with the letter; an empty given
+  name says nothing; a name not in the SSA files is bounded by four births a year and sex over the
+  cohort, not by all years.
+- The operator's decision stands: a re-run of the stage scores again but never writes over a review
+  decision or an `audit_wrong` verdict, and a refit leaves such rows alone. A demotion (a refit that
+  drops a confirmed row, or `audit_wrong`) sets the news and social stages of that row to pending.
+- The labeled fit weights each label by its stratum's population over its stratum's labeled count;
+  the spread over the posterior range inside a stratum is not corrected.
+- A candidate whose suffix (Sr., Jr.) differs from the row's is at most reviewed (`suffix_conflict`).
+- Only a row's 25 best candidates are stored; a rescore sees only those.
 - N_adults has both sexes while p(given) is conditioned on one, which overstates N by about two:
   conservative.
 - A 2023 population is applied to cohorts of earlier cases.

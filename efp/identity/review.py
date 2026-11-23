@@ -16,6 +16,7 @@ import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from efp import runner
 from efp.identity import audit, labels, rescore, store
 from efp.identity.explain import _value, explain
 
@@ -61,6 +62,10 @@ def record(
         ),
     )
     return int(cursor.lastrowid or 0)
+
+
+def runner_outcome(conn: sqlite3.Connection, row_id: int) -> str | None:
+    return runner._identity_outcome(conn, row_id)
 
 
 def _name(person: dict) -> str:  # type: ignore[type-arg]
@@ -171,6 +176,7 @@ def band_loop(
         while not why.strip():
             why = ask_text("A rationale is required")
         outcome = "confirmed" if choice == "c" else "unresolved"
+        prior_outcome = runner_outcome(conn, row_id)
         candidate = conn.execute(
             "SELECT candidate_id FROM decisions WHERE row_id = ? AND kind = 'identity' "
             "AND batch = 'main' "
@@ -186,7 +192,7 @@ def band_loop(
                 reviewer=reviewer,
                 candidate_id=candidate[0] if candidate else None,
             )
-            rescore._move_stage(conn, row_id, outcome)
+            rescore._move_stage(conn, row_id, outcome, was=prior_outcome)
         tally.count(outcome)
     return tally
 
@@ -225,5 +231,7 @@ def audit_loop(
         outcome = "audit_correct" if choice == "c" else "audit_wrong"
         with store.atomic(conn):
             record(conn, row_id, outcome, rationale=why, reviewer=reviewer, candidate_id=None)
+            if outcome == "audit_wrong":  # the confirmation is withdrawn: what ran on it runs again
+                store.demote_downstream(conn, row_id)
         tally.count(outcome)
     return tally

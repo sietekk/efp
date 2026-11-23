@@ -17,6 +17,7 @@ The m and u come from published priors until the operator has labeled the pairs
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 
 import splink
@@ -26,7 +27,7 @@ from efp.identity import decide as dec
 from efp.identity import model, store
 from efp.identity.normalize import load_nicknames
 from efp.identity.pairs import Pair, PairBuilder, workbook_term_frequencies
-from efp.identity.params import label_count, load_published, settings_sha
+from efp.identity.params import fit, label_count, labeled_examples, load_published, settings_sha
 from efp.identity.prior import PriorModel
 from efp.identity.profile import CaptureText, Person, row_people
 from efp.modules import REGISTRY, Registry, chains_for, run_chain
@@ -35,7 +36,7 @@ from efp.runner import input_hash as hash_values
 from efp.types import Context, Row, StageResult
 
 IMPLEMENTED = True
-TOOL_VERSION = "1"
+TOOL_VERSION = "2"
 STAGE = "identity"
 BUILD = "12"
 MAX_CANDIDATES_STORED = 25  # a row's best candidates by posterior; the rest are counted, not kept
@@ -75,6 +76,17 @@ def resolve_settings(ctx: Context, registry: Registry, row: Row) -> model.Settin
     return load_published()  # the chain is configured empty or every module declined
 
 
+def _settings_identity(conn: sqlite3.Connection, ctx: Context, have: int, need: int) -> str:
+    """What the parameters would be: the fitted settings' hash (a new label changes it only when it
+    changes the fit), or the published priors'."""
+    if have >= need:
+        fitted = fit(
+            load_published(), labeled_examples(conn), ctx.config.identity.prior_pseudocount
+        )
+        return "labeled:" + settings_sha(fitted)
+    return "published:" + settings_sha(load_published())
+
+
 def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     conn = ctx.db
     assert conn is not None  # noqa: S101
@@ -87,6 +99,11 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
         "SELECT count(*), max(identifier_id) FROM court_identifiers_current WHERE row_id = ?",
         (row.row_id,),
     ).fetchone()
+    filings = conn.execute(
+        "SELECT text_capture_id FROM documents WHERE row_id = ? AND current = 1 "
+        "AND text_capture_id IS NOT NULL ORDER BY document_id",
+        (row.row_id,),
+    ).fetchall()
     links = conn.execute(
         "SELECT capture_id FROM links WHERE row_id = ? AND capture_id IS NOT NULL ORDER BY link_id",
         (row.row_id,),
@@ -104,8 +121,9 @@ def input_hash(row: Row, ctx: Context, registry: Registry = REGISTRY) -> str:
     return hash_values(
         row.source.get("name"), row_state(row), row.year, row.source.get("details"),
         [tuple(r) for r in records], tuple(idents), [tuple(r) for r in links],
+        [tuple(r) for r in filings],
         index[0] if index else None, [tuple(r) for r in loads],
-        ("labeled", have) if have >= need else ("published", settings_sha(load_published())),
+        _settings_identity(conn, ctx, have, need),
         load_nicknames().sha256, ctx.config.identity.confirm_threshold,
         ctx.config.identity.review_threshold, TOOL_VERSION,
     )  # fmt: skip
@@ -205,20 +223,26 @@ def process_batch(
         decision = dec.decide(
             scored, confirm=ident.confirm_threshold, review=ident.review_threshold
         )
-        modes = {s.pair.prior.mode for s in scored}
+        modes = {s.pair.prior.mode for s in scored} or {res.prior.default_mode}
         tag = decided_by(settings, modes)
         kept = sorted(scored, key=lambda s: s.posterior, reverse=True)[:MAX_CANDIDATES_STORED]
+        human = store.human_decision(conn, row.row_id)
         with store.atomic(conn):
             store.write_candidates(conn, row.row_id, kept, settings_sha=settings_sha(settings))
-            store.write_decision(
-                conn, row.row_id, decision, decided_by=tag,
-                thresholds=(ident.confirm_threshold, ident.review_threshold),
-            )  # fmt: skip
+            if human is None:
+                store.write_decision(
+                    conn, row.row_id, decision, decided_by=tag,
+                    thresholds=(ident.confirm_threshold, ident.review_threshold),
+                )  # fmt: skip
+            # an operator's decision stands: a re-run scores again but never overrides it
+        status = "needs_review" if decision.outcome == "needs_review" else "done"
+        if human is not None:
+            status = "done"
         results.append(
             StageResult(
                 row_id=row.row_id,
                 stage=STAGE,
-                status="needs_review" if decision.outcome == "needs_review" else "done",
+                status=status,
                 module="identity",
                 input_hash=input_hash(row, ctx, registry),
                 tool_version=TOOL_VERSION,
@@ -231,6 +255,7 @@ def process_batch(
                     "params": settings.name,
                     "prior": "ceiling" if "ceiling" in modes else "census",
                     "decided_by": tag,
+                    "operator_decision_kept": human[1] if human else None,
                     "modules": records,
                 },
             )

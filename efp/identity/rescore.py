@@ -73,24 +73,21 @@ def _latest(conn: sqlite3.Connection, row_id: int, batch: str) -> tuple[int, str
 
 
 def _human_after(conn: sqlite3.Connection, row_id: int, decision_id: int) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM decisions WHERE row_id = ? AND kind IN ('review','override') "
-            "AND stage = 'identity' AND outcome IN ('confirmed','unresolved') AND batch = 'main' "
-            "AND decision_id > ? LIMIT 1",
-            (row_id, decision_id),
-        ).fetchone()
-        is not None
-    )
+    human = store.human_decision(conn, row_id)
+    return human is not None and human[0] > decision_id
 
 
-def _move_stage(conn: sqlite3.Connection, row_id: int, outcome: str) -> None:
+def _move_stage(
+    conn: sqlite3.Connection, row_id: int, outcome: str, *, was: str | None = None
+) -> None:
     status = "needs_review" if outcome == "needs_review" else "done"
     conn.execute(
         "UPDATE case_stage SET status = ?, gate_reason = NULL "
         "WHERE row_id = ? AND stage = 'identity'",
         (status, row_id),
     )
+    if was == "confirmed" and outcome != "confirmed":
+        store.demote_downstream(conn, row_id)  # what ran on a confirmation is run again
     if outcome == "confirmed":  # rows skipped because identity was unresolved run again
         conn.execute(
             "UPDATE case_stage SET status = 'pending', gate_reason = NULL, input_hash = NULL "
@@ -141,6 +138,9 @@ def rescore(
                 prior.components["cohort_basis"] = fields["prior"].get("cohort_basis")
                 prior.components["widen_years"] = fields["prior"].get("widen_years")
                 pair = _pair(next_id, fields, prior)
+                if inputs:
+                    pair.age_boost_bits = res.prior.age_boost_bits(inputs, prior)
+                pair.flags = list(fields.get("flags", []))
                 next_id += 1
                 per_row.setdefault(row_id, []).append((int(candidate_id), _person(fields), pair))
                 pairs.append({"pair_id": pair.pair_id, "left": pair.left, "right": pair.right})
@@ -153,7 +153,11 @@ def rescore(
                 item.candidate_id = candidate_id
                 scored.append(item)
             decision = dec.decide(scored, confirm=confirm, review=review)
-            tag = stage.decided_by(settings, {s.pair.prior.mode for s in scored}, batch=batch)
+            tag = stage.decided_by(
+                settings,
+                {s.pair.prior.mode for s in scored} or {res.prior.default_mode},
+                batch=batch,
+            )
             out.decided_by = tag
             out.outcomes[decision.outcome] += 1
             before = _latest(conn, row_id, batch)
@@ -169,7 +173,7 @@ def rescore(
                     store.write_decision(
                         conn, row_id, decision, decided_by=tag, thresholds=(confirm, review)
                     )
-                    _move_stage(conn, row_id, decision.outcome)
+                    _move_stage(conn, row_id, decision.outcome, was=before[1] if before else None)
                     out.changed.append(row_id)
                 else:
                     if before is not None and before[1] == decision.outcome:

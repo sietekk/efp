@@ -36,6 +36,8 @@ class Pair:
     used: dict[str, dict[str, Any]] = field(default_factory=dict)
     masked: list[dict[str, Any]] = field(default_factory=list)
     prior_inputs: dict[str, Any] = field(default_factory=dict)  # to recompute the prior on a refit
+    age_boost_bits: float = 0.0  # what the prior's cohort already took from the age evidence
+    flags: list[str] = field(default_factory=list)  # e.g. suffix_conflict
 
 
 class Counties:
@@ -161,7 +163,13 @@ class PairBuilder:
             "surname": left.surname, "given": left.given, "state": left.state,
             "birth_lo": basis["by_lo"], "birth_hi": basis["by_hi"], "widen": widen,
         }  # fmt: skip
-        return Pair(pair_id, left_side, right_side, prior, used, masked, inputs)
+        boost = self.prior_model.age_boost_bits(inputs, prior)
+        prior.components["age_boost_bits"] = boost
+        flags = []
+        a, b = letters(left.suffix), letters(right.suffix)
+        if a and b and a != b:
+            flags.append("suffix_conflict")  # a Sr. and a Jr. share a name, and often a case
+        return Pair(pair_id, left_side, right_side, prior, used, masked, inputs, boost, flags)
 
 
 def workbook_term_frequencies(conn: sqlite3.Connection) -> dict[str, list[str]]:

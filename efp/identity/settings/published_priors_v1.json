@@ -9,9 +9,9 @@
      "u": 0.999999
     },
     "exact": {
-     "basis": "derived",
+     "basis": "design",
      "m": 0.6,
-     "note": "u: one in a million, order of magnitude of the case numbers in use (about 5,000 federal criminal cases a district-year x 94 districts x 20 years = 9.4 million). m: 60% of true-match pairs share the case (design: a person may have several cases and a document may cite another).",
+     "note": "u: one in a million, an assumed order of magnitude (about 5,000 federal criminal cases a district-year, 94 districts, 20 years is an unsourced estimate), so the Bayes factor is large but not infinite. m: 60% of true-match pairs share the case (a person may have several cases and a document may cite another).",
      "u": 1e-06
     }
    }
@@ -47,9 +47,9 @@
   "dob": {
    "levels": {
     "conflict": {
-     "basis": "quoted",
+     "basis": "derived",
      "m": 0.03,
-     "note": "m: a recorded date of birth or age that disagrees with the same person's: the 2% data error of the Splink guide plus the day-month typographical remainder (Winkler 2006), 3%. u: the remainder.",
+     "note": "m: the Splink guide's illustrative 2% data error for a date of birth plus a 1% remainder (design), 3%. u: the remainder after the other levels.",
      "source": "splink_theory",
      "u": 0.767
     },
@@ -109,9 +109,9 @@
   "middle": {
    "levels": {
     "conflict": {
-     "basis": "quoted",
+     "basis": "derived",
      "m": 0.1,
-     "note": "m: the 10% typographical error rate for a name field, Winkler 2006, used as the rate of a recorded middle name that disagrees. u: the remainder.",
+     "note": "m: Winkler 2006 gives, as an illustration, a 10% typographical error rate for a name field; used here as the rate of a recorded middle name that disagrees (an assumption that a middle name behaves like a first name). u: the remainder.",
      "source": "winkler2006",
      "u": 0.93
     },

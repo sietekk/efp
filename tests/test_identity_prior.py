@@ -125,3 +125,29 @@ def test_empty_reference_tables_give_the_ceiling_prior(conn: sqlite3.Connection)
         CEILING_P_SURNAME * CEILING_P_GIVEN * CEILING_N_ADULTS
     )
     assert prior.n_namesakes > 10_000  # a ceiling: no name is treated as rarer than that
+
+
+def test_an_initial_stands_for_every_name_that_starts_with_it(model: PriorModel) -> None:
+    """'J. Commonsurname' must not look like a unique person: the initial J covers John."""
+    initial = model.prior(
+        surname="Commonsurname", given="J", state="CT", birth_lo=None, birth_hi=None
+    )
+    assert initial.components["p_given_info"]["how"] == "initial"
+    # John is 50,000 of 2,000,000 births a year in the synthetic table: J is at least that share
+    assert initial.components["p_given"] >= 0.025
+    assert initial.n_namesakes >= 0.008 * 0.025 * 14_400_000
+
+
+def test_no_given_name_says_nothing(model: PriorModel) -> None:
+    prior = model.prior(surname="Commonsurname", given="", state="CT", birth_lo=None, birth_hi=None)
+    assert prior.components["p_given"] == 1.0
+    assert prior.n_namesakes == pytest.approx(0.008 * 14_400_000)
+
+
+def test_an_unlisted_name_is_bounded_by_the_cohorts_births_not_all_years(model: PriorModel) -> None:
+    prior = model.prior(
+        surname="Commonsurname", given="Xqzyv", state="CT", birth_lo=1970, birth_hi=1970
+    )
+    info = prior.components["p_given_info"]
+    assert info["how"] == "unlisted" and info["cohort"] == [1970, 1970]
+    assert prior.components["p_given"] == pytest.approx(4 * 2 * 1 / 2_000_000)

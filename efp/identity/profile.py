@@ -64,16 +64,20 @@ class Person:
         return None
 
 
+_WAYBACK = re.compile(r"https?://web\.archive\.org/web/\d+[a-z_]*/(.+)$", re.I)
+
+
 def doc_keys(sha256: str | None, *urls: str | None) -> frozenset[str]:
+    """A document's identity: its content hash and its URL (a Wayback copy also by the URL it
+    archived), so two readings of one page are recognised as one document."""
     keys = set()
     if sha256:
         keys.add(f"sha:{sha256}")
-    for url in urls:
-        if url:
-            keys.add(
-                "url:"
-                + re.sub(r"^https?://(www\.)?", "", url.strip().lower()).split("#")[0].rstrip("/")
-            )
+    every = [u.strip() for u in urls if u]
+    every += [m.group(1) for u in every if (m := _WAYBACK.match(u))]
+    for url in every:
+        stripped = re.sub(r"^https?://(www\.)?", "", url.lower()).split("#")[0].rstrip("/")
+        keys.add("url:" + stripped)
     return frozenset(keys)
 
 

@@ -25,6 +25,7 @@ from typing import Any
 from pydantic import ConfigDict
 from rapidfuzz.distance import JaroWinkler
 
+from efp.court.identifiers import extract_identifiers
 from efp.court.names import NameParts, match_name, parse_name
 from efp.identity.normalize import case_key, initial_match, letters, load_nicknames
 from efp.identity.profile import CaptureText, Person, Value
@@ -258,6 +259,7 @@ def court_candidates(
                 if written.surname:
                     person.given, person.middle = written.given or parts.given, written.middle
                     person.surname = written.surname
+                    person.suffix = written.suffix or person.suffix
                     person.name_value = Value(
                         found.span, int(rec[6]), found.span, texts.docs(int(rec[6]))
                     )
@@ -279,7 +281,42 @@ def court_candidates(
                 "case_number", Value(str(recs[0][4]), recs[0][5], str(recs[0][4]), frozenset(docs))
             )
         out.append(person)
+    _add_filings(conn, texts, row_id, parts, groups, out)
     return out
+
+
+def _add_filings(
+    conn: sqlite3.Connection,
+    texts: CaptureText,
+    row_id: int,
+    parts: NameParts,
+    groups: dict[str, list[Any]],
+    people: list[Person],
+) -> None:
+    """Identifiers read from the documents stage's canonical text of the row's confirmed filings
+    (plea agreements, charging documents): a middle name or an age a press release leaves out."""
+    by_key = {key: person for (key, _), person in zip(groups.items(), people, strict=False)}
+    for text_id, source_id, case_number, record_id in conn.execute(
+        "SELECT d.text_capture_id, d.capture_id, cr.case_number, cr.record_id FROM documents d "
+        "JOIN court_records_confirmed cr ON cr.record_id = d.record_id "
+        "WHERE d.row_id = ? AND d.current = 1 AND d.text_capture_id IS NOT NULL "
+        "ORDER BY d.document_id",
+        (row_id,),
+    ).fetchall():
+        person = by_key.get(case_key(case_number) or f"record{record_id}")
+        text = texts.text(int(text_id))
+        if person is None or not text:
+            continue
+        docs = texts.docs(int(text_id)) | (texts.docs(int(source_id)) if source_id else frozenset())
+        person.docs = person.docs | docs
+        for found in extract_identifiers(text, parts):
+            person.add(found.kind, Value(found.value, int(text_id), found.span, docs))
+        if not person.middle and (named := match_name(parts, text)) and named.full:
+            written = parse_name(named.span)
+            if written.middle and not named.initial_only:
+                person.middle = written.middle
+                person.name_value = Value(named.span, int(text_id), named.span, docs)
+                person.extras["name_basis"] = "filing_text"
 
 
 MODULES = (CandCourt, CandDime, CandFec, CandFtm, CandHarvardLocal, CandLegislators, CandVoterFile)

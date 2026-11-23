@@ -50,8 +50,9 @@ def records(estimates: dict[str, Settings]) -> list[dict[str, Any]]:
 
 
 def write(
-    module: str, estimates: dict[str, Settings], directory: Path = REPORT_DIR
+    module: str, estimates: dict[str, Settings], directory: Path | None = None
 ) -> tuple[Path, Path]:
+    directory = directory or REPORT_DIR  # looked up now, so a test can point it elsewhere
     directory.mkdir(parents=True, exist_ok=True)
     data = records(estimates)
     stem = f"parameter_estimates_{module.rsplit('.', 1)[-1]}"

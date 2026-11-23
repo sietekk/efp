@@ -12,6 +12,7 @@ Three conservative additions, each recorded as the reason on the decision:
   the prior is at most one half (N_namesakes >= 1), so this cannot trigger at the pre-registered
   thresholds; it is the guarantee made structural rather than numeric.
 * ``weak_record``: a candidate from a court record the court stage marked weak is at most reviewed.
+* ``suffix_conflict``: the two sides carry different suffixes (a Sr. and a Jr. often share a case).
 * ``competing_candidate``: two candidates from the same source, with different identifiers, both at
   or above the review threshold, go to review; the model does not choose between them.
 """
@@ -59,9 +60,18 @@ class Scored:
 
 
 def score_candidate(candidate: Person, pair: Pair, waterfall: dict[str, Any]) -> Scored:
-    return Scored(
-        candidate, pair, waterfall, posterior(pair.prior.odds, waterfall["evidence_bits"])
-    )
+    """Posterior of one pair. The age is credited once: the prior's birth cohort and the
+    dob/age comparison use the same information, so the positive dob/age weight is reduced by what
+    the cohort already gave the prior (never below zero, and a negative weight is left alone)."""
+    dob_bits = sum(s["log2_weight"] for s in waterfall["steps"] if s["comparison"] == "dob")
+    overlap = min(max(dob_bits, 0.0), pair.age_boost_bits)
+    adjusted = {
+        **waterfall,
+        "evidence_bits_raw": waterfall["evidence_bits"],
+        "age_overlap_bits": overlap,
+        "evidence_bits": waterfall["evidence_bits"] - overlap,
+    }
+    return Scored(candidate, pair, adjusted, posterior(pair.prior.odds, adjusted["evidence_bits"]))
 
 
 @dataclass
@@ -92,5 +102,7 @@ def decide(scored: list[Scored], *, confirm: float, review: float) -> Decision:
     if best.posterior >= confirm:
         if best.candidate.extras.get("weak"):
             return Decision("needs_review", "weak_record", best)
+        if "suffix_conflict" in best.pair.flags:
+            return Decision("needs_review", "suffix_conflict", best)
         return Decision("confirmed", "at_or_above_confirm_threshold", best)
     return Decision("needs_review", "in_review_band", best)

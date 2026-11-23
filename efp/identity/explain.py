@@ -105,6 +105,11 @@ def _evidence_lines(water: dict[str, Any]) -> list[str]:
         if s["level"] != "null" and (left is not None or right is not None):
             out.append(f"      row: {left}   candidate: {right}")
     bits = water["evidence_bits"]
+    if water.get("age_overlap_bits"):
+        out.append(
+            f"  age counted once: -{water['age_overlap_bits']:.2f} bits (the prior's birth cohort "
+            f"already used it; raw evidence {water['evidence_bits_raw']:+.2f})"
+        )
     out += [
         f"  evidence {bits:+.2f} bits  (x{2**bits:.4g})",
         f"  posterior = prior odds {water['prior_odds']:.6g} x 2^{bits:.2f} "

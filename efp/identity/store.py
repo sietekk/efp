@@ -37,6 +37,33 @@ def atomic(conn: sqlite3.Connection) -> Iterator[None]:
     conn.execute("COMMIT")
 
 
+HUMAN_OUTCOMES = ("confirmed", "unresolved", "audit_wrong")
+
+
+def human_decision(conn: sqlite3.Connection, row_id: int) -> tuple[int, str] | None:
+    """The operator's latest decision on the row's identity (a review that confirms or leaves it
+    unresolved, or an audit verdict that withdraws a confirmation), or None."""
+    marks = ",".join("?" * len(HUMAN_OUTCOMES))
+    found = conn.execute(
+        "SELECT decision_id, outcome FROM decisions WHERE row_id = ? AND batch = 'main' "  # noqa: S608
+        f"AND kind IN ('review', 'override') AND stage = 'identity' AND outcome IN ({marks}) "
+        "ORDER BY decision_id DESC LIMIT 1",
+        (row_id, *HUMAN_OUTCOMES),
+    ).fetchone()
+    return None if found is None else (int(found[0]), str(found[1]))
+
+
+def demote_downstream(conn: sqlite3.Connection, row_id: int) -> None:
+    """A row that is no longer confirmed: the stages that ran because it was are set to pending so
+    they run again (and are skipped at their gate)."""
+    conn.execute(
+        "UPDATE case_stage SET status = 'pending', gate_reason = NULL, input_hash = NULL "
+        "WHERE row_id = ? AND stage IN ('news', 'social') "
+        "AND status IN ('done', 'needs_review', 'failed')",
+        (row_id,),
+    )
+
+
 def person_json(person: Person) -> dict[str, Any]:
     return {
         "source": person.source,
@@ -62,6 +89,7 @@ def candidate_fields(scored: Scored) -> dict[str, Any]:
         "compared": {"left": pair.left, "right": pair.right},
         "used": pair.used,
         "masked": pair.masked,
+        "flags": pair.flags,
     }
 
 
