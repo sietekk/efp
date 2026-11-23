@@ -50,6 +50,15 @@ def register(name: str, pattern: str) -> None:
     _REGISTRY[name] = pattern
 
 
+def override(name: str, pattern: str) -> None:
+    """Point a registered instrument at another file, for the ones whose file lives outside the
+    repository (the WhatsMyName data under ``paths.bulk``). ``register`` refuses to change a
+    name."""
+    if name not in _REGISTRY:
+        raise ValueError(f"instrument {name!r} is not registered")
+    _REGISTRY[name] = pattern
+
+
 def names() -> list[str]:
     return sorted(_REGISTRY)
 

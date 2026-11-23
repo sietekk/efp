@@ -36,7 +36,9 @@ dependencies = [
     "splink>=4.0,<5",
     "rapidfuzz>=3.14",
     "jellyfish>=1.2",
-    "nameparser>=2.3",
+    "nameparser>=3.1",  # the 3.x rewrite: efp.reference.names uses nameparser.parse
+    "pyyaml>=6",
+    "lxml>=5",
     "probablepeople>=0.5",
     "usaddress>=0.5",
     # news
@@ -124,7 +126,7 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*"]
+module = ["dotenv.*", "sqlite_utils.*", "warcio.*", "bagit.*", "docling.*", "paddleocr.*", "yaml.*", "lxml.*", "paddle.*", "pdfplumber.*", "pypdf.*", "pypdfium2.*", "anthropic.*", "PIL.*", "numpy.*"]
 # optional extras (documents, layout, ocr-fallback): mypy also runs where they are not installed
 ignore_missing_imports = true
 

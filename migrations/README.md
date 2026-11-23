@@ -63,7 +63,7 @@ row, which is append-only, so no history is lost. Only the `code` stage writes t
 
 ## Reserved names
 
-Created by build 11's loaders, not here: `ref_dime`, `ref_fec_candidates`, `ref_ftm`, `ref_local`,
+Created by migration 0011 (build 11): `ref_sources`, `ref_candidates_all` and the nine reserved tables `ref_dime`, `ref_fec_candidates`, `ref_ftm`, `ref_local`,
 `ref_congress`, `ref_state_leg`, `ref_surname_freq`, `ref_given_freq`, `ref_population`.
 
 ## Postgres path (documented, not implemented)

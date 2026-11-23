@@ -348,13 +348,13 @@ def test_required_indexes_exist(conn: sqlite3.Connection) -> None:
     } <= names
 
 
-def test_reference_tables_are_not_created_here(conn: sqlite3.Connection) -> None:
-    assert not [
-        r
-        for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE name LIKE 'ref\\_%' ESCAPE '\\'"
-        )
-    ]
+def test_reference_tables_are_created_by_migration_0011(conn: sqlite3.Connection) -> None:
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    reserved = {
+        "ref_dime", "ref_fec_candidates", "ref_ftm", "ref_local", "ref_congress",
+        "ref_state_leg", "ref_surname_freq", "ref_given_freq", "ref_population",
+    }  # fmt: skip
+    assert reserved | {"ref_sources", "ref_candidates_all"} <= names
 
 
 def test_decision_helper_round_trip(conn: sqlite3.Connection) -> None:

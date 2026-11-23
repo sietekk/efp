@@ -120,6 +120,10 @@ modules = ["extract.langextract"]
 policy = "first_available"
 require_sample_approval = false
 
+[stages.reference]
+modules = ["reference.census_surnames", "reference.ssa_names", "reference.census_population", "reference.fec_candidates", "reference.congress", "reference.openstates", "reference.harvard_local", "reference.dime", "reference.ftm", "reference.wmn"]
+policy = "all"
+
 [stages.archive]
 modules = ["archive.spn"]
 policy = "all"
@@ -145,6 +149,26 @@ docling_timeout_seconds = 900     # per document: Docling stops there and keeps 
 ocr_timeout_seconds = 300         # OCRmyPDF's base allowance per document ...
 ocr_seconds_per_page = 30         # ... plus this per page read (max_pages caps it): 500 pages = 300 + 15,000 s. A document that still times out is retried after you raise either (the hash includes both)
 transcribe_max_tokens = 4096      # model transcription of one page
+
+[reference]
+# Reference datasets (build 11): bulk files loaded once into the ref_* tables. Raw files live under paths.bulk.
+max_gb = 20.0                     # a download whose size is announced above this is refused (DIME's SQLite build may be huge)
+download_user_agent = ""          # a browser-style User-Agent used ONLY for the hosts below, and only to retry once after a rejection page; empty = never. See docs/sources.md
+download_user_agent_hosts = ["www2.census.gov", "www.ssa.gov"]
+fec_first_cycle = 2000            # FEC Candidate Master cn<yy>.zip, one per two-year cycle
+fec_last_cycle = 2026
+census_surnames_url = "https://www2.census.gov/topics/genealogy/2010surnames/names.zip"
+ssa_national_url = "https://www.ssa.gov/oact/babynames/names.zip"
+ssa_state_url = "https://www.ssa.gov/oact/babynames/state/namesbystate.zip"
+census_population_url = "https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/state/asrh/sc-est2023-agesex-civ.csv"
+fec_url_template = "https://www.fec.gov/files/bulk-downloads/{year}/cn{yy}.zip"
+congress_current_url = "https://unitedstates.github.io/congress-legislators/legislators-current.yaml"
+congress_historical_url = "https://unitedstates.github.io/congress-legislators/legislators-historical.yaml"
+openstates_archive_url = "https://github.com/openstates/people/archive/refs/heads/main.zip"
+wmn_url = "https://raw.githubusercontent.com/WebBreacher/WhatsMyName/main/wmn-data.json"
+harvard_osf_node = "mv5e6"        # OSF project of the Harvard local elections database (doi 10.17605/OSF.IO/MV5E6)
+dime_url = ""                     # Stanford Data Repository file URL; empty until you give one (access may need a form): the DIME loader is then skipped with that reason
+ftm_url = ""                      # FollowTheMoney state candidates export; empty = skipped (the site is unmaintained: import a file you have with `efp reference import ftm FILE`)
 
 [llm]
 provider = "anthropic"

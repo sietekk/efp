@@ -64,7 +64,7 @@ Checked against the library's A-Z database list, September 2026. Contact for all
 | Tool | Version / date | Licence | Status | Note |
 | --- | --- | --- | --- | --- |
 | [Splink](https://github.com/moj-analytical-services/splink) | 4.0.17, 2026-09-03 | MIT | Active | Fellegi-Sunter, DuckDB, term-frequency adjustment, per-pair waterfall explanation. Pin to 4.x |
-| [nameparser](https://github.com/derek73/python-nameparser) | 2.3.0, 2026-09-12 | **LGPL** | Very active | Rule-based |
+| [nameparser](https://github.com/derek73/python-nameparser) | 2.3.0, 2026-09-12 (the lock has 3.1.0; efp uses the 3.x `nameparser.parse`, floor `>=3.1`) | **LGPL** | Very active | Rule-based |
 | [probablepeople](https://github.com/datamade/probablepeople) | 0.5.6, 2024-10-29 | MIT | Semi-active | CRF-based. Run both and treat disagreement as a review flag |
 | [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz) | 3.14.6, 2026-08-30 | MIT | Very active | C++/SIMD. Full 1,481² matrix in under a second |
 | [jellyfish](https://codeberg.org/jpt/jellyfish) | 1.2.1, 2025-10-11 | MIT | Active | Phonetic encodings. Note the move to Codeberg |
