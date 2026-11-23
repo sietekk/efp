@@ -29,6 +29,8 @@ Preconditions: the all-rows `court` run (1,481 done) and `documents` (1,481 done
 | `identity rescore` (step 5a) | 2 rows with stored candidates | 0 changed | seconds | none | $0 |
 | `identity --sample --recheck` (5b) | 50 | 50 done: 3 below the review threshold, 47 no candidate | 11 s | none | $0 |
 | `identity --recheck`, all rows (5b) | 1,431 claimed (50 no-op) | 1,418 done, 13 `needs_review`, 0 failed | 3 min | none | $0 |
+| `census_place_county` reload (loader v2, load 41) after the place-key fix merged from build 12 | 33,611 place and county rows (was 33,600) | loaded | seconds | none | $0 |
+| `identity --recheck`, then `identity --reset` (all 1,481, so the 13 review-band rows too), after the place-key fix | 1,468, then 1,481 | the same: 13 `needs_review`, 1,468 unresolved | 5 min, 3 min | none | $0 |
 | `identity --recheck` again after the review fixes (tool version 3) | 1,481 | the same: 13 `needs_review`, 1,468 unresolved | 5 min | none | $0 |
 | `identity rescore --confirm-threshold 0.995` (5d) | 170 rows with candidates | sensitivity batch: 13 review, 157 unresolved | seconds | none | $0 |
 
@@ -136,6 +138,10 @@ The reviewer (cold, once) found no high-severity problem and confirmed the loade
 | Identity `TOOL_VERSION` not bumped | bumped to 3; every row re-run, outcomes unchanged |
 | Docs: 205,225 called candidates; claims before the report existed; no source pages; "DIME refuses downloads" | corrected; source pages added; the claims now rest on this report |
 
+### A place-key fix merged from build 12
+
+After this branch was raised, a review found that `place_key` stripped every trailing "city" ("Salt Lake City" became `SALTLAKE`; "Jersey City" collided with "Jersey Village"). The fix is on `build/12-identity` (PR #16) and merged into this branch: the Census loader strips exactly one legal suffix (loader version 2, so the identical place file reloaded: 33,611 rows) and the identity side never shortens a name as written. Identity was re-run on the corrected table; **no outcome changed** (13 review band, 1,468 unresolved).
+
 ## Spot-check guide for the operator
 
 - `efp review identity` walks the 13 review-band rows (12 rest on a court record, 1 on FEC); `efp identity explain <row_id>` shows the prior, comparisons and spans for any row.
@@ -180,4 +186,4 @@ Filled in by the operator at merge time.
 
 - "`efp reference status` shows `census_surnames`, `ssa_names` (both parts) and `dime` loaded with row counts; `efp selftest --reference` passes with known values for all three; `ref_candidates_all` has a non-zero `dime` count and the report carries the before/after coverage tables." **Holds**: loads 37 to 40; 37 checks, 0 failed, with SMITH 828.19, Mary 1880 national, Mary 1950 Connecticut (614) and the DIME 2012 House count (1,823); `dime` 205,225; the tables are above.
 - "`efp identity rescore` and `efp run identity --recheck` (sample, then all rows) have run; `efp status` shows no `prior=ceiling` decision in the main batch; `efp selftest --identity` passes with the extended guarantee and the report states both highest posteriors." **Holds**: 0 ceiling decisions; both guarantees pass, 0.036 and 0.5.
-- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,342 passed; ruff, format and mypy clean; the review section is filled in.
+- "Tests, ruff, ruff format, mypy pass; the docs are updated; the report has every TEMPLATE section." **Holds**: 1,353 passed; ruff, format and mypy clean; the review section is filled in.
