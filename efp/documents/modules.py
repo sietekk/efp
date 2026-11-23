@@ -195,6 +195,9 @@ class Ocrmypdf:
         if not doc.ocr_attempted:
             doc.ocr_attempted = True
             target = doc.scratch / "ocr.pdf"
+            # a base allowance plus a per-page one: a long scan cannot finish in a fixed 300 s
+            pages_read = min(doc.page_count, cfg.max_pages)
+            limit = cfg.ocr_timeout_seconds + cfg.ocr_seconds_per_page * pages_read
             # A subprocess, not an import: importing ocrmypdf monkeypatches pdfminer.six for the
             # whole process (PDFSimpleFont), after which pdfplumber reads a standard-font PDF as
             # "(cid:72)(cid:101)..." text. The input is ``doc.path``, the scratch copy made in
@@ -203,20 +206,20 @@ class Ocrmypdf:
                 sys.executable, "-m", "ocrmypdf", "--skip-text", "-l", cfg.ocr_language,
                 "--output-type", "pdf", "--optimize", "0", "--jobs", "2", "--quiet",
                 "--invalidate-digital-signatures",
-                "--tesseract-timeout", str(min(180, cfg.ocr_timeout_seconds)),
+                "--tesseract-timeout", str(min(180, limit)),
                 str(doc.path), str(target),
             ]  # fmt: skip
             if doc.page_count > cfg.max_pages:  # the same cap as every other rung
                 command[-2:-2] = ["--pages", f"1-{cfg.max_pages}"]
             try:
-                code, err = run_group(command, cfg.ocr_timeout_seconds)
+                code, err = run_group(command, limit)
                 if code == 0 and target.is_file():
                     doc.ocr_path = target
                 else:
                     last = (err.strip().splitlines() or ["no output"])[-1]
                     doc.ocr_error = f"ocrmypdf exit {code}: {scrub_text(last)[:160]}"
             except subprocess.TimeoutExpired:
-                doc.ocr_error = f"ocrmypdf timed out after {cfg.ocr_timeout_seconds} s"
+                doc.ocr_error = f"ocrmypdf timed out after {limit} s ({pages_read} pages)"
             except OSError as exc:
                 doc.ocr_error = f"ocrmypdf could not start: {type(exc).__name__}"
         if doc.ocr_error or doc.ocr_path is None:

@@ -1036,3 +1036,113 @@ def test_a_failing_docling_worker_is_an_error_with_its_reason(tmp_path: Path) ->
         == 1
     )
     assert docling_worker.main(["only-one-argument"]) == 1
+
+
+# --- review round 8: OCR time scales with pages; dropped PDFs retire; the cap lives in call_model -----------
+
+
+def test_the_ocr_limit_is_a_base_plus_an_allowance_per_page_read(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from efp.documents import modules as doc_modules
+
+    seen: list[float] = []
+
+    def fake(command: list[str], timeout: float) -> tuple[int, str]:
+        seen.append(timeout)
+        return 1, "stopped for the test"
+
+    monkeypatch.setattr(doc_modules, "run_group", fake)
+    monkeypatch.setattr(
+        doc_modules.Ocrmypdf, "available", lambda self, ctx: doc_modules.Availability.available()
+    )
+    config = doc_config(
+        write_config,
+        'modules = ["documents.pdfplumber", "documents.ocrmypdf"]',
+        **{
+            "ocr_timeout_seconds = 300": "ocr_timeout_seconds = 100",
+            "ocr_seconds_per_page = 30": "ocr_seconds_per_page = 7",
+            "max_pages = 500": "max_pages = 2",
+        },
+    )
+    add_row(conn)
+    add_filing(conn, config, pdfgen.image_only([pdfgen.LINES_A, pdfgen.LINES_B, pdfgen.LINES_A]))
+    run_row(config, conn)
+    assert seen == [100 + 7 * 2]  # two pages are read (max_pages), not the three the PDF has
+
+
+def test_raising_an_ocr_limit_makes_recheck_revisit_the_rows(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    from efp.runner import load_row
+
+    add_row(conn)
+    base = doc_config(write_config)
+    add_filing(conn, base, pdfgen.born_digital([pdfgen.LINES_A]))
+    row = load_row(conn, 1)
+
+    def hash_for(**swap: str) -> str:
+        ctx, cap, registry = make_ctx(doc_config(write_config, **swap), conn)
+        try:
+            return component.input_hash(row, ctx, registry)
+        finally:
+            cap.close()
+
+    same = hash_for()
+    assert hash_for(**{"ocr_timeout_seconds = 300": "ocr_timeout_seconds = 600"}) != same
+    assert hash_for(**{"ocr_seconds_per_page = 30": "ocr_seconds_per_page = 60"}) != same
+
+
+def test_a_pdf_the_row_no_longer_points_to_stops_being_current(
+    write_config: Callable[..., Path], conn: sqlite3.Connection
+) -> None:
+    config = doc_config(write_config)
+    add_row(conn)
+    add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_A]))
+    add_filing(conn, config, pdfgen.born_digital([pdfgen.LINES_B]))
+    first = run_row(config, conn)
+    assert len(first.summary_json["documents"]) == 2
+    assert conn.execute("SELECT count(*) FROM document_pages_extractable").fetchone()[0] == 2
+    # the court stage supersedes the record that pointed at the second PDF
+    conn.execute("UPDATE court_records SET current = 0 WHERE record_id = 2")
+    conn.commit()
+    again = run_row(config, conn)
+    assert again.summary_json["retired_documents"] == 1
+    assert conn.execute(
+        "SELECT capture_id, current FROM documents ORDER BY document_id"
+    ).fetchall() == [
+        (1, 1),
+        (2, 0),
+    ]
+    assert (
+        conn.execute(
+            "SELECT count(DISTINCT capture_id) FROM document_pages_extractable"
+        ).fetchone()[0]
+        == 1
+    )
+    # and when no PDF is left at all, none stays current
+    conn.execute("UPDATE court_records SET current = 0")
+    conn.commit()
+    last = run_row(config, conn)
+    assert last.summary_json["documents_status"] == "no_documents"
+    assert conn.execute("SELECT count(*) FROM documents WHERE current = 1").fetchone()[0] == 0
+
+
+def test_call_model_refuses_a_call_the_cap_cannot_afford_without_calling_the_api(
+    write_config: Callable[..., Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = Stub()
+    monkeypatch.setattr(Capture, "llm_message", lambda self, **kw: s(self, **kw))
+    config = doc_config(
+        write_config, **SONNET, **{"max_monthly_usd = 1.0": "max_monthly_usd = 0.01"}
+    )
+    _ctx, cap, _ = make_ctx(config, conn)
+    try:
+        done = llm.call_model(
+            cap, conn, config, api_key="k", row_id=None, stage="x", purpose="p", system="s",
+            content=[{"type": "text", "text": "x"}], max_tokens=4096, prompt_sha256=None,
+        )  # fmt: skip
+    finally:
+        cap.close()
+    assert done.reply is None and "max_monthly_usd" in (done.error or "") and done.cost == 0.0
+    assert s.calls == [] and conn.execute("SELECT count(*) FROM llm_calls").fetchone()[0] == 0

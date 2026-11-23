@@ -486,6 +486,8 @@ def _hash(ctx: Context, registry: Registry, pdfs: list[PdfInput], suffix: str = 
             cfg.max_pages,
             cfg.docling_always,  # turning it on revisits rows read without Docling, on purpose
             cfg.docling_timeout_seconds,
+            cfg.ocr_timeout_seconds,
+            cfg.ocr_seconds_per_page,
             cfg.render_dpi,
             cfg.ocr_language,
             _model_part(ctx),
@@ -531,16 +533,35 @@ def _gaps(outs: list[DocOut]) -> str:
     return ""
 
 
+def retire_dropped(conn: sqlite3.Connection, row_id: int, keep: list[int]) -> int:
+    """Flip ``current = 0`` for the row's documents whose PDF the row no longer points to (a court
+    record was superseded, say), so ``document_pages_current`` and the extraction view stop serving
+    text from a filing the row has dropped. The rows are kept, as always."""
+    marks = ",".join("?" * len(keep))
+    clause = f" AND (capture_id IS NULL OR capture_id NOT IN ({marks}))" if keep else ""
+    cursor = conn.execute(
+        f"UPDATE documents SET current = 0 WHERE row_id = ? AND current = 1{clause}",  # noqa: S608
+        [row_id, *keep],  # (the clause holds only "?" placeholders: every value is bound)
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageResult:
     conn = ctx.db
     if conn is None or ctx.capture is None:
         raise RuntimeError("the documents stage needs the database and the capture client")
     pdfs = pdf_inputs(conn, ctx, row.row_id)
+    retired = retire_dropped(conn, row.row_id, [p.capture_id for p in pdfs])
     if not pdfs:
         return StageResult(
             row_id=row.row_id, stage=STAGE, status="done",
             input_hash=_hash(ctx, registry, pdfs), tool_version=TOOL_VERSION,
-            summary_json={"documents_status": "no_documents", "documents": []},
+            summary_json={
+                "documents_status": "no_documents",
+                "documents": [],
+                "retired_documents": retired,
+            },
         )  # fmt: skip
     if not pdfio.have("pdfplumber"):
         return StageResult(
@@ -561,7 +582,7 @@ def process_row(row: Row, ctx: Context, registry: Registry = REGISTRY) -> StageR
     return StageResult(
         row_id=row.row_id, stage=STAGE, status="done",
         input_hash=_hash(ctx, registry, pdfs, _gaps(outs)), tool_version=TOOL_VERSION,
-        summary_json=_summary(outs),
+        summary_json={**_summary(outs), "retired_documents": retired},
     )  # fmt: skip
 
 

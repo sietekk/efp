@@ -191,6 +191,7 @@ class DocumentsCfg(_Section):
     max_pages: int = Field(gt=0)
     docling_timeout_seconds: int = Field(gt=0)
     ocr_timeout_seconds: int = Field(gt=0)
+    ocr_seconds_per_page: int = Field(ge=0)
     transcribe_max_tokens: int = Field(gt=0)
 
 

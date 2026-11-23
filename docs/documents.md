@@ -14,6 +14,11 @@ store is only ever read.
 
 ## The ladder, per page
 
+OCRmyPDF's time limit is `documents.ocr_timeout_seconds` (a base) plus `documents.ocr_seconds_per_page`
+times the pages read, so a long scan is not cut off by a fixed limit (a 500-page document gets
+300 + 500 x 30 s); both are in the row's hash, so raising either and running `--recheck` retries the
+rows that timed out.
+
 `documents.max_pages` bounds every rung: pdfplumber, OCRmyPDF (`--pages 1-N`) and Docling
 (`page_range`) read no further, and the rest are recorded as `not_read` and flagged; Docling also stops
 at `documents.docling_timeout_seconds` and keeps the pages it finished. Raise `max_pages` for very
@@ -55,7 +60,8 @@ with `between_tools` at low effort. Everything about a call (the request shape, 
 every kind of failure) lives in `efp/llm.py` (`call_model`), the one path the stage and `efp selftest
 --live` both use. The call goes through `Capture.llm_message`
 (rate-limited on `api.anthropic.com`, request and response stored as a capture, the image
-replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). A call is made only if this month's logged spend plus the call's worst-case
+replaced by its hash; no SDK retries, so one call is one request, one budget slot and one log row). `call_model` itself refuses a call the cap cannot afford (no API call, no log row), so no caller can
+overspend by forgetting to check. A call is made only if this month's logged spend plus the call's worst-case
 cost (a 3,600-token input estimate, an image costing about width x height / 750 tokens, plus
 `transcribe_max_tokens` of output) is within `llm.max_monthly_usd`; prices are `llm.price_*_per_mtok`.
 
@@ -143,7 +149,9 @@ page with the union box of the words the span touches.
 `documents.pre_ocr_sha256` is always the captured PDF's hash (the evidentiary one). Each PDF is read
 through `read_verified` (re-hashed, a mismatch makes it `unreadable`) and every tool works on a
 copy in a scratch directory, never on the stored file.
-`post_ocr_sha256` is set only when the Tesseract text layer was used. A re-run that produces the
+`post_ocr_sha256` is set only when the Tesseract text layer was used. When a re-run no longer lists a PDF for a row (a court record was superseded), that PDF's `documents`
+row is set `current = 0`, so neither view serves text from a filing the row has dropped; the row is
+kept. A re-run that produces the
 same text and page results adds nothing; otherwise one transaction sets the old row `current = 0`
 and adds the new row and its pages (a unique index allows one current row per capture; a failed
 write rolls back and the old row stays current).

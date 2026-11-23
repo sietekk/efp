@@ -10,9 +10,10 @@ effort, all logged per call. ``llm_calls.temperature`` is NULL with :data:`TEMPE
 ``llm.temperature = 0.0`` stays in the config as the rule's value, not as something that is sent.
 
 **The cap.** ``llm.max_monthly_usd`` over the calendar month (UTC), from the logged ``llm_calls``. A
-call is made only when the month's spend plus its worst-case cost fits. A call that may have been
-billed although no usable answer came back is logged at its tokens when known, else at the worst
-case, so the cap never undercounts; an HTTP error answer is not billed (0).
+call is made only when the month's spend plus its worst-case cost fits; :func:`call_model` checks
+this itself, so no caller (a stage, the live check, build 16) can overspend by forgetting to. A
+call that may have been billed although no usable answer came back is logged at its tokens when
+known, else at the worst case, so the cap never undercounts; an HTTP error answer is not billed (0).
 """
 
 from __future__ import annotations
@@ -179,6 +180,9 @@ def call_model(
     parameter, an SDK ``TypeError``, a store that failed) comes back as ``CallResult.error`` and is
     in ``llm_calls`` with the cost it may have had."""
     model = model or config.llm.transcription_model
+    fits, why = room_for_call(conn, config, max_tokens)
+    if not fits:  # the cap is enforced here, for every caller, not only where a stage checks it
+        return CallResult(None, why, 0.0)
     thinking, effort = request_shape(model)
     shape = thinking["type"] if thinking else None
     common: dict[str, Any] = {

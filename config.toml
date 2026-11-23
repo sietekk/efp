@@ -163,7 +163,8 @@ ocr_language = "eng"              # Tesseract / OCRmyPDF language pack
 render_dpi = 200                  # page images for OCR, the blank check and model transcription
 max_pages = 500                   # a longer document is read (and OCR'd, and sent to Docling) to this page only; the rest is recorded as not read. Raise it for very long filings
 docling_timeout_seconds = 900     # per document: Docling stops there and keeps the pages it finished
-ocr_timeout_seconds = 300         # per document, OCRmyPDF
+ocr_timeout_seconds = 300         # OCRmyPDF's base allowance per document ...
+ocr_seconds_per_page = 30         # ... plus this per page read (max_pages caps it): 500 pages = 300 + 15,000 s. A document that still times out is retried after you raise either (the hash includes both)
 transcribe_max_tokens = 4096      # model transcription of one page
 
 [llm]
